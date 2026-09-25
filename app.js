@@ -19,7 +19,7 @@ let NUBE_LISTA = false;    // true cuando ya sabemos qué hay en la nube
 
 // Tablas que viven en la nube. Cada negocio tiene las suyas: data_<negocio>_<tabla>
 const TABLAS = ['usuarios','productos','insumos','ventas','clientes','cierres',
-  'caja_actual','movimientos','domiciliarios','citas','gastos_negocio','config','factura_seq','auditoria'];
+  'caja_actual','movimientos','domiciliarios','citas','gastos_negocio','config','factura_seq','auditoria','conteos'];
 // Tablas globales (no dependen del negocio)
 const TABLAS_GLOBALES = ['negocios','superadmins','usuarios'];
 
@@ -58,36 +58,143 @@ function misDatos(tabla){
 }
 function datosDe(negocioId, tabla){ return DB.get(claveDe(negocioId,tabla)) || []; }
 
+// ============================================================
+//  SINCRONIZACIÓN POR REGISTRO (v2)
+//  ANTES: cada cambio subía la TABLA COMPLETA a data/<clave>. Si dos equipos
+//  guardaban casi al tiempo, el último pisaba al otro: se perdían pedidos
+//  recién creados y un cobrado volvía a "abierto".
+//  AHORA: cada registro vive en su propio nodo data/<clave>_r/<id> y solo se
+//  suben los CAMPOS que ese equipo cambió. Al borrar queda una marca en
+//  data/<clave>_x/<id> para que el registro no "reviva" desde otro equipo.
+//  En el navegador todo sigue viéndose igual: CACHE[clave] sigue siendo el array.
+// ============================================================
+const TABLAS_UNICAS=['caja_actual','config','factura_seq'];   // se guardan enteras (un solo objeto)
+function esTablaRegistros(t){ return TABLAS_UNICAS.indexOf(t)<0; }
+function claveReg(negId,tabla){ return claveDe(negId,tabla)+'_r'; }
+function claveBorr(negId,tabla){ return claveDe(negId,tabla)+'_x'; }
+const REG_SRV={};        // clave -> {id: JSON del último estado recibido}
+const REG_BORRADOS={};   // clave -> {id: fecha}
+function _limpiar(o){ try{ return JSON.parse(JSON.stringify(o)); }catch(e){ return null; } }
+function _campoOrden(tabla){
+  return {ventas:'fecha', cierres:'cierre', movimientos:'fecha', conteos:'fecha',
+          gastos_negocio:'fecha', citas:'fechaHora'}[tabla] || 'creado';
+}
+function _ordenar(arr,tabla){
+  const campo=_campoOrden(tabla);
+  if(arr.length && arr[0][campo]!==undefined){
+    arr.sort((a,b)=> new Date(b[campo]||0) - new Date(a[campo]||0));
+  }
+  return arr;
+}
+// Guarda en el equipo (sin subir la tabla entera a la nube)
+function _soloLocal(clave,valor){
+  CACHE[clave]=valor;
+  try{ localStorage.setItem('ws_'+clave, JSON.stringify(valor)); }catch(e){}
+}
+// Lo que quedó sin subir por falta de internet
+function _encolar(updates){
+  try{
+    const cola=JSON.parse(localStorage.getItem('ws_cola_reg')||'{}');
+    Object.assign(cola,updates);
+    localStorage.setItem('ws_cola_reg',JSON.stringify(cola));
+  }catch(e){}
+}
+function subirColaRegistros(){
+  if(!FB_READY || !FB) return;
+  let cola={}; try{ cola=JSON.parse(localStorage.getItem('ws_cola_reg')||'{}'); }catch(e){}
+  if(!Object.keys(cola).length){ localStorage.removeItem('ws_cola_reg'); return; }
+  FB.ref('data').update(cola)
+    .then(()=>localStorage.removeItem('ws_cola_reg'))
+    .catch(e=>console.warn('Cola de registros:',e&&e.message));
+}
+// Sube SOLO lo que cambió de cada registro
+function _subirRegistros(negId, tabla, lista){
+  const clave=claveDe(negId,tabla), reg=claveReg(negId,tabla);
+  const srv=REG_SRV[clave]||(REG_SRV[clave]={});
+  const tomb=REG_BORRADOS[clave]||{};
+  const updates={};
+  (lista||[]).forEach(x=>{
+    if(!x||!x.id) return;
+    if(tomb[x.id]) return;                       // borrado: no revive
+    const nuevo=_limpiar(x); if(!nuevo) return;
+    const base=srv[x.id];
+    if(!base){ updates[reg+'/'+x.id]=nuevo; }
+    else{
+      const prev=JSON.parse(base);
+      Object.keys(nuevo).forEach(f=>{ if(JSON.stringify(nuevo[f])!==JSON.stringify(prev[f])) updates[reg+'/'+x.id+'/'+f]=nuevo[f]; });
+      Object.keys(prev).forEach(f=>{ if(!(f in nuevo)) updates[reg+'/'+x.id+'/'+f]=null; });
+    }
+    srv[x.id]=JSON.stringify(nuevo);             // ya enviado: no reenviar
+  });
+  if(!Object.keys(updates).length) return;
+  if(FB_READY && FB){
+    const pr=FB.ref('data').update(updates);
+    if(pr&&pr.catch) pr.catch(e=>{ console.warn('FB registros',tabla,e&&e.message); mostrarConexion('error'); _encolar(updates); });
+  } else { _encolar(updates); }
+}
+// Recibe un registro que llegó de la nube
+function _entraRegistro(clave, tabla, id, val){
+  if(!val||!val.id) return false;
+  const tomb=REG_BORRADOS[clave]||{};
+  if(tomb[id]) return false;
+  const srv=REG_SRV[clave]||(REG_SRV[clave]={});
+  const str=JSON.stringify(val);
+  if(srv[id]===str) return false;                // sin cambios reales
+  srv[id]=str;
+  const arr=(CACHE[clave]||[]).slice();
+  const i=arr.findIndex(x=>x&&x.id===id);
+  if(i>=0) arr[i]=val; else arr.push(val);
+  _soloLocal(clave,_ordenar(arr,tabla));
+  return true;
+}
+function _saleRegistro(clave,id){
+  const srv=REG_SRV[clave]; if(srv) delete srv[id];
+  const antes=(CACHE[clave]||[]).length;
+  const arr=(CACHE[clave]||[]).filter(x=>x&&x.id!==id);
+  if(arr.length===antes) return false;
+  _soloLocal(clave,arr);
+  return true;
+}
+
 // ---------- Guardado seguro (fusión por id, como Portal Imperial) ----------
 // Nunca reescribe a ciegas: conserva lo que exista en cache (incluido lo que
 // acaba de llegar de otro dispositivo) y le monta encima los cambios locales.
 function guardarMisDatos(tabla, arr){
   if(!STATE.negocio) return;
-  const clave = claveDe(STATE.negocio.id, tabla);
+  const negId=STATE.negocio.id;
+  const clave = claveDe(negId, tabla);
   // caja_actual va directo: si se cierra, debe quedar vacía para todos
-  if(tabla==='caja_actual' || tabla==='config' || tabla==='factura_seq'){
+  if(!esTablaRegistros(tabla)){
     DB.set(clave, arr);
     return;
   }
+  const tomb=REG_BORRADOS[clave]||{};
   const porId = {};
-  (CACHE[clave]||[]).forEach(x=>{ if(x&&x.id) porId[x.id]=x; });
-  (arr||[]).forEach(x=>{ if(x&&x.id) porId[x.id]=x; });
-  let fusionado = Object.values(porId);
-  const campo = {ventas:'fecha', cierres:'cierre', movimientos:'fecha',
-                 gastos_negocio:'fecha', citas:'fechaHora'}[tabla] || 'creado';
-  if(fusionado.length && fusionado[0][campo]!==undefined){
-    fusionado.sort((a,b)=> new Date(b[campo]||0) - new Date(a[campo]||0));
-  }
-  DB.set(clave, fusionado);
+  (CACHE[clave]||[]).forEach(x=>{ if(x&&x.id && !tomb[x.id]) porId[x.id]=x; });
+  (arr||[]).forEach(x=>{ if(x&&x.id && !tomb[x.id]) porId[x.id]=x; });
+  const fusionado = _ordenar(Object.values(porId), tabla);
+  _soloLocal(clave, fusionado);          // en el equipo
+  _subirRegistros(negId, tabla, arr||[]); // a la nube: solo lo que cambió
 }
 // Borra UN registro sin arrastrar los demás
 function eliminarMisDatos(tabla, id){
-  if(!STATE.negocio) return;
-  const clave = claveDe(STATE.negocio.id, tabla);
-  const porId = {};
-  (CACHE[clave]||[]).forEach(x=>{ if(x&&x.id) porId[x.id]=x; });
-  delete porId[id];
-  DB.set(clave, Object.values(porId));
+  if(!STATE.negocio || !id) return;
+  const negId=STATE.negocio.id;
+  const clave = claveDe(negId, tabla);
+  if(!esTablaRegistros(tabla)){
+    DB.set(clave, (CACHE[clave]||[]).filter(x=>x&&x.id!==id));
+    return;
+  }
+  (REG_BORRADOS[clave]||(REG_BORRADOS[clave]={}))[id]=Date.now();
+  const srv=REG_SRV[clave]; if(srv) delete srv[id];
+  _soloLocal(clave, (CACHE[clave]||[]).filter(x=>x&&x.id!==id));
+  const u={};
+  u[claveReg(negId,tabla)+'/'+id]=null;
+  u[claveBorr(negId,tabla)+'/'+id]=Date.now();
+  if(FB_READY && FB){
+    const pr=FB.ref('data').update(u);
+    if(pr&&pr.catch) pr.catch(e=>{ console.warn('FB borrar',e&&e.message); _encolar(u); });
+  } else { _encolar(u); }
 }
 
 // ---------- Firebase ----------
@@ -184,13 +291,87 @@ function escucharGlobales(){
 function sincronizarNegocio(negId){
   if(!FB_READY || !FB || !negId) return;
   detenerSincNegocio();
+  subirColaRegistros();
   TABLAS.forEach(t=>{
-    const k=claveDe(negId,t);
-    _listenersNeg.push(_escucharClave(k));
+    const clave=claveDe(negId,t);
+    if(!esTablaRegistros(t)){
+      _listenersNeg.push({ref:_escucharClave(clave), ev:'value'});
+      return;
+    }
+    const refReg=FB.ref('data/'+claveReg(negId,t));
+    const refBor=FB.ref('data/'+claveBorr(negId,t));
+    // 1) Marcas de borrado primero (para no revivir nada)
+    refBor.once('value').then(sb=>{
+      REG_BORRADOS[clave]=Object.assign({}, sb.val()||{});
+      // 2) Estado actual de los registros
+      return refReg.once('value');
+    }).then(sr=>{
+      const obj=sr.val()||{};
+      const tomb=REG_BORRADOS[clave]||{};
+      const lista=[];
+      REG_SRV[clave]={};
+      Object.keys(obj).forEach(id=>{
+        const v=obj[id];
+        if(!v||!v.id||tomb[id]) return;
+        REG_SRV[clave][id]=JSON.stringify(v);
+        lista.push(v);
+      });
+      _soloLocal(clave,_ordenar(lista,t));
+      // 3) Migrar lo que quede en el formato viejo (tabla completa)
+      return FB.ref('data/'+clave).once('value').then(sv=>{
+        if(sv.exists()) migrarTablaVieja(negId,t,sv.val());
+      });
+    }).then(()=>{
+      refrescarSiSePuede();
+      const entra=snap=>{ if(_entraRegistro(clave,t,snap.key,snap.val())) refrescarSiSePuede(); };
+      refReg.on('child_added',entra);
+      refReg.on('child_changed',entra);
+      refReg.on('child_removed',snap=>{ if(_saleRegistro(clave,snap.key)) refrescarSiSePuede(); });
+      refBor.on('child_added',snap=>{
+        const tb=REG_BORRADOS[clave]||(REG_BORRADOS[clave]={});
+        if(tb[snap.key]) return;
+        tb[snap.key]=snap.val()||Date.now();
+        if(_saleRegistro(clave,snap.key)) refrescarSiSePuede();
+      });
+      // Compatibilidad: si un equipo con la versión VIEJA escribe la tabla completa, se rescata
+      const refViejo=FB.ref('data/'+clave);
+      refViejo.on('value',sv=>{ if(sv.exists()) migrarTablaVieja(negId,t,sv.val()); });
+      _listenersNeg.push({ref:refReg,ev:'child'},{ref:refBor,ev:'child'},{ref:refViejo,ev:'value'});
+    }).catch(e=>console.warn('Sync',t,e&&e.message));
   });
 }
+// Pasa una tabla del formato viejo (array completo) al formato por registro
+const _migrando={};
+function migrarTablaVieja(negId, tabla, datos){
+  if(!datos) return;
+  const clave=claveDe(negId,tabla);
+  if(_migrando[clave]) return;
+  _migrando[clave]=true;
+  const lista=Array.isArray(datos)?datos:Object.values(datos);
+  FB.ref('data/'+claveReg(negId,tabla)).once('value').then(sr=>{
+    const ya=sr.val()||{};
+    const tomb=REG_BORRADOS[clave]||{};
+    const u={};
+    lista.forEach(x=>{
+      if(!x||!x.id) return;
+      if(ya[x.id]||tomb[x.id]) return;
+      const limpio=_limpiar(x); if(limpio) u[claveReg(negId,tabla)+'/'+x.id]=limpio;
+    });
+    u[clave]=null;                                  // retirar el formato viejo
+    u[clave+'_bk']=lista.length?_limpiar(datos):null; // respaldo por si acaso
+    return FB.ref('data').update(u);
+  }).catch(e=>console.warn('Migración',tabla,e&&e.message))
+    .then(()=>{ _migrando[clave]=false; });
+}
 function detenerSincNegocio(){
-  _listenersNeg.forEach(ref=>{ try{ ref.off('value'); }catch(e){} });
+  _listenersNeg.forEach(l=>{
+    try{
+      const ref=l&&l.ref?l.ref:l;
+      if(!ref||!ref.off) return;
+      if(l&&l.ev==='child'){ ref.off('child_added'); ref.off('child_changed'); ref.off('child_removed'); }
+      else ref.off('value');
+    }catch(e){}
+  });
   _listenersNeg=[];
 }
 
@@ -207,12 +388,29 @@ function sincronizarTodo(){
       if(nuevo!==viejo){ _guardarLocal(k,data[k]); cambio=true; }
     });
     Object.keys(CACHE).forEach(k=>{
-      if(k.indexOf('data_')===0 && data[k]===undefined && CACHE[k]!==null){
+      if(k.indexOf('data_')===0 && k.slice(-2)!=='_r' && k.slice(-2)!=='_x' && data[k]===undefined && CACHE[k]!==null){
         _guardarLocal(k,null); cambio=true;
       }
     });
+    if(reconstruirDesdeRegistros(data)) cambio=true;
     if(cambio) refrescarSiSePuede();
   });
+}
+// El panel del súper admin lee arrays (data_<neg>_ventas). Como ahora los
+// registros viven en data_<neg>_ventas_r/<id>, aquí se rearman los arrays.
+function reconstruirDesdeRegistros(data){
+  let cambio=false;
+  Object.keys(data||{}).forEach(k=>{
+    if(k.slice(-2)!=='_r') return;
+    const base=k.slice(0,-2);
+    const tomb=data[base+'_x']||{};
+    const lista=Object.keys(data[k]||{}).filter(id=>!tomb[id])
+      .map(id=>data[k][id]).filter(v=>v&&v.id);
+    const tabla=base.split('_').slice(2).join('_');
+    _ordenar(lista,tabla);
+    if(JSON.stringify(lista)!==JSON.stringify(CACHE[base])){ _guardarLocal(base,lista); cambio=true; }
+  });
+  return cambio;
 }
 function detenerSincTodo(){
   if(!_sincTodoOn) return;
@@ -278,10 +476,24 @@ function refrescarDeLaNube(){
     promesa=FB.ref('data').once('value').then(snap=>{
       const data=snap.val()||{};
       Object.keys(data).forEach(k=>_guardarLocal(k,data[k]));
+      reconstruirDesdeRegistros(data);
     });
   } else if(STATE.negocio){
-    const claves=TABLAS.map(t=>claveDe(STATE.negocio.id,t)).concat(TABLAS_GLOBALES);
-    promesa=Promise.all(claves.map(k=>FB.ref('data/'+k).once('value').then(s=>_guardarLocal(k,s.val()))));
+    const negId=STATE.negocio.id;
+    const tareas=TABLAS_GLOBALES.map(k=>FB.ref('data/'+k).once('value').then(s=>_guardarLocal(k,s.val())));
+    TABLAS.forEach(t=>{
+      const clave=claveDe(negId,t);
+      if(!esTablaRegistros(t)){ tareas.push(FB.ref('data/'+clave).once('value').then(s=>_guardarLocal(clave,s.val()))); return; }
+      tareas.push(FB.ref('data/'+claveBorr(negId,t)).once('value')
+        .then(sb=>{ REG_BORRADOS[clave]=Object.assign({},sb.val()||{}); return FB.ref('data/'+claveReg(negId,t)).once('value'); })
+        .then(sr=>{
+          const obj=sr.val()||{}, tomb=REG_BORRADOS[clave]||{}, lista=[];
+          REG_SRV[clave]={};
+          Object.keys(obj).forEach(id=>{ const v=obj[id]; if(!v||!v.id||tomb[id]) return; REG_SRV[clave][id]=JSON.stringify(v); lista.push(v); });
+          _soloLocal(clave,_ordenar(lista,t));
+        }));
+    });
+    promesa=Promise.all(tareas);
   } else {
     promesa=Promise.all(TABLAS_GLOBALES.map(k=>FB.ref('data/'+k).once('value').then(s=>_guardarLocal(k,s.val()))));
   }
@@ -392,12 +604,12 @@ const ROLES = [['admin','Administrador'],['cajero','Cajero'],['mesero','Mesero']
   ['cocina','Cocina'],['vendedor','Vendedor'],['dueno','Dueño']];
 
 const PANTALLAS_POR_ROL = {
-  admin:   ['inicio','ventas','pedidos','catalogo','caja','cocina','citas','domicilios','clientes','reportes','contable','gastosneg','usuarios','config'],
+  admin:   ['inicio','ventas','pedidos','catalogo','caja','cocina','citas','domicilios','clientes','conteo','reportes','contable','gastosneg','usuarios','config'],
   cajero:  ['inicio','ventas','pedidos','caja','clientes','domicilios'],
   mesero:  ['inicio','ventas','pedidos','clientes'],
   cocina:  ['cocina','pedidos'],
   vendedor:['inicio','ventas','pedidos','catalogo','clientes'],
-  dueno:   ['inicio','caja','pedidos','reportes','contable','gastosneg','catalogo']
+  dueno:   ['inicio','caja','pedidos','reportes','contable','gastosneg','catalogo','conteo']
 };
 
 // ---- Permisos de ACCIÓN (además del rol y de las pantallas) ----
@@ -412,16 +624,26 @@ const ACCIONES = [
   ['comanda','Reimprimir comanda de cocina'],
   ['eliminar','Eliminar definitivamente'],
   ['abrircaja','Abrir / cerrar caja'],
-  ['descuento','Aplicar descuentos']
+  ['descuento','Aplicar descuentos'],
+  ['editarprod','Crear / editar / borrar productos'],
+  ['editarstock','Editar stock (entradas, ajustes y lotes)'],
+  ['conteo','Hacer conteo de inventario']
 ];
 const PERMISOS_POR_ROL = {
-  admin:   ['cobrar','editar','anular','cambiarpago','imprimir','comanda','eliminar','abrircaja','descuento'],
+  admin:   ['cobrar','editar','anular','cambiarpago','imprimir','comanda','eliminar','abrircaja','descuento','editarprod','editarstock','conteo'],
   cajero:  ['cobrar','editar','cambiarpago','imprimir','comanda','abrircaja'],
   mesero:  ['editar','comanda'],
   cocina:  ['comanda'],
   vendedor:['cobrar','editar','imprimir','descuento'],
-  dueno:   ['anular','eliminar','imprimir']
+  // El dueño revisa y ajusta inventario, pero el cajero NO toca el stock:
+  // así nadie puede maquillar un faltante desde la caja.
+  dueno:   ['anular','eliminar','imprimir','editarprod','editarstock','conteo']
 };
+// ¿Este negocio lleva control de existencias?
+function usaInventario(neg){
+  const n=neg||STATE.negocio;
+  return !!(n && (n.funciones||[]).indexOf('inventario')>-1);
+}
 // ¿El usuario actual puede hacer esta acción?
 function tienePermiso(accion){
   const u=STATE.user;
@@ -1371,10 +1593,12 @@ function eliminarNegocio(id){
       DB.set('usuarios', (DB.get('usuarios')||[]).filter(u=>u.negocioId!==id));
       // Borrar TODAS sus tablas de datos (data_<id>_*)
       TABLAS.forEach(t=>{
-        const clave='data_'+id+'_'+t;
-        DB.set(clave, null);
-        try{ localStorage.removeItem('ws_'+clave); }catch(e){}
-        delete CACHE[clave];
+        ['','_r','_x','_bk'].forEach(suf=>{
+          const clave='data_'+id+'_'+t+suf;
+          DB.set(clave, null);
+          try{ localStorage.removeItem('ws_'+clave); }catch(e){}
+          delete CACHE[clave]; delete REG_SRV[clave]; delete REG_BORRADOS[clave];
+        });
       });
       // Borrar también claves por sucursal si existieran
       try{
@@ -1398,12 +1622,15 @@ function eliminarDemoVendedor(id){
   confirmarModal('¿Borrar el demo "'+escapeHtml(n.nombre)+'"? Se eliminan sus datos de ejemplo. Esto no afecta a ningún cliente real.',()=>{
     DB.set('negocios', (DB.get('negocios')||[]).filter(x=>x.id!==id));
     DB.set('usuarios', (DB.get('usuarios')||[]).filter(u=>u.negocioId!==id));
-    const TABLAS=['productos','ventas','clientes','caja_actual','movimientos','insumos','citas','domiciliarios','gastos_negocio','cierres','contable','auditoria','factura_seq','config'];
+    // Se usan las MISMAS tablas del sistema (antes había una copia local que
+    // quedaba desactualizada al agregar tablas nuevas).
     TABLAS.forEach(t=>{
-      const clave='data_'+id+'_'+t;
-      DB.set(clave, null);
-      try{ localStorage.removeItem('ws_'+clave); }catch(e){}
-      delete CACHE[clave];
+      ['','_r','_x','_bk'].forEach(suf=>{
+        const clave='data_'+id+'_'+t+suf;
+        DB.set(clave, null);
+        try{ localStorage.removeItem('ws_'+clave); }catch(e){}
+        delete CACHE[clave]; delete REG_SRV[clave]; delete REG_BORRADOS[clave];
+      });
     });
     try{ Object.keys(CACHE).forEach(k=>{ if(k.indexOf('data_'+id+'_')===0){ DB.set(k,null); delete CACHE[k]; } }); }catch(e){}
     toast('Demo "'+n.nombre+'" borrado','info');
@@ -2870,7 +3097,7 @@ function inventario(){
           <span class="t-tit">${ic('chef')} ${neg.usaRecetas?'Menú':'Catálogo'} de ${pProds()}</span>
           <div class="t-acc">
             <input type="text" class="busca" placeholder="🔍 Buscar ${pProd()}..." value="${escapeHtml(_iBusca)}" oninput="_iBusca=this.value;render()">
-            <button class="btn btn-gold" onclick="editarProducto(null)">+ Agregar ${pProd()}</button>
+            ${tienePermiso('editarprod')?`<button class="btn btn-gold" onclick="editarProducto(null)">+ Agregar ${pProd()}</button>`:''}
           </div>
         </div>
         <p class="nota">Estos ${pProds()} son los que aparecen en <strong>Nueva Venta</strong>.${neg.usaRecetas?' Cada '+pProd()+' puede tener una receta que descuenta insumos al venderse.':''}</p>
@@ -2885,8 +3112,8 @@ function inventario(){
               <div class="prod-pre">${fmtMoney(p.precio)}</div>
               <div class="prod-stock ${nRec?'':'poco'}">${nRec?nRec+' insumo(s)':'Sin receta'}</div>
               <div class="prod-acc">
-                <button class="btn btn-sm btn-verde" onclick="editarProducto('${p.id}')">Receta</button>
-                <button class="btn btn-sm btn-rojo" onclick="eliminarProducto('${p.id}')">×</button>
+                ${tienePermiso('editarprod')?`<button class="btn btn-sm btn-verde" onclick="editarProducto('${p.id}')">Receta</button>`:''}
+                ${tienePermiso('editarprod')?`<button class="btn btn-sm btn-rojo" onclick="eliminarProducto('${p.id}')">×</button>`:''}
               </div>
             </div>`;
           }).join('')}
@@ -2930,7 +3157,7 @@ function inventario(){
         <span class="t-tit">${ic('box')} Inventario de ${escapeHtml(pps)}</span>
         <div class="t-acc">
           <input type="text" class="busca" placeholder="🔍 Buscar..." value="${escapeHtml(_iBusca)}" oninput="_iBusca=this.value;render()">
-          <button class="btn btn-gold" onclick="editarProducto(null)">+ Agregar ${escapeHtml(pp.toLowerCase())}</button>
+          ${tienePermiso('editarprod')?`<button class="btn btn-gold" onclick="editarProducto(null)">+ Agregar ${escapeHtml(pp.toLowerCase())}</button>`:''}
         </div>
       </div>
       ${cats.length>1?`<div class="cats">${cats.map(c=>`<button class="cat ${_iCat===c?'on':''}" onclick="_iCat='${escapeHtml(c)}';render()">${escapeHtml(c)}${c!=='Todas'?' ('+todos.filter(p=>(p.categoria||'General')===c).length+')':''}</button>`).join('')}</div>`:''}
@@ -2958,10 +3185,10 @@ function inventario(){
             ${p.stock!=null?`<div class="prod-stock ${sin?'sin':poco?'poco':''}">Stock: ${p.stock}</div>`:''}
             ${vencePill}
             <div class="prod-acc">
-              ${p.stock!=null?`<button class="btn btn-sm btn-verde" onclick="entradaStock('${p.id}')">+ Stock</button>`:''}
-              ${p.usaLotes?`<button class="btn btn-sm" onclick="verLotes('${p.id}')" title="Ver y gestionar lotes">📦 Lotes</button>`:''}
-              <button class="btn btn-sm" onclick="editarProducto('${p.id}')">Editar</button>
-              <button class="btn btn-sm btn-rojo" onclick="eliminarProducto('${p.id}')">×</button>
+              ${(p.stock!=null&&tienePermiso('editarstock'))?`<button class="btn btn-sm btn-verde" onclick="entradaStock('${p.id}')">+ Stock</button>`:''}
+              ${p.usaLotes?`<button class="btn btn-sm" onclick="verLotes('${p.id}')" title="Ver lotes">📦 Lotes</button>`:''}
+              ${tienePermiso('editarprod')?`<button class="btn btn-sm" onclick="editarProducto('${p.id}')">Editar</button>`:''}
+              ${tienePermiso('editarprod')?`<button class="btn btn-sm btn-rojo" onclick="eliminarProducto('${p.id}')">×</button>`:''}
             </div>
           </div>`;
         }).join('')}
@@ -2971,6 +3198,7 @@ function inventario(){
 
 let _recetaTmp=[];   // receta que se está armando en el modal del plato
 function editarProducto(id){
+  if(!tienePermiso('editarprod')){ toast('No tienes permiso para crear o editar productos','error'); return; }
   const productos=misDatos('productos');
   const p=id?productos.find(x=>x.id===id):null;
   const neg=STATE.negocio;
@@ -2991,7 +3219,8 @@ function editarProducto(id){
   // En restaurante el plato no tiene stock propio: se controla por sus insumos.
   const usaLotes = !!(p && p.usaLotes);
   const esNuevo = !p;
-  if(!esResto){
+  const llevaStock = usaInventario();   // si el negocio no lleva inventario, no se pide stock
+  if(!esResto && llevaStock){
     campos.push({id:'stock', label:usaLotes?'Stock total (se maneja por lotes)':'Stock (deja vacío si no llevas inventario)', tipo:'number', valor:p&&p.stock!=null?String(p.stock):''});
     campos.push({id:'stockmin', label:'Avisar cuando queden menos de', tipo:'number', valor:p&&p.stockMin!=null?String(p.stockMin):'5'});
     // En el PRIMER ingreso (producto nuevo) se pide la fecha de vencimiento directamente.
@@ -3005,7 +3234,7 @@ function editarProducto(id){
   // - Producto nuevo: explica que la fecha crea el primer lote.
   // - Producto que YA usa lotes: recuerda cómo se agregan más lotes.
   let extraLotes = '';
-  if(!esResto){
+  if(!esResto && llevaStock){
     if(esNuevo){
       extraLotes = `<div class="cobro-caja" style="margin-top:14px;">
         <p class="nota" style="margin:0;">📅 Si el producto se vence (comida, medicamentos, etc.), pon la <strong>fecha de vencimiento</strong> arriba. Se guardará como el primer lote y podrás ir agregando más lotes con el botón <strong>"+ Stock"</strong>. El sistema venderá primero lo que esté más próximo a vencer y te avisará antes de que se dañe.</p>
@@ -3028,9 +3257,10 @@ function editarProducto(id){
         categoria:(d.categoria||'General').trim()||'General'
       };
       if(neg.usaCodBarras && d.codbarras!==undefined){ datos.codBarras=(d.codbarras||'').trim(); }
-      if(esResto){
-        datos.stock=null;                                  // el plato no lleva stock propio
-        datos.receta=_recetaTmp.filter(r=>r.insumoId && r.cantidad>0);
+      if(esResto || !llevaStock){
+        datos.stock=null;                                  // sin control de existencias
+        if(esResto) datos.receta=_recetaTmp.filter(r=>r.insumoId && r.cantidad>0);
+        datos.usaLotes=false; datos.lotes=[];
       } else {
         datos.stock = d.stock===''?null:(parseFloat(d.stock)||0);
         datos.stockMin = parseFloat(d.stockmin)||0;
@@ -3116,6 +3346,7 @@ function quitarInsumoReceta(idx){
   if(cont) cont.innerHTML=recetaFilasHTML();
 }
 function eliminarProducto(id){
+  if(!tienePermiso('editarprod')){ toast('No tienes permiso para borrar productos','error'); return; }
   const p=misDatos('productos').find(x=>x.id===id);
   confirmarModal('¿Eliminar "'+(p?p.nombre:'')+'"?',()=>{
     eliminarMisDatos('productos',id);
@@ -3123,6 +3354,7 @@ function eliminarProducto(id){
   },'Eliminar');
 }
 function entradaStock(id){
+  if(!tienePermiso('editarstock')){ toast('No tienes permiso para modificar el stock','error'); return; }
   const productos=misDatos('productos');
   const p=productos.find(x=>x.id===id); if(!p) return;
   const campos=[
@@ -3198,7 +3430,7 @@ function verLotes(id){
           <span><strong>${l.cantidad} und</strong> ${l.vence?'· '+fmtSoloFecha(l.vence):''}<br><span class="gris chico">${escapeHtml(l.motivo||'')}</span></span>
           <span style="text-align:right;">
             <span class="pill ${clase}">${txt}</span><br>
-            <button class="btn btn-sm btn-rojo" style="margin-top:5px;" onclick="retirarLote('${p.id}','${l.id}')">Retirar</button>
+            ${tienePermiso('editarstock')?`<button class="btn btn-sm btn-rojo" style="margin-top:5px;" onclick="retirarLote('${p.id}','${l.id}')">Retirar</button>`:''}
           </span>
         </div>`;
       }).join('')}
@@ -3211,6 +3443,7 @@ function verLotes(id){
 }
 // Retira (elimina) un lote y descuenta su cantidad del stock total
 function retirarLote(prodId, loteId){
+  if(!tienePermiso('editarstock')){ toast('No tienes permiso para modificar el stock','error'); return; }
   const arr=misDatos('productos');
   const p=arr.find(x=>x.id===prodId); if(!p||!p.lotes) return;
   const l=p.lotes.find(x=>x.id===loteId); if(!l) return;
@@ -3257,7 +3490,7 @@ function pantallaInsumos(){
         <span class="t-tit">${ic('box')} Insumos e inventario</span>
         <div class="t-acc">
           <input type="text" class="busca" placeholder="🔍 Buscar insumo..." value="${escapeHtml(_insBusca)}" oninput="_insBusca=this.value;render()">
-          <button class="btn btn-gold" onclick="editarInsumo(null)">+ Agregar insumo</button>
+          ${tienePermiso('editarprod')?`<button class="btn btn-gold" onclick="editarInsumo(null)">+ Agregar insumo</button>`:''}
         </div>
       </div>
       ${lista.length?`<div class="tabla-wrap"><table class="tabla">
@@ -3271,9 +3504,9 @@ function pantallaInsumos(){
             <td>${fmtMoney(i.costo||0)}</td>
             <td class="gris">${i.stockMin||0}</td>
             <td><div class="acciones">
-              <button class="btn btn-sm btn-verde" onclick="entradaInsumo('${i.id}')">+ Entrada</button>
-              <button class="btn btn-sm" onclick="editarInsumo('${i.id}')">Editar</button>
-              <button class="btn btn-sm btn-rojo" onclick="eliminarInsumo('${i.id}')">×</button>
+              ${tienePermiso('editarstock')?`<button class="btn btn-sm btn-verde" onclick="entradaInsumo('${i.id}')">+ Entrada</button>`:''}
+              ${tienePermiso('editarprod')?`<button class="btn btn-sm" onclick="editarInsumo('${i.id}')">Editar</button>`:''}
+              ${tienePermiso('editarprod')?`<button class="btn btn-sm btn-rojo" onclick="eliminarInsumo('${i.id}')">×</button>`:''}
             </div></td>
           </tr>`;
         }).join('')}</tbody>
@@ -3282,6 +3515,7 @@ function pantallaInsumos(){
 }
 
 function editarInsumo(id){
+  if(!tienePermiso('editarprod')){ toast('No tienes permiso para editar insumos','error'); return; }
   const arr=misDatos('insumos');
   const i=id?arr.find(x=>x.id===id):null;
   abrirModal({titulo:(i?'Editar':'Nuevo')+' insumo', textoBoton:'Guardar', campos:[
@@ -3306,6 +3540,7 @@ function editarInsumo(id){
   }});
 }
 function eliminarInsumo(id){
+  if(!tienePermiso('editarprod')){ toast('No tienes permiso para borrar insumos','error'); return; }
   const i=misDatos('insumos').find(x=>x.id===id);
   // Avisar si algún plato lo usa en su receta
   const platos=misDatos('productos').filter(p=>(p.receta||[]).some(r=>r.insumoId===id));
@@ -3320,6 +3555,7 @@ function eliminarInsumo(id){
   },'Eliminar');
 }
 function entradaInsumo(id){
+  if(!tienePermiso('editarstock')){ toast('No tienes permiso para modificar el stock','error'); return; }
   const arr=misDatos('insumos');
   const i=arr.find(x=>x.id===id); if(!i) return;
   abrirModal({titulo:'Entrada de insumo · '+i.nombre, textoBoton:'Agregar', campos:[
@@ -3338,6 +3574,284 @@ function entradaInsumo(id){
     guardarMisDatos('movimientos',movs);
     cerrarModal(); toast('Entrada registrada','success'); render();
   }});
+}
+
+
+// ============================================================
+//  CONTEO DE INVENTARIO (revisión semanal)
+//  Se cuenta lo que hay FÍSICAMENTE y se compara con lo que dice el sistema.
+//  Queda el registro de quién contó y qué encontró: así se ve si falta,
+//  sobra, y si los faltantes se repiten siempre con la misma persona.
+// ============================================================
+let _conteo=null;          // conteo que se está haciendo ahora
+let _conteoBusca='';
+
+function diasDesde(f){
+  if(!f) return null;
+  return Math.floor((Date.now()-new Date(f).getTime())/86400000);
+}
+// Arma la lista de lo que hay que contar (productos con stock + insumos)
+function itemsParaContar(){
+  const neg=STATE.negocio;
+  const filas=[];
+  misDatos('productos').forEach(p=>{
+    if(p.stock==null) return;
+    filas.push({tipo:'producto', id:p.id, nombre:p.nombre, unidad:'', categoria:p.categoria||'General',
+      sistema:p.stock||0, costo:p.precio||0, contado:''});
+  });
+  if(neg.usaRecetas){
+    misDatos('insumos').forEach(i=>{
+      filas.push({tipo:'insumo', id:i.id, nombre:i.nombre, unidad:i.unidad||'', categoria:'Insumos',
+        sistema:i.stock||0, costo:i.costo||0, contado:''});
+    });
+  }
+  return filas.sort((a,b)=>(a.categoria+a.nombre).localeCompare(b.categoria+b.nombre,'es'));
+}
+function iniciarConteo(){
+  if(!tienePermiso('conteo')){ toast('No tienes permiso para hacer conteos','error'); return; }
+  const filas=itemsParaContar();
+  if(!filas.length){ toast('No hay productos con inventario para contar','error'); return; }
+  _conteo={inicio:now(), por:STATE.user.nombre, items:filas};
+  _conteoBusca='';
+  render();
+}
+function cancelarConteo(){
+  confirmarModal('¿Cancelar el conteo? Se pierde lo que lleves contado.',()=>{
+    _conteo=null; render();
+  },'Sí, cancelar');
+}
+// Guarda lo que se escribe en una casilla y actualiza esa fila + los totales,
+// SIN redibujar la pantalla (no se pierde el teclado en el celular).
+function contarItem(idx, valor){
+  if(!_conteo || !_conteo.items[idx]) return;
+  _conteo.items[idx].contado = valor===''?'':(parseFloat(valor));
+  pintarFilaConteo(idx);
+  pintarTotalesConteo();
+}
+function difDe(it){
+  if(it.contado==='' || it.contado==null || isNaN(it.contado)) return null;
+  return it.contado - it.sistema;
+}
+function pintarFilaConteo(idx){
+  const it=_conteo.items[idx];
+  const d=difDe(it);
+  const cel=document.getElementById('dif-'+idx);
+  if(!cel) return;
+  if(d===null){ cel.innerHTML='<span class="gris">—</span>'; }
+  else if(d===0){ cel.innerHTML='<span class="pill pill-verde">Cuadra</span>'; }
+  else if(d<0){ cel.innerHTML='<span class="pill pill-rojo">Faltan '+Math.abs(d)+'</span><br><span class="gris chico">'+fmtMoney(Math.abs(d)*(it.costo||0))+'</span>'; }
+  else { cel.innerHTML='<span class="pill pill-gold">Sobran '+d+'</span><br><span class="gris chico">'+fmtMoney(d*(it.costo||0))+'</span>'; }
+  const fila=document.getElementById('fila-'+idx);
+  if(fila){ fila.style.background = d===null?'':(d===0?'':(d<0?'rgba(255,92,106,.08)':'rgba(245,197,24,.08)')); }
+}
+function resumenConteo(){
+  let falta=0, sobra=0, vFalta=0, vSobra=0, contados=0, cuadran=0;
+  (_conteo?_conteo.items:[]).forEach(it=>{
+    const d=difDe(it);
+    if(d===null) return;
+    contados++;
+    if(d===0){ cuadran++; }
+    else if(d<0){ falta++; vFalta+=Math.abs(d)*(it.costo||0); }
+    else { sobra++; vSobra+=d*(it.costo||0); }
+  });
+  return {falta,sobra,vFalta,vSobra,contados,cuadran,total:(_conteo?_conteo.items.length:0)};
+}
+function pintarTotalesConteo(){
+  const r=resumenConteo();
+  const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.innerHTML=v; };
+  set('cn-contados', r.contados+' / '+r.total);
+  set('cn-cuadran', r.cuadran);
+  set('cn-falta', r.falta+'<div class="stat-sub">'+fmtMoney(r.vFalta)+'</div>');
+  set('cn-sobra', r.sobra+'<div class="stat-sub">'+fmtMoney(r.vSobra)+'</div>');
+  const neto=document.getElementById('cn-neto');
+  if(neto){
+    const dif=r.vSobra-r.vFalta;
+    neto.innerHTML = dif===0?'<span class="verde">Sin diferencia</span>'
+      : dif<0?('<span class="rojo">Faltante de '+fmtMoney(Math.abs(dif))+'</span>')
+      : ('<span class="oro">Sobrante de '+fmtMoney(dif)+'</span>');
+  }
+}
+// Marca todo lo que no se escribió como "igual al sistema"
+function conteoTodoBien(){
+  if(!_conteo) return;
+  _conteo.items.forEach((it,i)=>{ if(it.contado===''||it.contado==null) it.contado=it.sistema; });
+  render();
+  setTimeout(pintarTotalesConteo,50);
+}
+function guardarConteo(ajustar){
+  if(!_conteo){ return; }
+  if(ajustar && !tienePermiso('editarstock')){ toast('No tienes permiso para ajustar el stock','error'); return; }
+  const r=resumenConteo();
+  if(r.contados===0){ toast('Escribe al menos una cantidad contada','error'); return; }
+  const seguir=()=>{
+    const items=_conteo.items.filter(it=>difDe(it)!==null).map(it=>({
+      tipo:it.tipo, id:it.id, nombre:it.nombre, unidad:it.unidad||'',
+      sistema:it.sistema, contado:it.contado, dif:difDe(it), costo:it.costo||0
+    }));
+    const conteo={id:uid(), fecha:now(), por:STATE.user.nombre, rol:STATE.user.rol||'',
+      items, revisados:r.contados, totalItems:r.total, cuadran:r.cuadran,
+      faltantes:r.falta, sobrantes:r.sobra, valorFalta:r.vFalta, valorSobra:r.vSobra,
+      ajustado:!!ajustar};
+    const arr=misDatos('conteos');
+    arr.unshift(conteo);
+    guardarMisDatos('conteos', arr.slice(0,200));
+    // Ajustar el stock a lo contado y dejar constancia de cada movimiento
+    if(ajustar){
+      const productos=misDatos('productos');
+      const insumos=misDatos('insumos');
+      const movs=misDatos('movimientos');
+      let cp=false, ci=false;
+      items.forEach(it=>{
+        if(it.dif===0) return;
+        if(it.tipo==='producto'){
+          const x=productos.find(y=>y.id===it.id);
+          if(x){
+            if((x.lotes||[]).length){
+              if(it.dif<0) descontarDeLotes(x, Math.abs(it.dif)); else reingresarALotes(x, it.dif);
+            }
+            x.stock=it.contado; cp=true;
+          }
+        } else {
+          const x=insumos.find(y=>y.id===it.id);
+          if(x){ x.stock=it.contado; ci=true; }
+        }
+        movs.unshift({id:uid(), productoId:it.tipo==='producto'?it.id:null, insumoId:it.tipo==='insumo'?it.id:null,
+          nombre:it.nombre, tipo:'ajuste', cantidad:it.dif,
+          motivo:'Conteo de inventario ('+(it.dif<0?'faltaban ':'sobraban ')+Math.abs(it.dif)+')',
+          por:STATE.user.nombre, fecha:now(), conteoId:conteo.id});
+      });
+      if(cp) guardarMisDatos('productos',productos);
+      if(ci) guardarMisDatos('insumos',insumos);
+      guardarMisDatos('movimientos', movs.slice(0,1000));
+    }
+    logAudit(ajustar?'Conteo de inventario + ajuste':'Conteo de inventario',
+      r.contados+' revisados · faltan '+r.falta+' ('+fmtMoney(r.vFalta)+') · sobran '+r.sobra);
+    _conteo=null;
+    toast(ajustar?'Conteo guardado y stock ajustado':'Conteo guardado','success');
+    render();
+  };
+  if(ajustar){
+    confirmarModal('El stock del sistema quedará igual a lo que contaste. Se ajustarán '+(r.falta+r.sobra)+' producto(s) y queda registrado a tu nombre. ¿Continuar?', seguir, 'Sí, ajustar');
+  } else {
+    seguir();
+  }
+}
+function verConteo(id){
+  const c=misDatos('conteos').find(x=>x.id===id); if(!c) return;
+  const difs=(c.items||[]).filter(i=>i.dif!==0);
+  const cuerpo=`
+    <div class="cobro-caja">
+      <div class="c-row"><span>Quién contó</span><strong>${escapeHtml(c.por||'—')}</strong></div>
+      <div class="c-row"><span>Fecha</span><strong>${fmtDate(c.fecha)}</strong></div>
+      <div class="c-row"><span>Revisados</span><strong>${c.revisados||0} de ${c.totalItems||0}</strong></div>
+      <div class="c-row"><span>Cuadraron</span><strong class="verde">${c.cuadran||0}</strong></div>
+      <div class="c-row"><span>Faltantes</span><strong class="rojo">${c.faltantes||0} · ${fmtMoney(c.valorFalta||0)}</strong></div>
+      <div class="c-row"><span>Sobrantes</span><strong class="oro">${c.sobrantes||0} · ${fmtMoney(c.valorSobra||0)}</strong></div>
+      <div class="c-row c-total"><span>Diferencia en dinero</span><strong class="${(c.valorSobra-c.valorFalta)<0?'rojo':'verde'}">${fmtMoney((c.valorSobra||0)-(c.valorFalta||0))}</strong></div>
+    </div>
+    ${c.ajustado?'<p class="nota" style="margin-top:8px;">✔ El stock se ajustó a lo contado.</p>':'<p class="nota" style="margin-top:8px;">Solo quedó el registro; el stock NO se modificó.</p>'}
+    ${difs.length?`<div style="margin-top:12px;max-height:280px;overflow-y:auto;">
+      <table class="tabla"><thead><tr><th>Producto</th><th>Sistema</th><th>Contado</th><th>Dif.</th></tr></thead>
+      <tbody>${difs.map(i=>`<tr>
+        <td>${escapeHtml(i.nombre)}</td><td>${i.sistema}</td><td>${i.contado}</td>
+        <td class="${i.dif<0?'rojo':'oro'} negrita">${i.dif>0?'+':''}${i.dif}</td></tr>`).join('')}</tbody></table>
+    </div>`:'<p class="nota" style="margin-top:12px;">Todo cuadró: ninguna diferencia.</p>'}`;
+  abrirModal({titulo:'Conteo del '+(c.fecha||'').split('T')[0], textoBoton:'Cerrar', campos:[],
+    extraHTML:cuerpo, onGuardar:()=>cerrarModal()});
+}
+
+function conteo(){
+  ESCRIBIENDO = !!_conteo;
+  const neg=STATE.negocio;
+  if(!usaInventario()){
+    return `<div class="tarjeta centro-msg"><div class="msg-ico">📦</div>
+      <div class="t-tit centrado">El control de inventario está apagado</div>
+      <p class="gris">Este negocio no lleva existencias, así que no hay nada que contar. Se activa en <strong>Mi Negocio → Llevar control de inventario</strong>.</p></div>`;
+  }
+  // ----- Modo conteo en curso -----
+  if(_conteo){
+    let filas=_conteo.items.map((it,i)=>({it,i}));
+    if(_conteoBusca){ const q=_conteoBusca.toLowerCase(); filas=filas.filter(f=>(f.it.nombre||'').toLowerCase().includes(q)); }
+    return `
+      <div class="tarjeta tarjeta-pend">
+        <div class="t-cab">
+          <span class="t-tit">📋 Conteo en curso · ${escapeHtml(_conteo.por)}</span>
+          <div class="t-acc">
+            <button class="btn btn-sm" onclick="conteoTodoBien()" title="Marca todo lo que falta por escribir con la cantidad del sistema">✓ Lo demás está igual</button>
+            <button class="btn btn-sm btn-rojo" onclick="cancelarConteo()">Cancelar</button>
+          </div>
+        </div>
+        <p class="nota">Cuenta lo que hay físicamente y escríbelo en la casilla. La diferencia se calcula sola. Deja en blanco lo que no revises.</p>
+      </div>
+      <div class="stats">
+        <div class="stat azul"><div class="stat-lbl">Revisados</div><div class="stat-val" id="cn-contados">0 / ${_conteo.items.length}</div><div class="stat-sub">de la lista</div></div>
+        <div class="stat verde"><div class="stat-lbl">Cuadran</div><div class="stat-val" id="cn-cuadran">0</div><div class="stat-sub">sin diferencia</div></div>
+        <div class="stat rojo"><div class="stat-lbl">Faltan</div><div class="stat-val" id="cn-falta">0</div></div>
+        <div class="stat gold"><div class="stat-lbl">Sobran</div><div class="stat-val" id="cn-sobra">0</div></div>
+      </div>
+      <div class="tarjeta">
+        <div class="t-cab">
+          <span class="t-tit">Resultado: <span id="cn-neto" class="gris">Sin diferencia</span></span>
+          <input type="text" class="busca" placeholder="🔍 Buscar producto..." value="${escapeHtml(_conteoBusca)}" oninput="_conteoBusca=this.value">
+        </div>
+        <div class="tabla-wrap"><table class="tabla tabla-cards">
+          <thead><tr><th>Producto</th><th>Sistema</th><th>Contado</th><th>Diferencia</th></tr></thead>
+          <tbody>${filas.map(({it,i})=>`<tr id="fila-${i}">
+            <td data-label="Producto"><strong>${escapeHtml(it.nombre)}</strong><br><span class="gris chico">${escapeHtml(it.categoria)}${it.tipo==='insumo'?' · insumo':''}</span></td>
+            <td data-label="Sistema" class="negrita">${it.sistema}${it.unidad?' '+escapeHtml(it.unidad):''}</td>
+            <td data-label="Contado"><input type="number" class="busca" style="min-width:90px;width:110px;" inputmode="decimal"
+                value="${it.contado===''?'':it.contado}" placeholder="—" oninput="contarItem(${i}, this.value)"></td>
+            <td data-label="Diferencia" id="dif-${i}"><span class="gris">—</span></td>
+          </tr>`).join('')}</tbody>
+        </table></div>
+        <div class="botones-fila" style="margin-top:16px;">
+          <button class="btn btn-gold" onclick="guardarConteo(false)">💾 Guardar conteo (sin tocar el stock)</button>
+          ${tienePermiso('editarstock')?`<button class="btn btn-verde" onclick="guardarConteo(true)">✔ Guardar y ajustar el stock</button>`:''}
+        </div>
+        ${!tienePermiso('editarstock')?`<p class="nota">Tú puedes contar y dejar el reporte, pero no ajustar el stock. Eso lo hace quien tenga ese permiso.</p>`:''}
+      </div>`;
+  }
+  // ----- Pantalla normal: historial y aviso semanal -----
+  const conteos=misDatos('conteos');
+  const ultimo=conteos[0];
+  const dias=ultimo?diasDesde(ultimo.fecha):null;
+  const pendiente = dias===null || dias>=7;
+  const items=itemsParaContar();
+  return `
+    ${pendiente?`<div class="tarjeta alerta">
+      <span class="t-tit chico">⚠️ Toca hacer el conteo</span>
+      <p>${dias===null?'Nunca se ha hecho un conteo de inventario en este negocio.':'El último conteo fue hace <strong>'+dias+' día(s)</strong> ('+fmtDate(ultimo.fecha)+').'} Se recomienda revisar el inventario una vez por semana.</p>
+    </div>`:''}
+    <div class="stats">
+      <div class="stat azul"><div class="stat-ico azul">${ic('box')}</div><div class="stat-lbl">Para contar</div><div class="stat-val">${items.length}</div><div class="stat-sub">con existencias</div></div>
+      <div class="stat ${pendiente?'naranja':'verde'}"><div class="stat-ico ${pendiente?'naranja':'verde'}">${ic('history')}</div><div class="stat-lbl">Último conteo</div><div class="stat-val" style="font-size:19px;">${ultimo?(dias===0?'Hoy':dias+' día(s)'):'Nunca'}</div><div class="stat-sub">${ultimo?escapeHtml(ultimo.por||''):'sin registros'}</div></div>
+      ${ultimo?`<div class="stat rojo"><div class="stat-ico rojo">${ic('cash')}</div><div class="stat-lbl">Faltante del último</div><div class="stat-val">${fmtMoney(ultimo.valorFalta||0)}</div><div class="stat-sub">${ultimo.faltantes||0} producto(s)</div></div>
+      <div class="stat gold"><div class="stat-ico gold">${ic('report')}</div><div class="stat-lbl">Sobrante del último</div><div class="stat-val">${fmtMoney(ultimo.valorSobra||0)}</div><div class="stat-sub">${ultimo.sobrantes||0} producto(s)</div></div>`:''}
+    </div>
+    <div class="tarjeta">
+      <div class="t-cab">
+        <span class="t-tit">${ic('box')} Conteo de inventario</span>
+        <div class="t-acc">
+          ${tienePermiso('conteo')?`<button class="btn btn-gold" onclick="iniciarConteo()">+ Iniciar conteo</button>`
+            :`<span class="pill pill-gold">Solo lectura</span>`}
+        </div>
+      </div>
+      <p class="nota">Aquí se revisa si el inventario está bien: se cuenta lo que hay en la bodega y el sistema muestra qué falta y qué sobra. Cada conteo queda guardado con el nombre de quien lo hizo.</p>
+      <div class="tabla-wrap"><table class="tabla tabla-cards">
+        <thead><tr><th>Fecha</th><th>Quién contó</th><th>Revisados</th><th>Faltan</th><th>Sobran</th><th>Diferencia</th><th>Acciones</th></tr></thead>
+        <tbody>${conteos.length? conteos.map(c=>{
+          const dif=(c.valorSobra||0)-(c.valorFalta||0);
+          return `<tr>
+          <td data-label="Fecha">${fmtDate(c.fecha)}${c.ajustado?'<br><span class="pill pill-azul chico">Stock ajustado</span>':''}</td>
+          <td data-label="Quién contó"><strong>${escapeHtml(c.por||'—')}</strong></td>
+          <td data-label="Revisados">${c.revisados||0} / ${c.totalItems||0}<br><span class="verde chico">${c.cuadran||0} cuadraron</span></td>
+          <td data-label="Faltan" class="${(c.faltantes||0)?'rojo negrita':'gris'}">${c.faltantes||0}${(c.faltantes||0)?'<br><span class="chico">'+fmtMoney(c.valorFalta||0)+'</span>':''}</td>
+          <td data-label="Sobran" class="${(c.sobrantes||0)?'oro negrita':'gris'}">${c.sobrantes||0}${(c.sobrantes||0)?'<br><span class="chico">'+fmtMoney(c.valorSobra||0)+'</span>':''}</td>
+          <td data-label="Diferencia" class="negrita ${dif<0?'rojo':dif>0?'oro':'verde'}">${dif===0?'Cuadró':fmtMoney(dif)}</td>
+          <td class="acciones" data-label="Acciones"><button class="btn btn-sm" onclick="verConteo('${c.id}')">Ver detalle</button></td>
+        </tr>`;}).join('') : '<tr><td colspan="7" class="gris">Todavía no se ha hecho ningún conteo.</td></tr>'}</tbody>
+      </table></div>
+    </div>`;
 }
 
 // ============================================================
@@ -3724,7 +4238,12 @@ function contable(){
   vs.forEach(v=>{ if(v.fecha) mesesSet[v.fecha.substring(0,7)]=1; });
   misDatos('gastos_negocio').forEach(g=>{ if(g.fecha) mesesSet[g.fecha.substring(0,7)]=1; });
   const meses=Object.keys(mesesSet).sort().reverse();
-  window._contData={mes,nombreMes:nombreMes(mes),totalVentas,metodos,totalGastos,egresos,utilidad,cierres,propinas,domis,recargos,retiros};
+  // Separar lo que salió de la caja diaria de lo que pagó el dueño aparte
+  const gastosCaja=gastos.filter(g=>g.origen==='caja').reduce((a,g)=>a+g.valor,0);
+  const gastosNeg=totalGastos-gastosCaja;
+  window._contData={mes,nombreMes:nombreMes(mes),totalVentas,metodos,totalGastos,gastosCaja,gastosNeg,
+    egresos,utilidad,cierres,propinas,domis,recargos,retiros,
+    conceptos:concCaja.concat(concNeg)};
 
   return `
     <div class="tarjeta">
@@ -4109,11 +4628,11 @@ function imprimirContable(){
       <tr><td style="padding:4px;color:#555;">· Efectivo</td><td style="text-align:right;color:#555;">${fmtMoney(d.metodos.efectivo)}</td></tr>
       <tr><td style="padding:4px;color:#555;">· Banco</td><td style="text-align:right;color:#555;">${fmtMoney(d.metodos.banco)}</td></tr>
       <tr><td style="padding:4px;color:#555;">· Tarjeta</td><td style="text-align:right;color:#555;">${fmtMoney(d.metodos.tarjeta)}</td></tr>
-      <tr><td style="padding:4px;">Gastos de caja</td><td style="text-align:right;">-${fmtMoney(d.gastosCaja)}</td></tr>
-      <tr><td style="padding:4px;">Gastos del negocio</td><td style="text-align:right;">-${fmtMoney(d.totalGastos)}</td></tr>
+      <tr><td style="padding:4px;">Gastos de caja</td><td style="text-align:right;">-${fmtMoney(d.gastosCaja||0)}</td></tr>
+      <tr><td style="padding:4px;">Gastos del negocio</td><td style="text-align:right;">-${fmtMoney(d.gastosNeg||0)}</td></tr>
       <tr style="border-top:2px solid #000;"><td style="padding:7px 4px;font-weight:bold;font-size:15px;">UTILIDAD</td><td style="text-align:right;font-weight:bold;font-size:15px;">${fmtMoney(d.utilidad)}</td></tr>
     </table>
-    ${d.conceptos.length?`<h3 style="font-size:14px;margin-top:18px;border-bottom:1px solid #999;">Egresos por concepto</h3>
+    ${(d.conceptos&&d.conceptos.length)?`<h3 style="font-size:14px;margin-top:18px;border-bottom:1px solid #999;">Egresos por concepto</h3>
     <table style="width:100%;font-size:12px;border-collapse:collapse;">
       ${d.conceptos.map(c=>`<tr style="border-bottom:1px solid #eee;"><td style="padding:5px;">${escapeHtml(c[0])}</td><td style="padding:5px;text-align:right;">${fmtMoney(c[1])}</td></tr>`).join('')}
     </table>`:''}
@@ -4372,7 +4891,7 @@ function editarUsuario(negId,userId){
   const permActuales = (u&&u.permisos&&u.permisos.length)?u.permisos:(PERMISOS_POR_ROL[(u?u.rol:'cajero')]||[]);
   const TODAS_PANTALLAS=[['inicio','Dashboard'],['ventas','Nueva Venta'],['pedidos','Pedidos'],
     ['catalogo','Menú / Inventario'],['caja','Caja'],['cocina','Cocina'],['citas','Agendar'],
-    ['domicilios','Domicilios'],['clientes','Clientes'],['reimpresiones','Reimpresiones'],
+    ['domicilios','Domicilios'],['clientes','Clientes'],['conteo','Conteo de Inventario'],['reimpresiones','Reimpresiones'],
     ['tiempos','Tiempos de Entrega'],['reportes','Reportes'],['historial','Historial'],
     ['contable','Contable'],['gastosneg','Gastos'],['auditoria','Auditoría'],
     ['usuarios','Usuarios'],['config','Configuración']];
@@ -4426,6 +4945,74 @@ function eliminarUsuario(id){
 // ============================================================
 //  NAVEGACIÓN Y RENDER
 // ============================================================
+// ============================================================
+//  TABLAS → TARJETAS EN CELULAR
+//  En el celular cada fila se vuelve una tarjeta: sin deslizar de lado,
+//  solo lo importante y los botones a la vista. En PC no cambia nada.
+// ============================================================
+const TC_ACCIONES=['Acciones','',' ','Reimprimir','Corregir'];
+// Columnas secundarias que se esconden en celular, según la primera columna
+const TC_OCULTAR={
+  'Negocio':['Flujo','Plan','Precio/mes','Usuarios'],
+  'Factura':['Tipo','Método'],
+  'Pedido':['Método'],
+  'Nombre':['Barrio','Ciudad','Costo unit.','Avisar bajo','Unidad'],
+  'Fecha':['Método'],
+  'Día':['Esperado','Contado'],
+  'Insumo':['Costo unit.','Avisar bajo'],
+  'Usuario':['Rol'],
+  'Producto':[],
+  'Tipo':['Quién']
+};
+function prepararTablasMovil(raiz){
+  (raiz||document).querySelectorAll('table.tabla:not([data-tc])').forEach(t=>{
+    t.setAttribute('data-tc','1');
+    const ths=[...t.querySelectorAll('thead th')].map(th=>th.textContent.trim());
+    if(ths.length<4) return;                       // las chicas ya caben
+    t.classList.add('tabla-cards');
+    const ocultar=TC_OCULTAR[ths[0]]||[];
+    t.querySelectorAll('tbody tr').forEach(tr=>{
+      const tds=[...tr.children];
+      if(tds.length===1 || tds.some(td=>td.colSpan>1)){ tr.classList.add('tc-solo'); return; }
+      tds.forEach((td,i)=>{
+        const lab=ths[i]||'';
+        const esAccion = i===tds.length-1 && (TC_ACCIONES.indexOf(lab)>-1 || td.classList.contains('acciones') || td.querySelector('button'));
+        if(esAccion){
+          td.classList.add('acciones','tc-actions'); td.removeAttribute('data-label');
+          // Botones de solo ícono: nombre corto visible en celular (sale del title)
+          td.querySelectorAll('button[title]').forEach(bt=>{
+            const txt=bt.textContent.replace(/[^\wáéíóúñ]/gi,'').trim();
+            if(txt.length>1) return;
+            const t=bt.title.toLowerCase();
+            const corto = t.indexOf('comanda')>-1?'Comanda' : t.indexOf('cuadre')>-1?'Cuadre'
+              : t.indexOf('forma de pago')>-1?'Pago' : t.indexOf('remisión')>-1?'Remisión'
+              : t.indexOf('cuenta')>-1?'Cuenta' : t.indexOf('factura')>-1?'Factura'
+              : bt.title.replace(/\(.*?\)/g,'').trim().split(' ')[0];
+            if(corto) bt.setAttribute('data-corto',corto);
+          });
+          return; }
+        if(i===0){ td.classList.add('tc-title'); td.removeAttribute('data-label'); return; }
+        if(!td.hasAttribute('data-label')) td.setAttribute('data-label',lab);
+        if(ocultar.indexOf(lab)>-1) td.classList.add('tc-hide');
+        const txt=td.textContent.trim();
+        if((txt===''||txt==='—') && !td.querySelector('select,input,button')) td.classList.add('tc-vacio');
+        if(!td.querySelector(':scope > .tc-v')){
+          const w=document.createElement('div'); w.className='tc-v';
+          while(td.firstChild) w.appendChild(td.firstChild);
+          td.appendChild(w);
+        }
+      });
+    });
+  });
+}
+(function(){
+  let pend=false;
+  const run=()=>{ pend=false; try{ prepararTablasMovil(document); }catch(e){} };
+  const obs=new MutationObserver(()=>{ if(!pend){ pend=true; requestAnimationFrame(run); } });
+  const arrancarObs=()=>{ if(document.body) obs.observe(document.body,{childList:true,subtree:true}); run(); };
+  if(document.body) arrancarObs(); else document.addEventListener('DOMContentLoaded',arrancarObs);
+})();
+
 function irA(pg){
   if(pg!=='ventas') ESCRIBIENDO=false;
   STATE.pageNeg=pg;
@@ -4451,10 +5038,10 @@ function renderContenido(){
     inventario:neg.usaRecetas?'Menú':'Inventario', insumos:'Insumos', caja:'Caja', cocina:'Cocina', citas:'Agendar',
     domicilios:'Domicilios', cuadredomi:'Cuadre de Domiciliarios', clientes:'Clientes', reportes:'Reportes',
     contable:'Registro Contable', gastosneg:'Gastos del Negocio', minegocio:'Mi Negocio',
-    tiempos:'Tiempos de Entrega', historial:'Historial', auditoria:'Auditoría', reimpresiones:'Reimpresiones'};
+    tiempos:'Tiempos de Entrega', historial:'Historial', auditoria:'Auditoría', reimpresiones:'Reimpresiones', conteo:'Conteo de Inventario'};
   const pantallas={inicio, ventas:nuevaVenta, pedidos, inventario, insumos:pantallaInsumos, caja,
     clientes, domicilios, cuadredomi:cuadreDomi, reportes, contable, gastosneg, minegocio, citas, cocina,
-    tiempos, historial, auditoria, reimpresiones};
+    tiempos, historial, auditoria, reimpresiones, conteo};
   const fn=pantallas[STATE.pageNeg];
   let contenido='';
   if(!fn){
@@ -4506,6 +5093,7 @@ function armarMenu(){
   if(F.indexOf('domicilios')>-1) ops.push({id:'domicilios', ic:'truck', txt:'Domicilios'});
   if(F.indexOf('domicilios')>-1) ops.push({id:'cuadredomi', ic:'truck', txt:'Cuadre Domi'});
   if(F.indexOf('clientes')>-1) ops.push({id:'clientes', ic:'users', txt:'Clientes'});
+  if(usaInventario(neg)) ops.push({id:'conteo', ic:'box', txt:'Conteo de Inventario'});
   if((F.indexOf('pedidos')>-1||F.indexOf('ventas')>-1)) ops.push({id:'reimpresiones', ic:'history', txt:'Reimpresiones'});
   if(ops.length){ items.push({g:'OPERACIONES'}); ops.forEach(o=>items.push(o)); }
   const ges=[];
@@ -4530,6 +5118,7 @@ function armarMenu(){
     if(it.id==='historial') id='pedidos';
     if(it.id==='reimpresiones') id='pedidos';
     if(it.id==='cuadredomi') id='domicilios';
+    if(it.id==='conteo') id='catalogo';
     if(it.id==='auditoria') id='__solo_admin__';   // ya se filtró arriba por rol
     if(permitidas.indexOf(it.id)>-1 || permitidas.indexOf(id)>-1){
       if(grupo){ salida.push(grupo); grupo=null; }
@@ -4596,7 +5185,9 @@ function minegocio(){
         <label class="chk"><input type="checkbox" id="n-sonidos" ${neg.sonidos!==false?'checked':''}> Sonidos al vender</label>
         <label class="chk"><input type="checkbox" id="n-alerta" ${neg.alertaStock!==false?'checked':''}> Avisar cuando se agote un producto</label>
         <label class="chk"><input type="checkbox" id="n-alertavence" ${neg.alertaVence!==false?'checked':''}> Avisar productos por vencer</label>
+        <label class="chk"><input type="checkbox" id="n-inventario" ${usaInventario(neg)?'checked':''}> Llevar control de inventario (stock)</label>
       </div>
+      <p class="nota" style="margin-top:8px;">Si apagas el control de inventario, los ${pProds()} no llevan existencias: no se descuentan al vender ni aparecen alertas. Útil para servicios o negocios que no manejan stock.</p>
       <div class="m-row" style="margin-top:12px;">
         <label>Avisar cuántos días antes de que un producto se venza</label>
         <input id="n-diasvence" type="number" min="0" class="campo" value="${neg.diasAvisoVence!=null?neg.diasAvisoVence:7}" placeholder="Ej: 7"></div>
@@ -4659,6 +5250,15 @@ function guardarMiNegocio(){
   n.sonidos=chk('n-sonidos');
   n.alertaStock=chk('n-alerta');
   n.alertaVence=chk('n-alertavence');
+  // Encender/apagar el control de inventario desde el propio negocio
+  {
+    const quiereInv=chk('n-inventario');
+    const F=(n.funciones||[]).slice();
+    const i2=F.indexOf('inventario');
+    if(quiereInv && i2<0) F.push('inventario');
+    if(!quiereInv && i2>-1) F.splice(i2,1);
+    n.funciones=F;
+  }
   { const dv=parseInt(val('n-diasvence'),10); n.diasAvisoVence=isNaN(dv)?7:Math.max(0,dv); }
   if(window._logoNuevo!==undefined){ n.logo=window._logoNuevo; window._logoNuevo=undefined; }
   negocios[i]=n;
@@ -5226,11 +5826,11 @@ function vistaNegocio(){
     inventario:neg.usaRecetas?'Menú':'Inventario', insumos:'Insumos', caja:'Caja', cocina:'Cocina', citas:'Agendar',
     domicilios:'Domicilios', cuadredomi:'Cuadre de Domiciliarios', clientes:'Clientes', reportes:'Reportes',
     contable:'Registro Contable', gastosneg:'Gastos del Negocio', minegocio:'Mi Negocio',
-    tiempos:'Tiempos de Entrega', historial:'Historial', auditoria:'Auditoría', reimpresiones:'Reimpresiones',
+    tiempos:'Tiempos de Entrega', historial:'Historial', auditoria:'Auditoría', reimpresiones:'Reimpresiones', conteo:'Conteo de Inventario',
     citas:'Agendar', cocina:'Cocina'};
   const pantallas={inicio, ventas:nuevaVenta, pedidos, inventario, insumos:pantallaInsumos, caja,
     clientes, domicilios, cuadredomi:cuadreDomi, reportes, contable, gastosneg, minegocio, citas, cocina,
-    tiempos, historial, auditoria, reimpresiones};
+    tiempos, historial, auditoria, reimpresiones, conteo};
   const fn=pantallas[STATE.pageNeg];
   let contenido='';
   if(!fn){
