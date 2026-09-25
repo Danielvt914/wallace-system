@@ -527,6 +527,36 @@
     *{animation-duration:.01ms !important;transition-duration:.01ms !important;}
   }
 
+
+  /* ===== Tablas como tarjetas en celular (todo el sistema) ===== */
+  @media(max-width:760px){
+    .tabla-cards{min-width:0 !important;width:100%;}
+    .tabla-cards thead{display:none;}
+    .tabla-cards,.tabla-cards tbody,.tabla-cards tr,.tabla-cards td{display:block;width:100%;}
+    .tabla-cards tr{background:rgba(255,255,255,.03);border:1px solid var(--linea2);
+      border-radius:13px;padding:13px 15px;margin-bottom:12px;}
+    .tabla-cards tbody tr:hover td{background:transparent;}
+    .tabla-cards td{padding:5px 0;border:none;white-space:normal;
+      display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:13.5px;}
+    .tabla-cards td[data-label]::before{content:attr(data-label);flex-shrink:0;font-size:11px;
+      font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--gris);}
+    .tabla-cards td .tc-v{text-align:right;min-width:0;overflow-wrap:anywhere;}
+    .tabla-cards td .tc-v select,.tabla-cards td .tc-v input{width:auto;max-width:100%;}
+    .tabla-cards td.tc-title{display:block;font-size:16px;font-weight:800;padding:2px 0 9px;margin-bottom:5px;
+      border-bottom:1px solid var(--linea2);overflow-wrap:anywhere;}
+    .tabla-cards td.tc-hide,.tabla-cards td.tc-vacio{display:none !important;}
+    .tabla-cards td.acciones,.tabla-cards td.tc-actions{display:grid !important;
+      grid-template-columns:repeat(auto-fill,minmax(94px,1fr));gap:7px;
+      padding-top:12px;margin-top:7px;border-top:1px solid var(--linea2);}
+    .tabla-cards td.acciones:empty{display:none !important;}
+    .tabla-cards td.acciones .btn{width:100%;min-height:42px;justify-content:center;
+      white-space:normal;padding:7px 5px;font-size:12px;overflow:hidden;}
+    .tabla-cards td.acciones .btn[data-corto]::after{content:attr(data-corto);font-size:11.5px;}
+    .tabla-cards tr.tc-solo{background:transparent;border:none;text-align:center;}
+    .tabla-cards tr.tc-solo td{display:block;}
+    body.tema-claro .tabla-cards tr{background:#ffffff;box-shadow:var(--sombra);}
+  }
+
   /* Responsive */
 
   /* Mejor espaciado: títulos de tarjeta con aire, notas separadas */
@@ -575,7 +605,7 @@
     /* Encabezados de tarjeta: que el buscador y botones se apilen y ocupen el ancho */
     .t-cab{flex-wrap:wrap;gap:8px;}
     .t-acc{width:100%;flex-wrap:wrap;gap:8px;}
-    .t-acc .busca{min-width:0;flex:1;width:100%;}
+    .t-acc .busca{min-width:0;flex:1 1 100%;width:100%;}
     .t-acc .btn{flex:1;}
     /* Evitar que cualquier cosa se salga del ancho de la pantalla */
     .contenido,.tarjeta,.stats{max-width:100%;}
@@ -593,27 +623,6 @@
     .tabla th,.tabla td{padding:8px 9px;white-space:nowrap;}
     .tabla .acciones{white-space:nowrap;}
     .acciones .btn{padding:6px 8px;font-size:11px;}
-    /* Panel de negocios: tarjeta simple, TODO visible sin deslizar de lado */
-    .tabla-cards{min-width:0;width:100%;}
-    .tabla-cards thead{display:none;}
-    .tabla-cards,.tabla-cards tbody,.tabla-cards tr,.tabla-cards td{display:block;width:100%;}
-    .tabla-cards tr{background:rgba(255,255,255,.03);border:1px solid var(--linea2);
-      border-radius:13px;padding:14px;margin-bottom:12px;}
-    .tabla-cards td{padding:0;border:none;white-space:normal;}
-    /* Ocultar datos secundarios en celular (siguen en Configurar) */
-    .tabla-cards td[data-label="Flujo"],
-    .tabla-cards td[data-label="Plan"],
-    .tabla-cards td[data-label="Precio/mes"],
-    .tabla-cards td[data-label="Usuarios"]{display:none;}
-    /* Nombre grande arriba */
-    .tabla-cards td[data-label="Negocio"]{font-size:16px;margin-bottom:6px;}
-    /* Tipo y estado en una línea chica */
-    .tabla-cards td[data-label="Tipo"]{display:inline-block;width:auto;color:var(--gris);font-size:13px;}
-    .tabla-cards td[data-label="Estado"]{display:inline-block;width:auto;margin-left:8px;}
-    /* Botones: fila completa abajo, repartidos */
-    .tabla-cards td.acciones{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;
-      padding-top:12px;border-top:1px solid var(--linea2);}
-    .tabla-cards td.acciones .btn{flex:1;min-width:calc(33.3% - 6px);padding:10px 6px;font-size:12.5px;}
   }
 </style>
 </head>
