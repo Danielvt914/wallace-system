@@ -6281,3 +6281,201 @@ function auditoria(){
     </div>`;
 }
 
+function vistaNegocio(){
+  const neg=STATE.negocio, u=STATE.user;
+  const menu=armarMenu();
+  const titulos={inicio:'Dashboard', ventas:'+ '+pPedido(true), pedidos:pPedidos(true),
+    inventario:neg.usaRecetas?'Menú':'Inventario', insumos:'Insumos', caja:'Caja', cocina:'Cocina', citas:'Agendar',
+    domicilios:'Domicilios', cuadredomi:'Cuadre de Domiciliarios', clientes:'Clientes', reportes:'Reportes',
+    contable:'Registro Contable', gastosneg:'Gastos del Negocio', minegocio:'Mi Negocio',
+    tiempos:'Tiempos de Entrega', historial:'Historial', auditoria:'Auditoría', reimpresiones:'Reimpresiones', conteo:'Conteo de Inventario', combos:'Menú y Combos', usuarios:'Usuarios',
+    citas:'Agendar', cocina:'Cocina'};
+  const pantallas={inicio, ventas:nuevaVenta, pedidos, inventario, insumos:pantallaInsumos, caja,
+    clientes, domicilios, cuadredomi:cuadreDomi, reportes, contable, gastosneg, minegocio, citas, cocina,
+    tiempos, historial, auditoria, reimpresiones, conteo, combos, usuarios:usuariosNeg};
+  const fn=pantallas[STATE.pageNeg];
+  let contenido='';
+  if(!fn){
+    contenido='<div class="tarjeta centro-msg"><div class="msg-ico">🚧</div>'
+      +'<div class="t-tit centrado">Pantalla no disponible</div>'
+      +'<p class="gris">Esta sección todavía no está habilitada para tu negocio.</p>'
+      +'<button class="btn btn-gold" onclick="irA(\'inicio\')">Volver al inicio</button></div>';
+  } else {
+    try{ contenido=fn(); }catch(e){ console.error('Error en pantalla',STATE.pageNeg,e);
+      contenido='<div class="tarjeta"><p class="rojo">Ocurrió un error al mostrar esta pantalla.</p><button class="btn" onclick="irA(\'inicio\')">Volver al inicio</button></div>'; }
+  }
+  const ini=(u.nombre||'?').charAt(0).toUpperCase();
+
+  return `
+  <div class="app-grid">
+    <aside class="sidebar" id="sidebar">
+      <div class="side-cab">
+        ${neg.logo?`<img src="${neg.logo}" class="side-logo" alt="">`:`<div class="side-ini">${(neg.nombre||'?').charAt(0)}</div>`}
+        <div class="side-nom">${escapeHtml(neg.nombre)}</div>
+        <div class="side-tipo">${escapeHtml(neg.tipo||'')}</div>
+      </div>
+      <nav class="side-nav">
+        ${menu.map(m=>m.g?`<div class="nav-grupo">${m.g}</div>`
+          :`<div class="nav-item ${STATE.pageNeg===m.id?'on':''}" onclick="irA('${m.id}')">${ic(m.ic)}<span>${m.txt}</span></div>`).join('')}
+      </nav>
+      <div class="side-pie">
+        <div class="user-box">
+          <div class="avatar">${ini}</div>
+          <div class="user-info">
+            <div class="u-nom">${escapeHtml(u.nombre)}</div>
+            <div class="u-est"><span class="fb-dot off" id="fb-status"></span> <span id="fb-txt">Conectando</span></div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="logout()" title="Salir">${ic('logout')}</button>
+        </div>
+        <div class="credito"><span class="c-marca">Wallace<span>System</span></span><span class="c-sub">Software administrativo</span></div>
+      </div>
+    </aside>
+    <div class="main">
+      ${STATE.modoSupervision?`<div class="banner-sup">
+        <span>👁️ Modo supervisión — viendo como Super-Admin</span>
+        <button class="btn btn-sm btn-gold" onclick="volverSuperAdmin()">← Volver al panel</button>
+      </div>`:''}
+      <div class="topbar">
+        <h1><button class="menu-btn" onclick="document.getElementById('sidebar').classList.toggle('abierto')">☰</button>
+          ${escapeHtml(titulos[STATE.pageNeg]||'')}</h1>
+        <div class="tb-der">
+          ${usaSucursales(neg)?`<select class="suc-sel" onchange="cambiarSucursal(this.value)">
+            ${sucursalesDe(neg).filter(s=>puedeVerSucursal(s.id)).map(s=>`<option value="${escapeHtml(s.id)}" ${s.id===sucursalActual()?'selected':''}>📍 ${escapeHtml(s.nombre)}</option>`).join('')}
+          </select>`:''}
+          <span class="reloj" id="reloj"></span>
+        </div>
+      </div>
+      <div class="contenido">${contenido}</div>
+    </div>
+  </div>`;
+}
+function vistaLogin(){
+  return `<div class="login-fondo">
+    <div class="login-caja">
+      <div class="login-emblema">${window.WALLACE_LOGO||''}</div>
+      <div class="login-marca">Wallace<span>System</span></div>
+      <p class="login-sub">Sistema administrativo para tu negocio</p>
+      <div class="m-row"><label>Usuario</label>
+        <input id="l-user" class="campo" placeholder="usuario" onkeydown="if(event.key==='Enter')hacerLogin()"></div>
+      <div class="m-row"><label>Contraseña</label>
+        <input id="l-pass" type="password" class="campo" placeholder="••••••" onkeydown="if(event.key==='Enter')hacerLogin()"></div>
+      <button class="login-btn" onclick="hacerLogin()">Entrar</button>
+      <div class="login-pie">WALLACE COMPANY SYSTEM</div>
+    </div>
+  </div>`;
+}
+// ============================================================
+//  TEMA POR NEGOCIO (oscuro neón / claro + color a gusto)
+// ============================================================
+function _hexRgb(hex){
+  hex=(hex||'').replace('#','');
+  if(hex.length===3) hex=hex.split('').map(c=>c+c).join('');
+  const n=parseInt(hex,16);
+  if(isNaN(n)||hex.length!==6) return [1,195,142];
+  return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function _rgbHex(r,g,b){
+  const h=x=>Math.max(0,Math.min(255,Math.round(x))).toString(16).padStart(2,'0');
+  return '#'+h(r)+h(g)+h(b);
+}
+function _aclarar(hex,p){ const [r,g,b]=_hexRgb(hex); return _rgbHex(r+(255-r)*p, g+(255-g)*p, b+(255-b)*p); }
+function _oscurecer(hex,p){ const [r,g,b]=_hexRgb(hex); return _rgbHex(r*(1-p), g*(1-p), b*(1-p)); }
+function aplicarTema(neg){
+  const b=document.body; if(!b) return;
+  const claro = !!(neg && neg.tema==='claro');
+  b.classList.toggle('tema-claro', claro);
+  let base=(neg && neg.colorTema && /^#[0-9a-fA-F]{6}$/.test(neg.colorTema)) ? neg.colorTema : '#01c38e';
+  let [r,g,bl]=_hexRgb(base);
+  let lum=(0.299*r+0.587*g+0.114*bl)/255;
+  // Si el color elegido es casi blanco, las letras de acento desaparecen sobre
+  // fondos claros. Lo oscurecemos hasta un nivel legible antes de usarlo.
+  if(lum>0.82){ base=_oscurecer(base,.35); [r,g,bl]=_hexRgb(base); lum=(0.299*r+0.587*g+0.114*bl)/255; }
+  b.style.setProperty('--verde', base);
+  // --verde-c (acento de texto): en claro va más oscuro; en oscuro, más claro.
+  b.style.setProperty('--verde-c', claro ? _oscurecer(base,.15) : _aclarar(base,.25));
+  b.style.setProperty('--verde-o', _oscurecer(base,.22));
+  b.style.setProperty('--acc-rgb', r+','+g+','+bl);
+  b.style.setProperty('--acc-txt', lum>0.55 ? '#141821' : '#ffffff');
+}
+function quitarTema(){
+  const b=document.body; if(!b) return;
+  b.classList.remove('tema-claro');
+  ['--verde','--verde-c','--verde-o','--acc-rgb','--acc-txt'].forEach(v=>b.style.removeProperty(v));
+}
+
+function render(){
+  const app=document.getElementById('app');
+  if(!app) return;
+  // Guardar el campo enfocado (buscadores) para restaurarlo tras redibujar,
+  // así el teclado no se cierra al escribir en cualquier búsqueda del sistema.
+  let _foco=null;
+  const _act=document.activeElement;
+  if(_act && (_act.tagName==='INPUT'||_act.tagName==='TEXTAREA') && _act.closest('#app')){
+    _foco={ph:_act.getAttribute('placeholder'), id:_act.id||'', pos:_act.selectionStart};
+  }
+  // El tema del negocio se aplica dentro del negocio; el login y el
+  // panel del súper admin conservan el estilo de la marca Wallace.
+  if(STATE.user && STATE.negocio && !STATE.esSuperAdmin){ aplicarTema(STATE.negocio); }
+  else { quitarTema(); }
+  if(!STATE.user){ app.innerHTML=vistaLogin(); return; }
+  if(STATE.esSuperAdmin){
+    if(STATE.page.indexOf('config:')===0){ app.innerHTML=pantallaConfig(STATE.page.split(':')[1]); return; }
+    if(STATE.page.indexOf('usuarios:')===0){ app.innerHTML=pantallaUsuarios(STATE.page.split(':')[1]); return; }
+    if(STATE.page==='superadmins'){ app.innerHTML=pantallaSuperAdmins(); return; }
+    app.innerHTML=panelSuperAdmin();
+    return;
+  }
+  app.innerHTML=vistaNegocio();
+  // Restaurar el foco del buscador que estaba activo (no cerrar el teclado)
+  if(_foco && (_foco.ph||_foco.id)){
+    let el=null;
+    if(_foco.id) el=document.getElementById(_foco.id);
+    if(!el && _foco.ph){
+      const ins=app.querySelectorAll('input,textarea');
+      for(let i=0;i<ins.length;i++){ if(ins[i].getAttribute('placeholder')===_foco.ph){ el=ins[i]; break; } }
+    }
+    if(el){ try{ el.focus(); if(_foco.pos!=null && el.value.length>=_foco.pos) el.setSelectionRange(_foco.pos,_foco.pos); }catch(e){} }
+  }
+  // Reflejar el estado de conexión
+  const dot=document.getElementById('fb-status');
+  const txt=document.getElementById('fb-txt');
+  if(dot && txt){
+    if(FB_READY){ dot.className='fb-dot ok'; txt.textContent='Sincronizado'; }
+    else { dot.className='fb-dot off'; txt.textContent='Sin conexión'; }
+  }
+}
+
+// ============================================================
+//  ARRANQUE
+// ============================================================
+function arrancar(){
+  try{ seed(); }catch(e){ console.error('seed',e); }
+  try{ render(); }catch(e){
+    console.error('render',e);
+    const app=document.getElementById('app');
+    if(app) app.innerHTML='<div style="padding:40px;text-align:center;color:#fff;">Error al cargar. Recarga con Ctrl+Shift+R.</div>';
+  }
+}
+(function(){
+  const ok=initFirebase();
+  if(ok){
+    const app=document.getElementById('app');
+    if(app) app.innerHTML='<div class="cargando"><div class="spin"></div><div>Conectando…</div></div>';
+    let listo=false;
+    const forzar=setTimeout(()=>{ if(!listo){ listo=true; console.warn('Nube lenta: modo local'); arrancar(); } }, 12000);
+    cargarDeLaNube(()=>{ if(!listo){ listo=true; clearTimeout(forzar); arrancar(); } });
+  } else {
+    NUBE_LISTA=true;
+    arrancar();
+  }
+})();
+setInterval(function(){
+  const r=document.getElementById('reloj');
+  if(r) r.textContent=new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+},1000);
+// Refrescar la cocina cada 30s para que el cronómetro avance solo
+setInterval(function(){
+  if(STATE.user && !STATE.esSuperAdmin && STATE.pageNeg==='cocina'){
+    try{ refrescarSiSePuede(); }catch(e){}
+  }
+},30000);
