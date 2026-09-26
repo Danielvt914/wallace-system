@@ -5675,59 +5675,51 @@ function usuariosNeg(){
   if(!puedeGestionarUsuarios()){
     return `<div class="tarjeta centro-msg"><div class="msg-ico">🔒</div>
       <div class="t-tit centrado">Acceso restringido</div>
-      <p class="gris">No tienes permiso para administrar los usuarios de este negocio.</p></div>`;
+      <p class="gris">No tienes permiso para ver los usuarios de este negocio.</p></div>`;
   }
   const negId=STATE.negocio.id;
   const us=(DB.get('usuarios')||[]).filter(u=>u.negocioId===negId);
-  const verClave = STATE.user.rol==='admin' || STATE.user.esSupervisor;
   return `
     <div class="tarjeta">
-      <div class="t-cab">
-        <div><span class="t-tit">${ic('users')} Empleados de ${escapeHtml(STATE.negocio.nombre)}</span>
-          <p class="gris">Crea los usuarios de tu negocio y decide qué ventanas ve cada uno y qué puede hacer.</p></div>
-        <button class="btn btn-gold" onclick="editarUsuario('${negId}',null)">+ Crear usuario</button>
-      </div>
+      <span class="t-tit">${ic('users')} Usuarios de ${escapeHtml(STATE.negocio.nombre)}</span>
+      <p class="gris">Desde aquí solo se pueden <strong>cambiar contraseñas</strong>. Para crear usuarios, cambiar roles o permisos, comunícate con tu proveedor del sistema.</p>
       <div class="tabla-wrap"><table class="tabla">
-        <thead><tr><th>Nombre</th><th>Usuario</th>${verClave?'<th>Contraseña</th>':''}<th>Rol</th><th>Accesos</th><th>Estado</th><th>Acciones</th></tr></thead>
-        <tbody>${us.length?us.map(u=>{
-          const pant=(u.pantallas&&u.pantallas.length)?u.pantallas.length:null;
-          const perm=(u.permisos&&u.permisos.length)?u.permisos.length:null;
-          return `<tr>
+        <thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Estado</th><th>Acciones</th></tr></thead>
+        <tbody>${us.length?us.map(u=>`<tr>
           <td><strong>${escapeHtml(u.nombre)}</strong>${u.id===STATE.user.id?' <span class="pill pill-azul chico">tú</span>':''}</td>
           <td>${escapeHtml(u.usuario)}</td>
-          ${verClave?`<td class="gris">${escapeHtml(u.pass||'')}</td>`:''}
           <td>${escapeHtml((ROLES.find(r=>r[0]===u.rol)||['',u.rol])[1])}</td>
-          <td class="gris chico">${pant?pant+' ventana(s)':'las de su rol'}<br>${perm?perm+' acción(es)':'las de su rol'}</td>
           <td>${u.activo!==false?'<span class="pill pill-verde">Activo</span>':'<span class="pill pill-rojo">Inactivo</span>'}</td>
-          <td class="acciones">
-            <button class="btn btn-sm" onclick="editarUsuario('${negId}','${u.id}')" title="Editar">Editar</button>
-            <button class="btn btn-sm ${u.activo!==false?'btn-naranja':'btn-verde'}" onclick="activarUsuarioNeg('${u.id}')" title="${u.activo!==false?'Desactivar':'Activar'}">${u.activo!==false?'Pausar':'Activar'}</button>
-            ${u.id!==STATE.user.id?`<button class="btn btn-sm btn-rojo" onclick="eliminarUsuarioNeg('${u.id}')" title="Eliminar">×</button>`:''}
-          </td>
-        </tr>`;}).join(''):'<tr><td colspan="7" class="gris">Sin usuarios todavía.</td></tr>'}</tbody>
+          <td class="acciones"><button class="btn btn-sm btn-gold" onclick="cambiarPassNeg('${u.id}')" title="Cambiar contraseña">🔑 Cambiar contraseña</button></td>
+        </tr>`).join(''):'<tr><td colspan="5" class="gris">Sin usuarios.</td></tr>'}</tbody>
       </table></div>
-      <p class="nota" style="margin-top:12px;">Al editar un usuario puedes marcar exactamente <strong>qué ventanas ve</strong> (Caja, Inventario, Reportes…) y <strong>qué acciones puede hacer</strong> (cobrar, anular, editar stock, hacer conteos…).</p>
+      <p class="nota" style="margin-top:12px;">Cambia la contraseña cuando alguien la comparta de más o cuando salga un empleado. Cada cambio queda registrado en la auditoría con tu nombre.</p>
     </div>`;
 }
-function activarUsuarioNeg(id){
+// Único cambio permitido desde el negocio: la contraseña
+function cambiarPassNeg(id){
   if(!puedeGestionarUsuarios()){ toast('No tienes permiso','error'); return; }
-  const us=DB.get('usuarios')||[];
-  const u=us.find(x=>x.id===id); if(!u) return;
-  if(u.id===STATE.user.id){ toast('No puedes desactivarte a ti mismo','error'); return; }
-  u.activo = u.activo===false;
-  DB.set('usuarios',us);
-  logAudit(u.activo?'Activó usuario':'Desactivó usuario', u.nombre);
-  toast(u.activo?'Usuario activado':'Usuario desactivado','info'); render();
-}
-function eliminarUsuarioNeg(id){
-  if(!puedeGestionarUsuarios()){ toast('No tienes permiso','error'); return; }
-  const u=(DB.get('usuarios')||[]).find(x=>x.id===id); if(!u) return;
-  if(u.id===STATE.user.id){ toast('No puedes eliminarte a ti mismo','error'); return; }
-  confirmarModal('¿Eliminar a "'+escapeHtml(u.nombre)+'"? No podrá volver a entrar.',()=>{
-    DB.set('usuarios',(DB.get('usuarios')||[]).filter(x=>x.id!==id));
-    logAudit('Eliminó usuario', u.nombre);
-    toast('Usuario eliminado','info'); render();
-  },'Eliminar');
+  const u=(DB.get('usuarios')||[]).find(x=>x.id===id && x.negocioId===STATE.negocio.id);
+  if(!u){ toast('Usuario no encontrado','error'); return; }
+  abrirModal({titulo:'🔑 Contraseña de '+u.nombre, textoBoton:'Guardar', campos:[
+    {id:'nueva', label:'Nueva contraseña', requerido:true},
+    {id:'nueva2', label:'Repite la nueva contraseña', requerido:true}
+  ], extraHTML:`<p class="nota">Usuario para entrar: <strong>${escapeHtml(u.usuario)}</strong>. Mínimo 4 caracteres.</p>`,
+  onGuardar:(d)=>{
+    const nueva=(d.nueva||'').trim();
+    if(nueva.length<4){ toast('La contraseña debe tener al menos 4 caracteres','error'); return; }
+    if(nueva!==(d.nueva2||'').trim()){ toast('Las contraseñas no coinciden','error'); return; }
+    const arr=DB.get('usuarios')||[];
+    const x=arr.find(y=>y.id===id);
+    if(!x){ toast('Usuario no encontrado','error'); return; }
+    x.pass=nueva;
+    DB.set('usuarios',arr);
+    if(x.id===STATE.user.id) STATE.user.pass=nueva;
+    logAudit('Cambió contraseña', x.nombre+' ('+x.usuario+')');
+    cerrarModal();
+    toast('Contraseña actualizada para '+x.nombre,'success');
+    render();
+  }});
 }
 
 // ============================================================
