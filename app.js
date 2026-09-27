@@ -1989,21 +1989,28 @@ function armarVenta(estado){
     ventas.forEach(v=>{ const n=parseInt(String(v.factura||'').replace(/\D/g,''))||0; if(n>mayor) mayor=n; });
     id=uid(); factura='F-'+String(mayor+1).padStart(5,'0'); fecha=now(); cajaId=cajaAbierta?cajaAbierta.id:null;
   }
-  return {
+  const propina=orig?(orig.propina||0):0;
+  const recargo=orig?(orig.recargo||0):0;
+  // Al editar se CONSERVA todo lo que ya tenía la venta (pagos, cobro, horas…)
+  // y solo se reemplaza lo que el usuario cambió. Antes se perdía el registro
+  // del pago y la venta quedaba descuadrada.
+  return Object.assign({}, orig||{}, {
     id:id, factura:factura,
     items:_carrito.slice(),
     subtotal:total, subtotalBruto:bruto, descuento:_desc, descMotivo:_descMot,
-    valorDom, propina:orig?(orig.propina||0):0, recargo:orig?(orig.recargo||0):0, total:total+valorDom,
+    valorDom, propina, recargo,
+    total: total+valorDom+propina+recargo,
     metodo:orig?orig.metodo:'', estado: orig?orig.estado:estado,
     tipo:_vTipo, cajaId:cajaId,
     vendedor:orig?orig.vendedor:STATE.user.nombre, fecha:fecha,
     editadoPor: orig?STATE.user.nombre:undefined,
+    editadoEn: orig?now():undefined,
     obs:_vObs, mesa:_vTipo==='mesa'?_vMesa:'',
     cliNombre:_vCli.nombre||'', cliTel:_vCli.tel||'', cliDir:_vCli.dir||'', cliBarrio:_vCli.barrio||'',
     cliCiudad:_vCli.ciudad||'', cliDepto:_vCli.depto||'',
     transportadora:_vCli.transportadora||'', domiciliario:_vCli.domiciliario||'',
     estadoCocina: orig?(orig.estadoCocina||''):(neg.usaCocina?'pendiente':'')
-  };
+  });
 }
 
 // Valida datos mínimos del cliente según el tipo de pedido.
@@ -2034,9 +2041,9 @@ function registrarSalida(){
     venta.cobrado=now(); venta.cobradoPor=STATE.user.nombre;
     const ventas=misDatos('ventas');
     ventas.unshift(venta);
+    descontarStock(venta);
     guardarMisDatos('ventas',ventas);
     guardarClienteAuto(venta);
-    descontarStock(venta);
     logAudit('Registró salida', (venta.factura||'')+' · '+(venta.cliNombre||''));
     sonidoPedido();
     avisarStockBajo(venta);
@@ -2055,28 +2062,58 @@ function confirmarPedido(){
   if(_guardando) return;
   if(!_carrito.length){ toast('Agrega productos primero','error'); return; }
   if(!validarClientePedido()) return;
+  const editando=!!STATE.editandoVentaId;
+  const ventasPrev=misDatos('ventas');
+  const orig = editando ? ventasPrev.find(x=>x.id===STATE.editandoVentaId) : null;
+  const yaDescontado = !!(orig && orig.stockAplicado===true);
+  // Si el pedido ya había descontado inventario, revisar que alcance para lo nuevo
+  if(yaDescontado){
+    const d=difRequerimientos(requerimientos(orig.items), requerimientos(_carrito));
+    const faltan=faltantesPara(d);
+    if(faltan.length){ toast('⛔ No alcanza el inventario: '+faltan.join(', '),'error'); sonidoError(); return; }
+  }
   _guardando=true;
   bloquearBoton('btn-confirmar','Guardando…');
   try{
-    const editando=!!STATE.editandoVentaId;
+    const itemsAntes = orig ? JSON.parse(JSON.stringify(orig.items||[])) : null;
+    const totalAntes = orig ? (orig.total||0) : 0;
+    const estadoAntes = orig ? orig.estado : null;
     const venta=armarVenta('abierta');
     const ventas=misDatos('ventas');
     if(editando){
       const i=ventas.findIndex(x=>x.id===venta.id);
       if(i>-1) ventas[i]=venta; else ventas.unshift(venta);
-      logAudit('Editó pedido', venta.factura||'');
+      // El inventario se ajusta SOLO por la diferencia, si ya se había descontado
+      if(yaDescontado) ajustarStockPorEdicion(itemsAntes, venta.items, venta.factura);
+      // Si cambió lo que pidieron, la cocina lo tiene que volver a ver
+      if(STATE.negocio.usaCocina && JSON.stringify(itemsAntes)!==JSON.stringify(venta.items)
+         && venta.estadoCocina && venta.estadoCocina!=='entregado'){
+        venta.estadoCocina='pendiente';
+      }
+      // Si ya estaba cobrado y cambió el total, el pago queda pendiente de ajuste
+      if(estadoAntes==='pagada' && Math.abs((venta.total||0)-totalAntes)>0.5){
+        venta.pagoDescuadrado=true;
+      }
+      logAudit('Editó pedido', (venta.factura||'')+': '+fmtMoney(totalAntes)+' → '+fmtMoney(venta.total||0)
+        +' · '+(itemsAntes||[]).reduce((a,i)=>a+i.qty,0)+' → '+venta.items.reduce((a,i)=>a+i.qty,0)+' und');
     } else {
       ventas.unshift(venta);
     }
     guardarMisDatos('ventas',ventas);
     sonidoPedido();
-    // Restaurante: al confirmar un pedido NUEVO, sale la comanda para cocina
     if(!editando && STATE.negocio.usaCocina){ try{ imprimirComanda(venta); }catch(e){} }
+    const idGuardada=venta.id, hayQueAjustar=!!venta.pagoDescuadrado, cambiaronItems=editando&&JSON.stringify(itemsAntes)!==JSON.stringify(venta.items);
     limpiarPedido();
     ESCRIBIENDO=false;
     STATE.pageNeg='pedidos';
+    STATE._itemsAntes=null;
     render();
     toast('Pedido '+venta.factura+(editando?' actualizado':' confirmado'),'success');
+    if(hayQueAjustar){ setTimeout(()=>ajustarPagoVenta(idGuardada),450); }
+    else if(editando && cambiaronItems && STATE.negocio.usaCocina){
+      setTimeout(()=>confirmarModal('Cambió el pedido. ¿Imprimir la comanda corregida para cocina?',
+        ()=>{ const vv=misDatos('ventas').find(x=>x.id===idGuardada); if(vv) imprimirComanda(vv); },'Imprimir'),450);
+    }
   }catch(e){
     console.error(e); toast('Error al guardar','error');
   }finally{ _guardando=false; }
@@ -2225,7 +2262,7 @@ function pedidos(){
     if(colTipo) tds+=`<td>${etiq[v.tipo]||'—'}${v.mesa?'<br><span class="gris chico">'+escapeHtml(v.mesa)+'</span>':''}</td>`;
     tds+=`<td>${escapeHtml(v.cliNombre||v.mesa||'—')}${v.cliTel?`<br><span class="gris chico">${escapeHtml(v.cliTel)}</span>`:''}</td>`;
     tds+=colDinero?`<td class="negrita">${fmtMoney(v.total)}</td>`:`<td class="negrita">${uniDe(v)} und</td>`;
-    if(colDinero) tds+=`<td>${abierta?'<span class="pill pill-gold">Abierta</span>':'<span class="pill pill-verde">Pagada</span>'}${v.estado==='pagada'?`<br><span class="gris chico" title="${escapeHtml(detallePagos(v))}">${escapeHtml(metodoTexto(v))}</span>`:''}</td>`;
+    if(colDinero) tds+=`<td>${abierta?'<span class="pill pill-gold">Abierta</span>':'<span class="pill pill-verde">Pagada</span>'}${v.estado==='pagada'?`<br><span class="gris chico" title="${escapeHtml(detallePagos(v))}">${escapeHtml(metodoTexto(v))}</span>`:''}${v.pagoDescuadrado?`<br><span class="pill pill-rojo" style="margin-top:3px;">Revisar pago</span>`:''}</td>`;
     if(usaCocina) tds+=`<td>${cocBadge(v.estadoCocina)}</td>`;
     tds+=`<td><select class="busca" style="min-width:auto;padding:5px 8px;" onchange="setEstadoPedido('${v.id}',this.value)"><option value="activo" ${v.estadoPedido!=='entregado'?'selected':''}>Activo</option><option value="entregado" ${v.estadoPedido==='entregado'?'selected':''}>Entregado</option></select></td>`;
     if(usaDomi) tds+=`<td>${v.tipo==='domicilio'?selDom(v):'—'}</td>`;
@@ -2234,6 +2271,7 @@ function pedidos(){
       ${tienePermiso('editar')?`<button class="btn btn-sm" onclick="editarPedido('${v.id}')" title="Editar">✏️</button>`:''}
       ${usaCocina&&tienePermiso('comanda')?`<button class="btn btn-sm" onclick="reimprimirComanda('${v.id}')" title="Comanda de cocina">👨‍🍳</button>`:''}
       ${tienePermiso('imprimir')?`<button class="btn btn-sm" onclick="imprimirFactura('${v.id}')" title="${esLog?'Reimprimir remisión':(v.estado==='pagada'?'Reimprimir factura':'Imprimir cuenta (cobro pendiente)')}">🖨️</button>`:''}
+      ${v.pagoDescuadrado&&tienePermiso('cobrar')?`<button class="btn btn-sm btn-naranja" onclick="ajustarPagoVenta('${v.id}')" title="El total cambió: ajustar el cobro">⚠ Ajustar cobro</button>`:''}
       ${colDinero&&v.estado==='pagada'&&tienePermiso('cambiarpago')?`<button class="btn btn-sm" onclick="cambiarFormaPago('${v.id}')" title="Cambiar forma de pago">💳</button>`:''}
       ${tienePermiso('anular')?`<button class="btn btn-sm btn-rojo" onclick="anularPedido('${v.id}')" title="Anular">🚫</button>`:''}
       ${tienePermiso('eliminar')?`<button class="btn btn-sm btn-rojo" onclick="eliminarDefinitivo('${v.id}')" title="Eliminar por completo">🗑️</button>`:''}
@@ -2459,9 +2497,9 @@ function abrirCobro(v, esNuevo){
         venta.total=total;
         venta.cambio=Math.round(cambio);
         venta.cobrado=now(); venta.cobradoPor=STATE.user.nombre;
-        guardarMisDatos('ventas',ventas);
+        descontarStock(venta);                 // marca la venta como descontada
+        guardarMisDatos('ventas',ventas);      // se guarda DESPUÉS, con la marca
         guardarClienteAuto(venta);
-        descontarStock(venta);
         sonidoVenta();
         avisarStockBajo(venta);
         if(esNuevo){ limpiarPedido(); ESCRIBIENDO=false; }
@@ -2519,12 +2557,12 @@ function anularPedido(id){
     const ventas=misDatos('ventas');
     const venta=ventas.find(x=>x.id===id);
     if(!venta){ toast('El pedido ya no existe','error'); return; }
-    const estabaPagada = venta.estado==='pagada';
+    const teniaStock = venta.stockAplicado===true || (venta.stockAplicado===undefined && venta.estado==='pagada');
     venta.estado='anulada';
     venta.anulada=now();
     venta.anuladaPor=STATE.user.nombre;
+    if(teniaStock) devolverStock(venta);       // devuelve y deja la marca
     guardarMisDatos('ventas',ventas);
-    if(estabaPagada) devolverStock(venta);
     logAudit('Anuló pedido', (venta.factura||'')+' · '+fmtMoney(venta.total));
     toast('Pedido anulado','info');
     render();
@@ -2537,18 +2575,81 @@ function editarPedido(id){
   const v=misDatos('ventas').find(x=>x.id===id);
   if(!v){ toast('Pedido no encontrado','error'); return; }
   if(v.estado==='anulada'){ toast('No se puede editar un pedido anulado','error'); return; }
+  // Una venta de una caja YA CERRADA no se toca: descuadraría ese cierre
+  const cajaArr=misDatos('caja_actual');
+  const cajaAb=Array.isArray(cajaArr)?cajaArr[0]:cajaArr;
+  if(v.estado==='pagada' && v.cajaId && (!cajaAb || cajaAb.id!==v.cajaId)){
+    toast('Ese pedido es de una caja ya cerrada. Para corregirlo, anúlalo y haz uno nuevo.','error');
+    return;
+  }
+  if(v.estado==='pagada' && !cajaAb){
+    toast('Abre la caja antes de editar un pedido ya cobrado','error'); return;
+  }
+  STATE._itemsAntes=JSON.parse(JSON.stringify(v.items||[]));
+  STATE._totalAntes=v.total||0;
   // Cargar el pedido en el carrito para modificarlo
   _carrito=(v.items||[]).map(i=>({prodId:i.prodId, nombre:i.nombre, precio:i.precio, qty:i.qty, obs:i.obs||''}));
   _vTipo=v.tipo||'llevar'; _vMesa=v.mesa||''; _vObs=v.obs||'';
-  _desc=v.descuento||0; _descMot=v.descMot||'';
+  _desc=v.descuento||0; _descMot=v.descMotivo||v.descMot||'';
   _vCli={nombre:v.cliNombre||'', tel:v.cliTel||'', dir:v.cliDir||'', barrio:v.cliBarrio||'',
     ciudad:v.cliCiudad||'', depto:v.cliDepto||'', transportadora:v.transportadora||'',
     domiciliario:v.domiciliario||'', valorDom:v.valorDom||0};
   STATE.editandoVentaId=id;   // marca que estamos editando, no creando
   ESCRIBIENDO=true;
   STATE.pageNeg='ventas';
-  toast('Editando '+(v.factura||'pedido')+'. Guarda para aplicar cambios.','info');
+  toast('Editando '+(v.factura||'pedido')+(v.estado==='pagada'?' (ya cobrado: se ajustará el pago)':'')+'. Guarda para aplicar cambios.','info');
   render();
+}
+// Cuando se edita un pedido YA COBRADO y cambia el total, hay que decir
+// cómo queda el pago: si el cliente puso más o si hay que devolverle.
+function ajustarPagoVenta(id){
+  const v=misDatos('ventas').find(x=>x.id===id);
+  if(!v){ toast('Pedido no encontrado','error'); return; }
+  const p=pagosDe(v);
+  const pagado=p.efectivo+p.banco+p.tarjeta;
+  const total=v.total||0;
+  const dif=total-pagado;
+  abrirModal({titulo:'Ajustar el cobro de '+(v.factura||''), textoBoton:'Guardar cobro', campos:[],
+    extraHTML:`<div class="cobro-caja">
+      <div class="c-row"><span>Ya estaba pagado</span><strong>${fmtMoney(pagado)}</strong></div>
+      <div class="c-row"><span>Nuevo total del pedido</span><strong>${fmtMoney(total)}</strong></div>
+      <div class="c-row c-total"><span>${dif>0?'EL CLIENTE DEBE':'HAY QUE DEVOLVERLE'}</span><strong class="${dif>0?'oro':'rojo'}">${fmtMoney(Math.abs(dif))}</strong></div>
+    </div>
+    <div class="cobro-caja" style="margin-top:12px;">
+      <strong>¿Cómo queda el pago en total?</strong>
+      <p class="nota" style="margin:6px 0 10px;">Escribe cuánto queda por cada forma. La suma debe dar ${fmtMoney(total)}.</p>
+      <div class="botones-fila">
+        <button type="button" class="btn btn-sm btn-verde" onclick="pagoRapido('efectivo')">Todo en efectivo</button>
+        <button type="button" class="btn btn-sm" onclick="pagoRapido('banco')">Todo por banco</button>
+        <button type="button" class="btn btn-sm" onclick="pagoRapido('tarjeta')">Todo con tarjeta</button>
+      </div>
+      <div class="form2" style="margin-top:6px;">
+        <div class="m-row" style="margin-bottom:8px;"><label>💵 Efectivo</label><input type="number" id="pg-efectivo" class="campo" value="${Math.round(p.efectivo)}"></div>
+        <div class="m-row" style="margin-bottom:8px;"><label>🏦 Banco</label><input type="number" id="pg-banco" class="campo" value="${Math.round(p.banco)}"></div>
+        <div class="m-row" style="margin-bottom:8px;"><label>💳 Tarjeta</label><input type="number" id="pg-tarjeta" class="campo" value="${Math.round(p.tarjeta)}"></div>
+        <div class="m-row" style="margin-bottom:8px;"><label>Falta / sobra</label><div class="campo" id="pg-estado" style="display:flex;align-items:center;font-weight:800;">$ 0</div></div>
+      </div>
+      <div class="c-nota" id="c-nota"></div>
+    </div>`,
+  onAbrir:()=>{
+    window._cobroTotal=total;
+    ['pg-efectivo','pg-banco','pg-tarjeta'].forEach(x=>{ const e=document.getElementById(x); if(e) e.addEventListener('input',pintarEstadoPago); });
+    pintarEstadoPago();
+  },
+  onGuardar:()=>{
+    const nuevos=leerPagos();
+    const suma=nuevos.efectivo+nuevos.banco+nuevos.tarjeta;
+    if(Math.abs(suma-total)>0.5){ toast('La suma debe dar exactamente '+fmtMoney(total),'error'); return; }
+    const ventas=misDatos('ventas');
+    const x=ventas.find(y=>y.id===id); if(!x){ cerrarModal(); return; }
+    x.pagos={efectivo:Math.round(nuevos.efectivo), banco:Math.round(nuevos.banco), tarjeta:Math.round(nuevos.tarjeta)};
+    x.metodo=metodoPrincipal(x.pagos);
+    x.pagoDescuadrado=false;
+    x.pagoEditadoPor=STATE.user.nombre; x.pagoEditadoEn=now();
+    guardarMisDatos('ventas',ventas);
+    logAudit('Ajustó el cobro tras editar', (x.factura||'')+' → '+detallePagos(x));
+    cerrarModal(); toast('Cobro ajustado','success'); render();
+  }});
 }
 
 // ---------- CAMBIAR FORMA DE PAGO (después de cobrado) ----------
@@ -2606,8 +2707,8 @@ function eliminarDefinitivo(id){
   const v=misDatos('ventas').find(x=>x.id===id);
   if(!v){ toast('Pedido no encontrado','error'); return; }
   confirmarModal('⚠️ Eliminar PERMANENTEMENTE '+(v.factura||'este pedido')+' ('+fmtMoney(v.total)+'). Se descuenta de ventas, caja y reportes. No se puede deshacer. ¿Continuar?', ()=>{
-    const estabaPagada=v.estado==='pagada';
-    if(estabaPagada) devolverStock(v);
+    const teniaStock = v.stockAplicado===true || (v.stockAplicado===undefined && v.estado==='pagada');
+    if(teniaStock) devolverStock(v);
     eliminarMisDatos('ventas',id);
     logAudit('Eliminó definitivamente', (v.factura||'')+' · '+fmtMoney(v.total));
     toast('Pedido eliminado por completo','error'); render();
@@ -2709,77 +2810,127 @@ function fmtSoloFecha(f){
   catch(e){ return f; }
 }
 
-// ---------- INVENTARIO ----------
-function descontarStock(venta){
+// ============================================================
+//  MOTOR DE INVENTARIO
+//  Un solo camino para TODO lo que mueve existencias: vender, anular,
+//  editar un pedido, mermas y ajustes. Así el inventario nunca queda
+//  descuadrado por un flujo que se olvidó de descontar o devolver.
+// ============================================================
+// Cuántas unidades reales consume una lista de items (expande combos y recetas)
+function requerimientos(items){
   const neg=STATE.negocio;
-  if((neg.funciones||[]).indexOf('inventario')<0) return;
-  const productos=misDatos('productos');
-  const insumos=neg.usaRecetas?misDatos('insumos'):[];
-  let cambioP=false, cambioI=false;
-  const agotadosAhora=[];
-  (venta.items||[]).forEach(item=>{
-    const p=productos.find(x=>x.id===item.prodId);
+  const prods=misDatos('productos');
+  const res={prod:{}, ins:{}};
+  (items||[]).forEach(it=>{
+    const p=prods.find(x=>x.id===it.prodId);
     if(!p) return;
-    if(neg.usaRecetas && p.receta && p.receta.length){
-      p.receta.forEach(r=>{
-        const ins=insumos.find(i=>i.id===r.insumoId);
-        if(ins){
-          const antes=ins.stock||0;
-          ins.stock=Math.max(0,antes-r.cantidad*item.qty); cambioI=true;
-          if(antes>0 && ins.stock<=0 && agotadosAhora.indexOf(ins.nombre)<0) agotadosAhora.push(ins.nombre);
-        }
-      });
-    }
+    const qty=it.qty||0;
     if(esCombo(p)){
-      // El combo no tiene stock propio: saca las unidades de cada producto que lleva
       (p.componentes||[]).forEach(cp=>{
-        const base=productos.find(x=>x.id===cp.prodId);
-        if(!base || base.stock==null) return;
-        const salen=(cp.cantidad||1)*item.qty;
-        const antes=base.stock||0;
-        if((base.lotes||[]).length){ descontarDeLotes(base, salen); }
-        base.stock=Math.max(0,antes-salen); cambioP=true;
-        if(antes>0 && base.stock<=0 && agotadosAhora.indexOf(base.nombre)<0) agotadosAhora.push(base.nombre);
+        const base=prods.find(x=>x.id===cp.prodId);
+        if(base && base.stock!=null) res.prod[cp.prodId]=(res.prod[cp.prodId]||0)+(cp.cantidad||1)*qty;
       });
-    } else if(p.stock!=null){
-      if((p.lotes||[]).length){ descontarDeLotes(p, item.qty); }   // FEFO: saca primero lo que vence antes
-      p.stock=Math.max(0,p.stock-item.qty); cambioP=true;
+      return;
     }
+    if(neg.usaRecetas && (p.receta||[]).length){
+      p.receta.forEach(r=>{ res.ins[r.insumoId]=(res.ins[r.insumoId]||0)+(r.cantidad||0)*qty; });
+    }
+    if(p.stock!=null) res.prod[it.prodId]=(res.prod[it.prodId]||0)+qty;
   });
-  if(cambioI) guardarMisDatos('insumos',insumos);
-  if(cambioP) guardarMisDatos('productos',productos);
-  if(agotadosAhora.length){ toast('⚠️ Se agotó: '+agotadosAhora.join(', ')+'. Revisa el inventario.','error'); }
+  return res;
 }
-function devolverStock(venta){
-  const neg=STATE.negocio;
-  if((neg.funciones||[]).indexOf('inventario')<0) return;
-  const productos=misDatos('productos');
-  const insumos=neg.usaRecetas?misDatos('insumos'):[];
-  let cambioP=false, cambioI=false;
-  (venta.items||[]).forEach(item=>{
-    const p=productos.find(x=>x.id===item.prodId);
-    if(!p) return;
-    if(neg.usaRecetas && p.receta && p.receta.length){
-      p.receta.forEach(r=>{
-        const ins=insumos.find(i=>i.id===r.insumoId);
-        if(ins){ ins.stock=(ins.stock||0)+r.cantidad*item.qty; cambioI=true; }
-      });
-    }
-    if(esCombo(p)){
-      (p.componentes||[]).forEach(cp=>{
-        const base=productos.find(x=>x.id===cp.prodId);
-        if(!base || base.stock==null) return;
-        const vuelven=(cp.cantidad||1)*item.qty;
-        if((base.lotes||[]).length){ reingresarALotes(base, vuelven); }
-        base.stock=(base.stock||0)+vuelven; cambioP=true;
-      });
-    } else if(p.stock!=null){
-      if((p.lotes||[]).length){ reingresarALotes(p, item.qty); }
-      p.stock=(p.stock||0)+item.qty; cambioP=true;
-    }
+// Resta dos requerimientos: cuánto cambia el inventario al pasar de A a B
+function difRequerimientos(antes, despues){
+  const d={prod:{}, ins:{}};
+  ['prod','ins'].forEach(k=>{
+    const ids=new Set(Object.keys(antes[k]||{}).concat(Object.keys(despues[k]||{})));
+    ids.forEach(id=>{
+      const v=(despues[k][id]||0)-(antes[k][id]||0);    // + = consume más
+      if(v!==0) d[k][id]=v;
+    });
   });
-  if(cambioI) guardarMisDatos('insumos',insumos);
-  if(cambioP) guardarMisDatos('productos',productos);
+  return d;
+}
+// Aplica un movimiento de inventario. signo -1 = sale del stock, +1 = entra.
+// registra=true deja constancia en Movimientos (para ediciones, mermas y ajustes).
+function moverInventario(req, signo, motivo, registra){
+  if(!usaInventario()) return [];
+  const productos=misDatos('productos');
+  const insumos=misDatos('insumos');
+  const movs=registra?misDatos('movimientos'):null;
+  const agotados=[];
+  let cp=false, ci=false;
+  Object.keys(req.prod||{}).forEach(id=>{
+    const cant=req.prod[id]*signo;          // negativo = sale
+    const p=productos.find(x=>x.id===id);
+    if(!p || p.stock==null || !cant) return;
+    const antes=p.stock||0;
+    if((p.lotes||[]).length){
+      if(cant<0) descontarDeLotes(p, Math.abs(cant)); else reingresarALotes(p, cant);
+    }
+    p.stock=Math.max(0, antes+cant); cp=true;
+    if(antes>0 && p.stock<=0) agotados.push(p.nombre);
+    if(movs) movs.unshift({id:uid(), productoId:id, nombre:p.nombre, tipo:cant<0?'salida':'entrada',
+      cantidad:Math.abs(cant), motivo:motivo||'Ajuste', por:STATE.user.nombre, fecha:now()});
+  });
+  Object.keys(req.ins||{}).forEach(id=>{
+    const cant=req.ins[id]*signo;
+    const x=insumos.find(y=>y.id===id);
+    if(!x || !cant) return;
+    const antes=x.stock||0;
+    x.stock=Math.max(0, antes+cant); ci=true;
+    if(antes>0 && x.stock<=0) agotados.push(x.nombre);
+    if(movs) movs.unshift({id:uid(), insumoId:id, nombre:x.nombre, tipo:cant<0?'salida-insumo':'entrada-insumo',
+      cantidad:Math.abs(cant), motivo:motivo||'Ajuste', por:STATE.user.nombre, fecha:now()});
+  });
+  if(cp) guardarMisDatos('productos',productos);
+  if(ci) guardarMisDatos('insumos',insumos);
+  if(movs) guardarMisDatos('movimientos', movs.slice(0,1000));
+  return Array.from(new Set(agotados));
+}
+// ¿Alcanza el inventario para este cambio? Devuelve la lista de lo que falta.
+function faltantesPara(req){
+  if(!usaInventario()) return [];
+  const productos=misDatos('productos');
+  const insumos=misDatos('insumos');
+  const faltan=[];
+  Object.keys(req.prod||{}).forEach(id=>{
+    if(req.prod[id]<=0) return;
+    const p=productos.find(x=>x.id===id);
+    if(!p || p.stock==null) return;
+    if(req.prod[id]>(p.stock||0)) faltan.push(p.nombre+' (piden '+req.prod[id]+', hay '+(p.stock||0)+')');
+  });
+  Object.keys(req.ins||{}).forEach(id=>{
+    if(req.ins[id]<=0) return;
+    const x=insumos.find(y=>y.id===id);
+    if(!x) return;
+    if(req.ins[id]>(x.stock||0)) faltan.push(x.nombre+' (piden '+req.ins[id]+', hay '+(x.stock||0)+')');
+  });
+  return faltan;
+}
+// ---------- Las 3 operaciones que usan las ventas ----------
+// Descuenta el inventario de una venta y deja la marca de que YA se descontó
+function descontarStock(venta){
+  if(!usaInventario() || !venta) return;
+  if(venta.stockAplicado===true) return;                 // nunca descontar dos veces
+  const agot=moverInventario(requerimientos(venta.items), -1, 'Venta '+(venta.factura||''), false);
+  venta.stockAplicado=true;
+  if(agot.length) toast('⚠️ Se agotó: '+agot.join(', ')+'. Revisa el inventario.','error');
+}
+// Devuelve el inventario de una venta (anular, eliminar)
+function devolverStock(venta){
+  if(!usaInventario() || !venta) return;
+  if(venta.stockAplicado===false) return;                // ya se había devuelto
+  moverInventario(requerimientos(venta.items), +1, 'Devolución '+(venta.factura||''), false);
+  venta.stockAplicado=false;
+}
+// Ajusta el inventario cuando se EDITA un pedido que ya había descontado
+function ajustarStockPorEdicion(itemsAntes, itemsDespues, factura){
+  if(!usaInventario()) return;
+  const d=difRequerimientos(requerimientos(itemsAntes), requerimientos(itemsDespues));
+  if(!Object.keys(d.prod).length && !Object.keys(d.ins).length) return;
+  const agot=moverInventario(d, -1, 'Edición del pedido '+(factura||''), true);
+  if(agot.length) toast('⚠️ Se agotó: '+agot.join(', '),'error');
 }
 function avisarStockBajo(venta){
   const neg=STATE.negocio;
@@ -2944,6 +3095,13 @@ function inicio(){
         <div class="linea total-linea"><span>TOTAL</span><strong>${fmtMoney(totHoy)}</strong></div>
       </div>
     </div>
+    ${(()=>{ const rev=misDatos('ventas').filter(v=>v.pagoDescuadrado && v.estado==='pagada');
+      if(!rev.length) return '';
+      return `<div class="tarjeta alerta">
+        <span class="t-tit chico">⚠️ ${rev.length} ${pPedido()}(s) con el cobro sin ajustar</span>
+        <p>Se editaron después de cobrados y el total cambió. Ajusta el pago para que la caja cuadre.</p>
+        <div class="botones-fila" style="margin-top:8px;">${rev.slice(0,6).map(v=>`<button class="btn btn-sm btn-naranja" onclick="ajustarPagoVenta('${v.id}')">${escapeHtml(v.factura||'')} · ${fmtMoney(v.total)}</button>`).join('')}</div>
+      </div>`; })()}
     ${pend.length?`<div class="tarjeta tarjeta-pend">
       <span class="t-tit">⏳ ${pPedidos(true)} por cobrar</span>
       <div class="tabla-wrap"><table class="tabla">
@@ -3145,6 +3303,15 @@ function movimientoCaja(tipo){
 }
 function cerrarCaja(){
   if(!tienePermiso('abrircaja')){ toast('No tienes permiso para cerrar la caja','error'); return; }
+  // No dejar cerrar con cobros a medio ajustar: eso es lo que descuadra la caja
+  const sinAjustar=ventasJornada(true).filter(v=>v.pagoDescuadrado);
+  if(sinAjustar.length){
+    abrirModal({titulo:'Hay cobros sin ajustar', textoBoton:'Entendido', campos:[],
+      extraHTML:`<p class="nota">Estos ${pPedidos()} se editaron después de cobrados y su pago no cuadra con el total. Ajústalos antes de cerrar la caja:</p>
+        <div class="botones-fila" style="margin-top:10px;">${sinAjustar.map(v=>`<button class="btn btn-sm btn-naranja" onclick="cerrarModal();ajustarPagoVenta('${v.id}')">${escapeHtml(v.factura||'')} · ${fmtMoney(v.total)}</button>`).join('')}</div>`,
+      onGuardar:()=>cerrarModal()});
+    return;
+  }
   const arr=misDatos('caja_actual');
   const c=Array.isArray(arr)?arr[0]:arr;
   if(!c) return;
@@ -3452,6 +3619,22 @@ function inventario(){
         ?`<div class="stat ${vencidos.length?'rojo':porVencer.length?'gold':''}"><div class="stat-lbl">Por vencer / vencidos</div><div class="stat-val">${porVencer.length+vencidos.length}</div><div class="stat-sub">lotes con alerta</div></div>`
         :`<div class="stat ${agotados.length?'rojo':''}"><div class="stat-lbl">Agotados</div><div class="stat-val">${agotados.length}</div><div class="stat-sub">sin unidades</div></div>`}
     </div>`:''}
+    ${(()=>{ const m=misDatos('movimientos').slice(0,8); if(!m.length) return '';
+      return `<div class="tarjeta">
+        <span class="t-tit">${ic('history')} Últimos movimientos de inventario</span>
+        <p class="nota">Aquí queda todo lo que entra y sale sin ser una venta: compras, ajustes de conteo, daños y ediciones de pedidos.</p>
+        <div class="tabla-wrap"><table class="tabla">
+          <thead><tr><th>Producto</th><th>Movimiento</th><th>Cantidad</th><th>Motivo</th><th>Quién</th><th>Fecha</th></tr></thead>
+          <tbody>${m.map(x=>`<tr>
+            <td><strong>${escapeHtml(x.nombre||'—')}</strong></td>
+            <td>${String(x.tipo||'').indexOf('entrada')===0?'<span class="pill pill-verde">Entrada</span>':String(x.tipo)==='ajuste'?'<span class="pill pill-azul">Ajuste</span>':'<span class="pill pill-rojo">Salida</span>'}</td>
+            <td class="negrita">${x.cantidad}</td>
+            <td class="gris">${escapeHtml(x.motivo||'—')}</td>
+            <td class="gris chico">${escapeHtml(x.por||'—')}</td>
+            <td class="gris chico">${fmtDate(x.fecha)}</td>
+          </tr>`).join('')}</tbody>
+        </table></div>
+      </div>`; })()}
     ${(agotados.length||bajos.length)?`<div class="tarjeta alerta">
       <span class="t-tit chico">⚠️ Alertas de inventario</span>
       ${agotados.length?`<p><strong class="rojo">AGOTADOS (${agotados.length}):</strong> ${agotados.map(p=>escapeHtml(p.nombre)).join(', ')}</p>`:''}
@@ -3497,6 +3680,7 @@ function inventario(){
             ${vencePill}
             <div class="prod-acc">
               ${(p.stock!=null&&tienePermiso('editarstock'))?`<button class="btn btn-sm btn-verde" onclick="entradaStock('${p.id}')">+ Stock</button>`:''}
+              ${(p.stock!=null&&tienePermiso('editarstock'))?`<button class="btn btn-sm btn-naranja" onclick="salidaStock('${p.id}')" title="Sacar sin vender: daño, vencido, consumo interno">− Salida</button>`:''}
               ${p.usaLotes?`<button class="btn btn-sm" onclick="verLotes('${p.id}')" title="Ver lotes">📦 Lotes</button>`:''}
               ${tienePermiso('editarprod')?`<button class="btn btn-sm" onclick="editarProducto('${p.id}')">Editar</button>`:''}
               ${tienePermiso('editarprod')?`<button class="btn btn-sm btn-rojo" onclick="eliminarProducto('${p.id}')">×</button>`:''}
@@ -3663,6 +3847,33 @@ function eliminarProducto(id){
     eliminarMisDatos('productos',id);
     toast('Eliminado','info'); render();
   },'Eliminar');
+}
+// Sacar mercancía sin vender: daño, vencido, consumo interno, regalo.
+// Es la causa #1 de descuadres cuando no queda registrado.
+function salidaStock(id){
+  if(!tienePermiso('editarstock')){ toast('No tienes permiso para modificar el stock','error'); return; }
+  const productos=misDatos('productos');
+  const p=productos.find(x=>x.id===id); if(!p) return;
+  abrirModal({titulo:'Salida de inventario · '+p.nombre, textoBoton:'Registrar salida', campos:[
+    {id:'cant', label:'¿Cuántas unidades salen?', tipo:'number', requerido:true},
+    {id:'motivo', label:'Motivo', tipo:'select', opciones:[
+      {valor:'Producto dañado',label:'Producto dañado'},
+      {valor:'Producto vencido',label:'Producto vencido'},
+      {valor:'Consumo interno',label:'Consumo interno'},
+      {valor:'Regalo / cortesía',label:'Regalo / cortesía'},
+      {valor:'Faltante detectado',label:'Faltante detectado'},
+      {valor:'Otro',label:'Otro'}]},
+    {id:'nota', label:'Detalle (opcional)'}
+  ], extraHTML:`<p class="nota">Existencias actuales: <strong>${p.stock||0}</strong>. Esto NO es una venta: no entra plata, solo sale mercancía.</p>`,
+  onGuardar:(d)=>{
+    const cant=parseFloat(d.cant)||0;
+    if(cant<=0){ toast('Cantidad inválida','error'); return; }
+    if(cant>(p.stock||0)){ toast('Solo hay '+(p.stock||0)+' unidades','error'); return; }
+    const req={prod:{},ins:{}}; req.prod[id]=cant;
+    moverInventario(req, -1, d.motivo+(d.nota?' · '+d.nota:''), true);
+    logAudit('Salida de inventario', p.nombre+' ×'+cant+' · '+d.motivo);
+    cerrarModal(); toast('Salida registrada','info'); render();
+  }});
 }
 function entradaStock(id){
   if(!tienePermiso('editarstock')){ toast('No tienes permiso para modificar el stock','error'); return; }
