@@ -171,7 +171,12 @@ function guardarMisDatos(tabla, arr){
   const tomb=REG_BORRADOS[clave]||{};
   const porId = {};
   (CACHE[clave]||[]).forEach(x=>{ if(x&&x.id && !tomb[x.id]) porId[x.id]=x; });
-  (arr||[]).forEach(x=>{ if(x&&x.id && !tomb[x.id]) porId[x.id]=x; });
+  // Si el array trae el mismo id repetido, vale el PRIMERO (el recién editado)
+  const vistos={};
+  (arr||[]).forEach(x=>{
+    if(!x||!x.id||tomb[x.id]||vistos[x.id]) return;
+    vistos[x.id]=1; porId[x.id]=x;
+  });
   const fusionado = _ordenar(Object.values(porId), tabla);
   _soloLocal(clave, fusionado);          // en el equipo
   _subirRegistros(negId, tabla, arr||[]); // a la nube: solo lo que cambió
@@ -1732,6 +1737,14 @@ function nuevaVenta(){
       </div>
       <div class="tarjeta carrito">
         <div class="carrito-cab">
+          ${STATE.editandoVentaId?(()=>{ const ed=misDatos('ventas').find(x=>x.id===STATE.editandoVentaId)||{};
+            return `<div class="tarjeta-pend" style="padding:10px 12px;border-radius:10px;margin-bottom:10px;">
+              <div class="flex-between" style="gap:8px;flex-wrap:wrap;">
+                <span class="oro negrita">✏️ Editando ${escapeHtml(ed.factura||'pedido')}${ed.estado==='pagada'?' (ya cobrado)':''}</span>
+                <button class="btn btn-sm btn-ghost" onclick="cancelarEdicionPedido()">Cancelar</button>
+              </div>
+              <div class="gris chico" style="margin-top:4px;">Antes: ${fmtMoney(ed.total||0)} · ${(ed.items||[]).reduce((a,i)=>a+i.qty,0)} und${ed.estado==='pagada'?' · si cambia el total te pedirá ajustar el cobro':''}</div>
+            </div>`; })():''}
           <div class="t-cab" style="margin-bottom:12px;">
             <span class="t-tit">${ic('cart')} ${pPedido(true)}</span>
             ${_carrito.length?`<button class="btn btn-sm btn-ghost" onclick="vaciarCarrito()" title="Vaciar">🗑</button>`:''}
@@ -1766,8 +1779,8 @@ function nuevaVenta(){
           <div id="linea-dom">${valorDom>0?`<div class="linea"><span>${_vTipo==='envio'?'Envío':'Domicilio'}</span><span>${fmtMoney(valorDom)}</span></div>`:''}</div>
           <div class="total"><span>TOTAL</span><span id="venta-total">${fmtMoney(total+valorDom)}</span></div>
           `}
-          <button class="btn btn-gold btn-block btn-grande" id="btn-confirmar" onclick="${neg.esLogistica?'registrarSalida()':(dosPasos?'confirmarPedido()':'cobrarDirecto()')}">
-            ${neg.esLogistica?'📦 Registrar salida':(dosPasos?'✓ Confirmar pedido':'💵 Cobrar ahora')}
+          <button class="btn btn-gold btn-block btn-grande" id="btn-confirmar" onclick="${STATE.editandoVentaId?'guardarEdicionPedido()':(neg.esLogistica?'registrarSalida()':(dosPasos?'confirmarPedido()':'cobrarDirecto()'))}">
+            ${STATE.editandoVentaId?'💾 Guardar cambios':(neg.esLogistica?'📦 Registrar salida':(dosPasos?'✓ Confirmar pedido':'💵 Cobrar ahora'))}
           </button>
         </div>`:''}
       </div>
@@ -1957,6 +1970,12 @@ function abrirDescuento(){
   }});
 }
 function quitarDescuento(){ _desc=0; _descMot=''; render(); }
+function cancelarEdicionPedido(){
+  confirmarModal('¿Salir sin guardar los cambios del pedido?',()=>{
+    limpiarPedido(); ESCRIBIENDO=false; STATE.pageNeg='pedidos'; render();
+    toast('Edición cancelada','info');
+  },'Sí, salir');
+}
 function buscarCliente(){
   const tel=(_vCli.tel||'').trim();
   if(tel.length<7) return;
@@ -2058,6 +2077,58 @@ function registrarSalida(){
 }
 
 // ---------- FLUJO A: confirmar ahora, cobrar después ----------
+// Guardar los cambios de un pedido que se está editando.
+// Vale para los dos flujos (cobro directo y confirmar→cobrar).
+function guardarEdicionPedido(){
+  if(_guardando) return;
+  if(!STATE.editandoVentaId){ toast('No hay ningún pedido en edición','error'); return; }
+  if(!_carrito.length){ toast('El pedido no puede quedar vacío. Si quieres borrarlo, anúlalo.','error'); return; }
+  if(!validarClientePedido()) return;
+  const ventasPrev=misDatos('ventas');
+  const orig=ventasPrev.find(x=>x.id===STATE.editandoVentaId);
+  if(!orig){ toast('Ese pedido ya no existe','error'); limpiarPedido(); ESCRIBIENDO=false; render(); return; }
+  const yaDescontado = orig.stockAplicado===true || (orig.stockAplicado===undefined && orig.estado==='pagada');
+  if(yaDescontado){
+    const d=difRequerimientos(requerimientos(orig.items), requerimientos(_carrito));
+    const faltan=faltantesPara(d);
+    if(faltan.length){ toast('⛔ No alcanza el inventario: '+faltan.join(', '),'error'); sonidoError(); return; }
+  }
+  _guardando=true;
+  bloquearBoton('btn-confirmar','Guardando…');
+  try{
+    const itemsAntes=JSON.parse(JSON.stringify(orig.items||[]));
+    const totalAntes=orig.total||0;
+    const estadoAntes=orig.estado;
+    const venta=armarVenta(orig.estado||'abierta');
+    venta.stockAplicado = yaDescontado ? true : (orig.stockAplicado===true);
+    const ventas=misDatos('ventas');
+    const i=ventas.findIndex(x=>x.id===venta.id);
+    if(i>-1) ventas[i]=venta; else ventas.unshift(venta);     // NUNCA duplicar
+    const cambiaronItems = JSON.stringify(itemsAntes)!==JSON.stringify(venta.items);
+    // Inventario: solo la diferencia, y solo si ya se había descontado
+    if(yaDescontado && cambiaronItems) ajustarStockPorEdicion(itemsAntes, venta.items, venta.factura);
+    // Cocina: si cambió lo pedido, hay que volver a prepararlo
+    if(STATE.negocio.usaCocina && cambiaronItems && venta.estadoCocina && venta.estadoCocina!=='entregado'){
+      venta.estadoCocina='pendiente';
+    }
+    // Caja: si ya estaba cobrado y cambió el total, el pago queda por ajustar
+    if(estadoAntes==='pagada' && Math.abs((venta.total||0)-totalAntes)>0.5) venta.pagoDescuadrado=true;
+    guardarMisDatos('ventas',ventas);
+    logAudit('Editó pedido', (venta.factura||'')+': '+fmtMoney(totalAntes)+' → '+fmtMoney(venta.total||0)
+      +' · '+itemsAntes.reduce((a,x)=>a+x.qty,0)+' → '+venta.items.reduce((a,x)=>a+x.qty,0)+' und');
+    const idG=venta.id, ajustar=!!venta.pagoDescuadrado;
+    limpiarPedido(); ESCRIBIENDO=false; STATE.pageNeg='pedidos'; render();
+    sonidoPedido();
+    toast('Pedido '+venta.factura+' actualizado'+(cambiaronItems?' · inventario ajustado':''),'success');
+    if(ajustar){ setTimeout(()=>ajustarPagoVenta(idG),450); }
+    else if(cambiaronItems && STATE.negocio.usaCocina){
+      setTimeout(()=>confirmarModal('Cambió el pedido. ¿Imprimir la comanda corregida para cocina?',
+        ()=>{ const vv=misDatos('ventas').find(x=>x.id===idG); if(vv) imprimirComanda(vv); },'Imprimir'),450);
+    }
+  }catch(e){ console.error(e); toast('Error al guardar los cambios','error'); }
+  finally{ _guardando=false; }
+}
+
 function confirmarPedido(){
   if(_guardando) return;
   if(!_carrito.length){ toast('Agrega productos primero','error'); return; }
@@ -2485,7 +2556,9 @@ function abrirCobro(v, esNuevo){
         const ventas=misDatos('ventas');
         let venta;
         if(esNuevo){
-          venta=v; venta.estado='pagada'; ventas.unshift(venta);
+          venta=v; venta.estado='pagada';
+          const yaEsta=ventas.findIndex(x=>x.id===venta.id);
+          if(yaEsta>-1) ventas[yaEsta]=venta; else ventas.unshift(venta);   // evita duplicados al editar
         } else {
           venta=ventas.find(x=>x.id===v.id);
           if(!venta){ toast('El pedido ya no existe','error'); cerrarModal(); _guardando=false; return; }
