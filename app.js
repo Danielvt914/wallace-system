@@ -2225,7 +2225,7 @@ function pedidos(){
     if(colTipo) tds+=`<td>${etiq[v.tipo]||'—'}${v.mesa?'<br><span class="gris chico">'+escapeHtml(v.mesa)+'</span>':''}</td>`;
     tds+=`<td>${escapeHtml(v.cliNombre||v.mesa||'—')}${v.cliTel?`<br><span class="gris chico">${escapeHtml(v.cliTel)}</span>`:''}</td>`;
     tds+=colDinero?`<td class="negrita">${fmtMoney(v.total)}</td>`:`<td class="negrita">${uniDe(v)} und</td>`;
-    if(colDinero) tds+=`<td>${abierta?'<span class="pill pill-gold">Abierta</span>':'<span class="pill pill-verde">Pagada</span>'}${v.estado==='pagada'&&v.metodo&&v.metodo!=='—'?`<br><span class="gris chico">${escapeHtml(v.metodo)}</span>`:''}</td>`;
+    if(colDinero) tds+=`<td>${abierta?'<span class="pill pill-gold">Abierta</span>':'<span class="pill pill-verde">Pagada</span>'}${v.estado==='pagada'?`<br><span class="gris chico" title="${escapeHtml(detallePagos(v))}">${escapeHtml(metodoTexto(v))}</span>`:''}</td>`;
     if(usaCocina) tds+=`<td>${cocBadge(v.estadoCocina)}</td>`;
     tds+=`<td><select class="busca" style="min-width:auto;padding:5px 8px;" onchange="setEstadoPedido('${v.id}',this.value)"><option value="activo" ${v.estadoPedido!=='entregado'?'selected':''}>Activo</option><option value="entregado" ${v.estadoPedido==='entregado'?'selected':''}>Entregado</option></select></td>`;
     if(usaDomi) tds+=`<td>${v.tipo==='domicilio'?selDom(v):'—'}</td>`;
@@ -2278,6 +2278,76 @@ function asignarDomiciliario(id, nombre){
   render();
 }
 
+// ============================================================
+//  PAGO DIVIDIDO
+//  El cliente puede pagar con varias formas a la vez: parte en efectivo,
+//  parte por transferencia, parte con tarjeta. Cada venta guarda cuánto
+//  entró por cada forma en v.pagos, y de ahí salen caja, reportes y contable.
+// ============================================================
+function pagosDe(v){
+  const p=v&&v.pagos;
+  if(p && ((p.efectivo||0)+(p.banco||0)+(p.tarjeta||0))>0){
+    return {efectivo:p.efectivo||0, banco:p.banco||0, tarjeta:p.tarjeta||0};
+  }
+  // Ventas viejas: todo entró por su único método
+  const o={efectivo:0,banco:0,tarjeta:0};
+  const t=(v&&v.total)||0;
+  const m=(v&&v.metodo)||'efectivo';
+  if(o[m]!==undefined) o[m]=t; else o.efectivo=t;
+  return o;
+}
+// Reparte un monto (la comida, la propina…) según cómo pagó el cliente
+function reparte(v, monto){
+  monto=monto||0;
+  const p=pagosDe(v);
+  const tot=(p.efectivo+p.banco+p.tarjeta);
+  if(!tot) return {efectivo:monto, banco:0, tarjeta:0};
+  return {efectivo:monto*p.efectivo/tot, banco:monto*p.banco/tot, tarjeta:monto*p.tarjeta/tot};
+}
+// Etiqueta corta para mostrar en tablas
+function metodoTexto(v){
+  if(!v || v.estado!=='pagada') return '—';
+  const p=pagosDe(v);
+  const usados=Object.keys(p).filter(k=>p[k]>0);
+  if(usados.length<=1) return usados[0]||(v.metodo||'—');
+  return 'Mixto';
+}
+function detallePagos(v){
+  const p=pagosDe(v);
+  const et={efectivo:'Efectivo',banco:'Banco',tarjeta:'Tarjeta'};
+  return Object.keys(p).filter(k=>p[k]>0).map(k=>et[k]+' '+fmtMoney(p[k])).join(' · ');
+}
+// Suma por método de un monto repartido, para toda una lista de ventas
+function sumaPorMetodo(ventas, fnMonto){
+  const acc={efectivo:0,banco:0,tarjeta:0};
+  (ventas||[]).forEach(v=>{
+    const r=reparte(v, fnMonto(v));
+    acc.efectivo+=r.efectivo; acc.banco+=r.banco; acc.tarjeta+=r.tarjeta;
+  });
+  acc.efectivo=Math.round(acc.efectivo); acc.banco=Math.round(acc.banco); acc.tarjeta=Math.round(acc.tarjeta);
+  return acc;
+}
+// Efectivo que realmente entró al cajón por las ventas
+function efectivoRecibido(ventas){
+  return Math.round((ventas||[]).reduce((a,v)=>a+pagosDe(v).efectivo,0));
+}
+// Propinas y domicilios que NO entraron en efectivo, pero se le pagan en
+// efectivo a su dueño (mesero o domiciliario): salen del cajón.
+function tercerosNoEfectivo(ventas){
+  return Math.round((ventas||[]).reduce((a,v)=>{
+    const r=reparte(v,(v.propina||0)+(v.valorDom||0));
+    return a+r.banco+r.tarjeta;
+  },0));
+}
+// Efectivo que DEBERÍA haber en el cajón (una sola fórmula para toda la app)
+function efectivoEsperado(c, ventas){
+  const movs=(c&&c.movimientos)||[];
+  const gastos=movs.filter(m=>m.tipo==='gasto').reduce((a,m)=>a+m.valor,0);
+  const retiros=movs.filter(m=>m.tipo==='retiro').reduce((a,m)=>a+m.valor,0);
+  const entradas=movs.filter(m=>m.tipo==='entrada').reduce((a,m)=>a+m.valor,0);
+  return Math.round(((c&&c.base)||0) + efectivoRecibido(ventas) + entradas - gastos - retiros - tercerosNoEfectivo(ventas));
+}
+
 // ---------- COBRAR ----------
 function cobrarPedido(id){
   const v=misDatos('ventas').find(x=>x.id===id);
@@ -2293,12 +2363,12 @@ function abrirCobro(v, esNuevo){
   const dom=v.valorDom||0;
   const usaPropina=(neg.usaPropina!==undefined?neg.usaPropina:neg.usaCocina);
   const pct=neg.pctDatafono||0;
-  const campos=[{id:'metodo', label:'Método de pago', tipo:'select', opciones:[
-    {valor:'efectivo',label:'Efectivo'},{valor:'banco',label:'Transferencia / Banco'},{valor:'tarjeta',label:'Tarjeta / Datáfono'}]}];
+  const campos=[];
   if(usaPropina) campos.push({id:'propina', label:'Propina (del personal, no es del negocio)', tipo:'number', valor:'0'});
   campos.push({id:'recargo', label:'Recargo del datáfono (lo cobra el banco)', tipo:'number', valor:'0'});
+  const totalIni=base+dom;
 
-  abrirModal({titulo:'Cobrar '+(v.factura||'')+' · '+fmtMoney(base+dom), textoBoton:'Confirmar cobro',
+  abrirModal({titulo:'Cobrar '+(v.factura||'')+' · '+fmtMoney(totalIni), textoBoton:'Confirmar cobro',
     campos,
     extraHTML:`<div class="cobro-caja">
       <div class="c-row"><span>${escapeHtml(neg.palabraProductos||'Productos')}</span><strong>${fmtMoney(v.subtotalBruto!==undefined?v.subtotalBruto:base)}</strong></div>
@@ -2306,56 +2376,88 @@ function abrirCobro(v, esNuevo){
       ${dom>0?`<div class="c-row"><span>${v.tipo==='envio'?'Envío':'Domicilio'}</span><strong>${fmtMoney(dom)}</strong></div>`:''}
       <div class="c-row" id="r-prop" style="display:none;"><span>Propina</span><strong id="v-prop">$ 0</strong></div>
       <div class="c-row" id="r-rec" style="display:none;"><span>Recargo datáfono</span><strong id="v-rec">$ 0</strong></div>
-      <div class="c-row c-total"><span>TOTAL A COBRAR</span><strong id="v-total">${fmtMoney(base+dom)}</strong></div>
+      <div class="c-row c-total"><span>TOTAL A COBRAR</span><strong id="v-total">${fmtMoney(totalIni)}</strong></div>
+    </div>
+    <div class="cobro-caja" style="margin-top:12px;">
+      <strong>¿Cómo paga el cliente?</strong>
+      <p class="nota" style="margin:6px 0 10px;">Puede pagar con varias formas a la vez. Escribe cuánto entra por cada una; deja en 0 las que no use.</p>
+      <div class="botones-fila">
+        <button type="button" class="btn btn-sm btn-verde" onclick="pagoRapido('efectivo')">Todo en efectivo</button>
+        <button type="button" class="btn btn-sm" onclick="pagoRapido('banco')">Todo por banco</button>
+        <button type="button" class="btn btn-sm" onclick="pagoRapido('tarjeta')">Todo con tarjeta</button>
+        <button type="button" class="btn btn-sm btn-ghost" onclick="pagoRapido('mitad')">Mitad y mitad</button>
+      </div>
+      <div class="form2" style="margin-top:6px;">
+        <div class="m-row" style="margin-bottom:8px;"><label>💵 Efectivo</label>
+          <input type="number" id="pg-efectivo" class="campo" value="${totalIni}" inputmode="decimal"></div>
+        <div class="m-row" style="margin-bottom:8px;"><label>🏦 Transferencia / Banco</label>
+          <input type="number" id="pg-banco" class="campo" value="0" inputmode="decimal"></div>
+        <div class="m-row" style="margin-bottom:8px;"><label>💳 Tarjeta / Datáfono</label>
+          <input type="number" id="pg-tarjeta" class="campo" value="0" inputmode="decimal"></div>
+        <div class="m-row" style="margin-bottom:8px;"><label>Falta / sobra</label>
+          <div class="campo" id="pg-estado" style="display:flex;align-items:center;font-weight:800;">$ 0</div></div>
+      </div>
       <div class="c-nota" id="c-nota"></div>
     </div>`,
     onAbrir:()=>{
+      window._cobroTotal=totalIni;
       const recalc=()=>{
-        const met=(document.getElementById('m-metodo')||{}).value||'efectivo';
         const prop=parseFloat((document.getElementById('m-propina')||{}).value)||0;
         const rec=parseFloat((document.getElementById('m-recargo')||{}).value)||0;
+        const total=base+dom+prop+rec;
+        window._cobroTotal=total;
         const set=(id,val)=>{ const e=document.getElementById(id); if(e) e.textContent=val; };
         const ver=(id,on)=>{ const e=document.getElementById(id); if(e) e.style.display=on?'flex':'none'; };
         set('v-prop',fmtMoney(prop)); ver('r-prop',prop>0);
         set('v-rec',fmtMoney(rec));  ver('r-rec',rec>0);
-        set('v-total',fmtMoney(base+dom+prop+rec));
-        const n=document.getElementById('c-nota');
-        if(n){
-          if(met==='tarjeta'){ n.innerHTML='💳 El recargo lo cobra el banco por usar el datáfono, <strong>no es ingreso del negocio</strong>.'; n.style.display='block'; }
-          else if(rec>0){ n.innerHTML='⚠️ Registraste recargo pero el pago no es con datáfono.'; n.style.display='block'; }
-          else n.style.display='none';
-        }
+        set('v-total',fmtMoney(total));
+        pintarEstadoPago();
       };
-      const sel=document.getElementById('m-metodo');
-      if(sel) sel.addEventListener('change',()=>{
-        const r=document.getElementById('m-recargo');
-        if(r && sel.value==='tarjeta' && pct>0 && !parseFloat(r.value)) r.value=Math.round((base+dom)*pct/100);
-        if(r && sel.value!=='tarjeta') r.value=0;
-        recalc();
-      });
       ['m-propina','m-recargo'].forEach(id=>{ const e=document.getElementById(id); if(e) e.addEventListener('input',recalc); });
+      ['pg-efectivo','pg-banco','pg-tarjeta'].forEach(id=>{ const e=document.getElementById(id); if(e) e.addEventListener('input',pintarEstadoPago); });
+      // Si usan tarjeta y hay % de datáfono configurado, se sugiere el recargo
+      const t=document.getElementById('pg-tarjeta');
+      if(t && pct>0) t.addEventListener('change',()=>{
+        const r=document.getElementById('m-recargo');
+        const val=parseFloat(t.value)||0;
+        if(r && val>0 && !parseFloat(r.value)){ r.value=Math.round(val*pct/100); recalc(); }
+      });
       recalc();
     },
     onGuardar:(d)=>{
       if(_guardando) return;
+      const propina=parseFloat(d.propina)||0;
+      const recargo=parseFloat(d.recargo)||0;
+      const total=(v.subtotal||0)+(v.valorDom||0)+propina+recargo;
+      const pagos=leerPagos();
+      const suma=pagos.efectivo+pagos.banco+pagos.tarjeta;
+      if(suma<=0){ toast('Escribe cuánto paga el cliente','error'); return; }
+      if(Math.abs(suma-total)>0.5 && suma<total){
+        toast('Faltan '+fmtMoney(total-suma)+' por cubrir','error'); return;
+      }
+      // Si pagó de más EN EFECTIVO, el exceso es el cambio (no entra a la caja)
+      let cambio=0;
+      if(suma>total){
+        cambio=suma-total;
+        if(pagos.efectivo>=cambio){ pagos.efectivo-=cambio; }
+        else { toast('Solo se puede dar cambio del efectivo. Revisa los montos.','error'); return; }
+      }
       _guardando=true;
       try{
-        const metodo=d.metodo||'efectivo';
-        const propina=parseFloat(d.propina)||0;
-        const recargo=parseFloat(d.recargo)||0;
         const ventas=misDatos('ventas');
         let venta;
         if(esNuevo){
-          venta=v;
-          venta.estado='pagada';
-          ventas.unshift(venta);
+          venta=v; venta.estado='pagada'; ventas.unshift(venta);
         } else {
           venta=ventas.find(x=>x.id===v.id);
           if(!venta){ toast('El pedido ya no existe','error'); cerrarModal(); _guardando=false; return; }
           venta.estado='pagada';
         }
-        venta.metodo=metodo; venta.propina=propina; venta.recargo=recargo;
-        venta.total=(venta.subtotal||0)+(venta.valorDom||0)+propina+recargo;
+        venta.pagos={efectivo:Math.round(pagos.efectivo), banco:Math.round(pagos.banco), tarjeta:Math.round(pagos.tarjeta)};
+        venta.metodo=metodoPrincipal(venta.pagos);
+        venta.propina=propina; venta.recargo=recargo;
+        venta.total=total;
+        venta.cambio=Math.round(cambio);
         venta.cobrado=now(); venta.cobradoPor=STATE.user.nombre;
         guardarMisDatos('ventas',ventas);
         guardarClienteAuto(venta);
@@ -2364,7 +2466,8 @@ function abrirCobro(v, esNuevo){
         avisarStockBajo(venta);
         if(esNuevo){ limpiarPedido(); ESCRIBIENDO=false; }
         cerrarModal();
-        toast('Cobrado: '+fmtMoney(venta.total),'success');
+        toast('Cobrado: '+fmtMoney(venta.total)+(cambio>0?' · Cambio '+fmtMoney(cambio):''),'success');
+        if(cambio>0) setTimeout(()=>toast('💵 Devuelve '+fmtMoney(cambio)+' de cambio','info'),500);
         if((neg.funciones||[]).indexOf('facturas')>-1){
           const fid=venta.id;
           setTimeout(()=>confirmarModal('¿Imprimir factura?',()=>imprimirFactura(fid),'Imprimir'),400);
@@ -2374,6 +2477,37 @@ function abrirCobro(v, esNuevo){
       }catch(e){ console.error(e); toast('Error al cobrar','error'); }
       finally{ _guardando=false; }
     }});
+}
+function leerPagos(){
+  const n=id=>parseFloat((document.getElementById(id)||{}).value)||0;
+  return {efectivo:n('pg-efectivo'), banco:n('pg-banco'), tarjeta:n('pg-tarjeta')};
+}
+function metodoPrincipal(p){
+  const usados=Object.keys(p).filter(k=>p[k]>0);
+  return usados.length<=1 ? (usados[0]||'efectivo') : 'mixto';
+}
+// Muestra si falta plata, si está exacto o cuánto hay que devolver
+function pintarEstadoPago(){
+  const el=document.getElementById('pg-estado'); if(!el) return;
+  const total=window._cobroTotal||0;
+  const p=leerPagos();
+  const suma=p.efectivo+p.banco+p.tarjeta;
+  const dif=suma-total;
+  if(Math.abs(dif)<0.5){ el.innerHTML='<span class="verde">✓ Exacto</span>'; }
+  else if(dif<0){ el.innerHTML='<span class="rojo">Faltan '+fmtMoney(-dif)+'</span>'; }
+  else { el.innerHTML='<span class="oro">Cambio '+fmtMoney(dif)+'</span>'; }
+  const n=document.getElementById('c-nota');
+  if(n){
+    if(p.tarjeta>0){ n.innerHTML='💳 El recargo del datáfono lo cobra el banco, <strong>no es ingreso del negocio</strong>.'; n.style.display='block'; }
+    else n.style.display='none';
+  }
+}
+function pagoRapido(tipo){
+  const total=window._cobroTotal||0;
+  const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.value=v; };
+  if(tipo==='mitad'){ set('pg-efectivo',Math.round(total/2)); set('pg-banco',total-Math.round(total/2)); set('pg-tarjeta',0); }
+  else { set('pg-efectivo',tipo==='efectivo'?total:0); set('pg-banco',tipo==='banco'?total:0); set('pg-tarjeta',tipo==='tarjeta'?total:0); }
+  pintarEstadoPago();
 }
 
 // ---------- ANULAR ----------
@@ -2423,19 +2557,37 @@ function cambiarFormaPago(id){
   const v=misDatos('ventas').find(x=>x.id===id);
   if(!v){ toast('Pedido no encontrado','error'); return; }
   if(v.estado!=='pagada'){ toast('Solo aplica a pedidos ya cobrados','error'); return; }
-  abrirModal({titulo:'Cambiar forma de pago', textoBoton:'Guardar', campos:[
-    {id:'metodo', label:'Forma de pago', tipo:'select', valor:v.metodo||'efectivo',
-      opciones:[{valor:'efectivo',label:'Efectivo'},{valor:'tarjeta',label:'Tarjeta / Datáfono'},{valor:'banco',label:'Banco / Transferencia'}]}
-  ], extraHTML:`<p class="nota">Total cobrado: <strong>${fmtMoney(v.total)}</strong>. Esto corrige cómo se contabiliza en caja y reportes.</p>`,
-  onGuardar:(d)=>{
+  const p=pagosDe(v);
+  const total=v.total||0;
+  abrirModal({titulo:'Corregir la forma de pago', textoBoton:'Guardar', campos:[],
+    extraHTML:`<p class="nota">Total cobrado: <strong>${fmtMoney(total)}</strong>. Reparte ese valor entre las formas de pago reales.</p>
+    <div class="cobro-caja">
+      <div class="form2">
+        <div class="m-row" style="margin-bottom:8px;"><label>💵 Efectivo</label><input type="number" id="pg-efectivo" class="campo" value="${Math.round(p.efectivo)}"></div>
+        <div class="m-row" style="margin-bottom:8px;"><label>🏦 Banco</label><input type="number" id="pg-banco" class="campo" value="${Math.round(p.banco)}"></div>
+        <div class="m-row" style="margin-bottom:8px;"><label>💳 Tarjeta</label><input type="number" id="pg-tarjeta" class="campo" value="${Math.round(p.tarjeta)}"></div>
+        <div class="m-row" style="margin-bottom:8px;"><label>Falta / sobra</label><div class="campo" id="pg-estado" style="display:flex;align-items:center;font-weight:800;">$ 0</div></div>
+      </div>
+      <div class="c-nota" id="c-nota"></div>
+    </div>`,
+  onAbrir:()=>{
+    window._cobroTotal=total;
+    ['pg-efectivo','pg-banco','pg-tarjeta'].forEach(x=>{ const e=document.getElementById(x); if(e) e.addEventListener('input',pintarEstadoPago); });
+    pintarEstadoPago();
+  },
+  onGuardar:()=>{
+    const nuevos=leerPagos();
+    const suma=nuevos.efectivo+nuevos.banco+nuevos.tarjeta;
+    if(Math.abs(suma-total)>0.5){ toast('La suma debe dar exactamente '+fmtMoney(total),'error'); return; }
     const ventas=misDatos('ventas');
     const x=ventas.find(y=>y.id===id);
     if(!x){ cerrarModal(); return; }
-    const antes=x.metodo;
-    x.metodo=d.metodo;
+    const antes=detallePagos(x);
+    x.pagos={efectivo:Math.round(nuevos.efectivo), banco:Math.round(nuevos.banco), tarjeta:Math.round(nuevos.tarjeta)};
+    x.metodo=metodoPrincipal(x.pagos);
     x.pagoEditadoPor=STATE.user.nombre; x.pagoEditadoEn=now();
     guardarMisDatos('ventas',ventas);
-    logAudit('Cambió forma de pago', (x.factura||'')+': '+antes+' → '+d.metodo);
+    logAudit('Cambió forma de pago', (x.factura||'')+': '+antes+' → '+detallePagos(x));
     cerrarModal(); toast('Forma de pago actualizada','success'); render();
   }});
 }
@@ -2721,8 +2873,7 @@ function inicio(){
       tot:vs.filter(v=>(v.fecha||'').startsWith(k)).reduce((a,v)=>a+montoVenta(v),0)});
   }
   const mx=Math.max.apply(null,dias.map(d=>d.tot).concat([1]));
-  const metodos={efectivo:0,banco:0,tarjeta:0};
-  hoy.forEach(v=>{ if(metodos[v.metodo]!==undefined) metodos[v.metodo]+=montoVenta(v); });
+  const metodos=sumaPorMetodo(hoy, montoVenta);
   // Últimas ventas (las 10 más recientes, como Portal Imperial)
   const ultimas=misDatos('ventas').filter(v=>v.estado!=='anulada')
     .slice().sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0)).slice(0,10);
@@ -2814,7 +2965,7 @@ function inicio(){
           <td><strong class="oro">${escapeHtml(v.factura||'—')}</strong></td>
           <td>${escapeHtml(tipoVentaLabel(v.tipo))}</td>
           <td>${escapeHtml(v.cliNombre||v.mesa||'—')}</td>
-          <td class="gris">${escapeHtml(v.estado==='pagada'?(v.metodo||'—'):'—')}</td>
+          <td class="gris" title="${escapeHtml(detallePagos(v))}">${escapeHtml(metodoTexto(v))}</td>
           <td class="negrita">${fmtMoney(v.total)}</td>
           <td>${v.estado==='pagada'?'<span class="pill pill-verde">Pagada</span>':v.estado==='abierta'?'<span class="pill pill-gold">Abierta</span>':'<span class="pill pill-rojo">'+escapeHtml(v.estado||'')+'</span>'}</td>
           <td class="gris chico">${fmtDate(v.fecha)}</td>
@@ -2864,8 +3015,8 @@ function caja(){
     </div>`;
   }
   const ventas=ventasJornada(true);
-  const metodos={efectivo:0,banco:0,tarjeta:0};
-  ventas.forEach(v=>{ if(metodos[v.metodo]!==undefined) metodos[v.metodo]+=(v.subtotal||0); });
+  // Cada venta se reparte según cómo pagó el cliente (puede ser pago dividido)
+  const metodos=sumaPorMetodo(ventas, v=>(v.subtotal||0));
   const totalVenta=metodos.efectivo+metodos.banco+metodos.tarjeta;
   const propinas=ventas.reduce((a,v)=>a+(v.propina||0),0);
   const domis=ventas.reduce((a,v)=>a+(v.valorDom||0),0);
@@ -2874,15 +3025,15 @@ function caja(){
   const gastos=movs.filter(m=>m.tipo==='gasto').reduce((a,m)=>a+m.valor,0);
   const retiros=movs.filter(m=>m.tipo==='retiro').reduce((a,m)=>a+m.valor,0);
   const entradas=movs.filter(m=>m.tipo==='entrada').reduce((a,m)=>a+m.valor,0);
-  const ef=ventas.filter(v=>v.metodo==='efectivo');
-  const noEf=ventas.filter(v=>v.metodo!=='efectivo');
-  const propEf=ef.reduce((a,v)=>a+(v.propina||0),0);
-  const domEf=ef.reduce((a,v)=>a+(v.valorDom||0),0);
-  const recEf=ef.reduce((a,v)=>a+(v.recargo||0),0);
-  const propBanco=noEf.reduce((a,v)=>a+(v.propina||0),0);
-  const domBanco=noEf.reduce((a,v)=>a+(v.valorDom||0),0);
-  const enCaja=(c.base||0)+metodos.efectivo+propEf+domEf+recEf+entradas-gastos-retiros-propBanco-domBanco;
-  const domBancoTotal=noEf.reduce((a,v)=>a+(v.valorDom||0),0);
+  const efRecibido=efectivoRecibido(ventas);                 // todo el efectivo que entró
+  const terceros=sumaPorMetodo(ventas, v=>(v.propina||0)+(v.valorDom||0));
+  const propEf=Math.round(sumaPorMetodo(ventas, v=>(v.propina||0)).efectivo);
+  const domEf=Math.round(sumaPorMetodo(ventas, v=>(v.valorDom||0)).efectivo);
+  const recEf=Math.round(sumaPorMetodo(ventas, v=>(v.recargo||0)).efectivo);
+  const propBanco=Math.round(sumaPorMetodo(ventas, v=>(v.propina||0)).banco+sumaPorMetodo(ventas, v=>(v.propina||0)).tarjeta);
+  const domBanco=Math.round(terceros.banco+terceros.tarjeta-propBanco);
+  const enCaja=efectivoEsperado(c,ventas);
+  const domBancoTotal=Math.round(sumaPorMetodo(ventas, v=>(v.valorDom||0)).banco+sumaPorMetodo(ventas, v=>(v.valorDom||0)).tarjeta);
   const esAdmin=STATE.user.rol==='admin'||STATE.user.esSupervisor;
 
   return `
@@ -2908,6 +3059,7 @@ function caja(){
             <div class="linea" style="padding:4px 0;"><span>Base inicial</span><span>${fmtMoney(c.base||0)}</span></div>
             <div class="linea" style="padding:4px 0;"><span>+ ${pProds(true)} en efectivo</span><span>${fmtMoney(metodos.efectivo)}</span></div>
             <div class="linea" style="padding:4px 0;"><span>+ Propinas/domicilios efectivo</span><span>${fmtMoney(propEf+domEf+recEf)}</span></div>
+            <div class="linea" style="padding:4px 0;" title="Total del efectivo que entró por ventas"><span>= Efectivo recibido</span><span>${fmtMoney(efRecibido)}</span></div>
             <div class="linea" style="padding:4px 0;"><span>+ Entradas</span><span>${fmtMoney(entradas)}</span></div>
             <div class="linea" style="padding:4px 0;"><span>− Gastos</span><span>−${fmtMoney(gastos)}</span></div>
             <div class="linea" style="padding:4px 0;"><span>− Retiros</span><span>−${fmtMoney(retiros)}</span></div>
@@ -2997,19 +3149,15 @@ function cerrarCaja(){
   const c=Array.isArray(arr)?arr[0]:arr;
   if(!c) return;
   const ventas=ventasJornada(true);
-  const ef=ventas.filter(v=>v.metodo==='efectivo');
-  const noEf=ventas.filter(v=>v.metodo!=='efectivo');
-  const efVenta=ef.reduce((a,v)=>a+(v.subtotal||0),0);
+  const efVenta=Math.round(sumaPorMetodo(ventas, v=>(v.subtotal||0)).efectivo);
   const movs=c.movimientos||[];
   const gastos=movs.filter(m=>m.tipo==='gasto').reduce((a,m)=>a+m.valor,0);
   const retiros=movs.filter(m=>m.tipo==='retiro').reduce((a,m)=>a+m.valor,0);
   const entradas=movs.filter(m=>m.tipo==='entrada').reduce((a,m)=>a+m.valor,0);
-  const propEf=ef.reduce((a,v)=>a+(v.propina||0),0);
-  const domEf=ef.reduce((a,v)=>a+(v.valorDom||0),0);
-  const recEf=ef.reduce((a,v)=>a+(v.recargo||0),0);
-  const propBanco=noEf.reduce((a,v)=>a+(v.propina||0),0);
-  const domBanco=noEf.reduce((a,v)=>a+(v.valorDom||0),0);
-  const esperado=(c.base||0)+efVenta+propEf+domEf+recEf+entradas-gastos-retiros-propBanco-domBanco;
+  const propEf=Math.round(sumaPorMetodo(ventas, v=>(v.propina||0)).efectivo);
+  const domEf=Math.round(sumaPorMetodo(ventas, v=>(v.valorDom||0)).efectivo);
+  const recEf=Math.round(sumaPorMetodo(ventas, v=>(v.recargo||0)).efectivo);
+  const esperado=efectivoEsperado(c,ventas);
   const sugerida = baseFija()!==null ? baseFija() : (c.base||0);
   abrirModal({titulo:'Cerrar caja', textoBoton:'Cerrar caja', campos:[
     {id:'contado', label:'Cuenta el efectivo del cajón. Esperado: '+fmtMoney(esperado), tipo:'number', valor:String(esperado), requerido:true},
@@ -4319,14 +4467,11 @@ function cuadreDomi(){
     if(!grupos[nom]) grupos[nom]={nombre:nom, pedidos:[], comidaEf:0, comidaBanco:0, comidaTarjeta:0, domEf:0, domBanco:0};
     const g=grupos[nom];
     g.pedidos.push(v);
-    const comida=v.subtotal||0;
-    const porBanco=v.domPorBanco||v.metodo==='banco';
-    if(v.metodo==='efectivo') g.comidaEf+=comida;
-    else if(v.metodo==='banco') g.comidaBanco+=comida;
-    else if(v.metodo==='tarjeta') g.comidaTarjeta+=comida;
-    else g.comidaEf+=comida;
-    const dom=v.valorDom||0;
-    if(dom>0){ if(porBanco) g.domBanco+=dom; else g.domEf+=dom; }
+    // Con pago dividido, cada parte va a donde corresponde
+    const rc=reparte(v, v.subtotal||0);
+    g.comidaEf+=rc.efectivo; g.comidaBanco+=rc.banco; g.comidaTarjeta+=rc.tarjeta;
+    const rd=reparte(v, v.valorDom||0);
+    g.domEf+=rd.efectivo; g.domBanco+=rd.banco+rd.tarjeta;
   });
   const lista=Object.values(grupos).sort((a,b)=>b.pedidos.length-a.pedidos.length);
   const tot={pedidos:0,comidaEf:0,comidaBanco:0,domEf:0,domBanco:0};
@@ -4590,8 +4735,7 @@ function contable(){
   const totalPrev=delPrev.reduce((a,v)=>a+(v.subtotal||0),0);
   const difV=totalVentas-totalPrev;
   const pctV=totalPrev>0?Math.round((difV/totalPrev)*100):0;
-  const metodos={efectivo:0,banco:0,tarjeta:0};
-  delMes.forEach(v=>{ if(metodos[v.metodo]!==undefined) metodos[v.metodo]+=(v.subtotal||0); });
+  const metodos=sumaPorMetodo(delMes, v=>(v.subtotal||0));
   const propinas=delMes.reduce((a,v)=>a+(v.propina||0),0);
   const domis=delMes.reduce((a,v)=>a+(v.valorDom||0),0);
   const recargos=delMes.reduce((a,v)=>a+(v.recargo||0),0);
@@ -4893,7 +5037,12 @@ function facturaPOS(v,neg){
     <div style="border-top:2px solid #000;border-bottom:2px solid #000;margin-top:6px;padding:9px 0;display:flex;justify-content:space-between;font-size:21px;font-weight:800;">
       <span>TOTAL</span><span>${fmtMoney(v.total)}</span>
     </div>
-    <div style="text-align:center;font-size:13px;margin-top:6px;">Pago: <strong>${v.estado==='pagada'?escapeHtml((v.metodo||'').toUpperCase()):'—'}</strong></div>
+    ${v.estado==='pagada'?(()=>{ const pg=pagosDe(v); const et={efectivo:'EFECTIVO',banco:'TRANSFERENCIA',tarjeta:'TARJETA'};
+      const ls=Object.keys(pg).filter(k=>pg[k]>0);
+      return `<div style="border-top:1px dashed #000;margin-top:6px;padding-top:6px;font-size:14px;">
+        ${ls.map(k=>`<div style="display:flex;justify-content:space-between;"><span>${et[k]}</span><span>${fmtMoney(pg[k])}</span></div>`).join('')}
+        ${v.cambio>0?`<div style="display:flex;justify-content:space-between;font-weight:bold;"><span>CAMBIO</span><span>${fmtMoney(v.cambio)}</span></div>`:''}
+      </div>`; })():'<div style="text-align:center;font-size:13px;margin-top:6px;">Pago: <strong>—</strong></div>'}
     ${v.estado!=='pagada'?`<div style="border:3px solid #000;border-radius:6px;margin-top:8px;padding:8px;text-align:center;font-size:17px;font-weight:800;">*** COBRO PENDIENTE ***<div style="font-size:12px;font-weight:600;margin-top:3px;">Esta cuenta aún no ha sido pagada</div></div>`:''}
     ${v.obs?`<div style="border-top:1px dashed #000;margin-top:8px;padding-top:6px;font-size:12px;"><strong>Obs:</strong> ${escapeHtml(v.obs)}</div>`:''}
     <div style="text-align:center;margin-top:14px;font-size:16px;font-weight:800;">${v.estado==='pagada'?'¡GRACIAS POR SU COMPRA!':'CUENTA DE COBRO'}</div>
@@ -6225,7 +6374,7 @@ function historial(){
           <td><strong class="oro">${escapeHtml(v.factura||'—')}</strong></td>
           <td>${etiq[v.tipo]||'—'}</td>
           <td>${escapeHtml(v.cliNombre||v.mesa||'—')}</td>
-          <td class="gris">${escapeHtml(v.estado==='pagada'?(v.metodo||'—'):'—')}</td>
+          <td class="gris" title="${escapeHtml(detallePagos(v))}">${escapeHtml(metodoTexto(v))}</td>
           <td class="negrita">${fmtMoney(v.total)}</td>
           <td>${v.estado==='pagada'?'<span class="pill pill-verde">Pagada</span>':v.estado==='anulada'?'<span class="pill pill-rojo">Anulada</span>':'<span class="pill pill-gold">Por cobrar</span>'}</td>
           <td class="gris chico">${fmtDate(v.fecha)}</td>
