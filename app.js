@@ -2691,29 +2691,34 @@ function ajustarPagoVenta(id, modoForzado){
   const dif=total-pagado;                       // + el cliente debe · − hay que devolverle
   const modo=modoForzado||modoAjusteCobro();
 
-  // ---------- MODO TOTAL: se reparte todo el total otra vez ----------
+  // ---------- MODO TOTAL: se cobra el total nuevo, como una venta normal ----------
+  // No habla de deudas: muestra el total nuevo y el cajero lo cobra completo.
+  // El pago anterior se REEMPLAZA, así que la caja no cuenta nada dos veces.
   if(modo==='total' || dif===0){
-    abrirModal({titulo:'Ajustar el cobro de '+(v.factura||''), textoBoton:'Guardar cobro', campos:[],
+    abrirModal({titulo:'Cobrar '+(v.factura||'')+' · '+fmtMoney(total), textoBoton:'Confirmar cobro', campos:[],
       extraHTML:`<div class="cobro-caja">
-        <div class="c-row"><span>Ya estaba pagado</span><strong>${fmtMoney(pagado)}</strong></div>
-        <div class="c-row"><span>Nuevo total del pedido</span><strong>${fmtMoney(total)}</strong></div>
-        ${dif!==0?`<div class="c-row c-total"><span>${dif>0?'EL CLIENTE DEBE':'HAY QUE DEVOLVERLE'}</span><strong class="${dif>0?'oro':'rojo'}">${fmtMoney(Math.abs(dif))}</strong></div>`:''}
+        <div class="c-row"><span>${escapeHtml((STATE.negocio.palabraProductos)||'Productos')}</span><span>${fmtMoney(v.subtotal||0)}</span></div>
+        ${(v.valorDom||0)>0?`<div class="c-row"><span>Domicilio</span><span>${fmtMoney(v.valorDom)}</span></div>`:''}
+        ${(v.propina||0)>0?`<div class="c-row"><span>Propina</span><span>${fmtMoney(v.propina)}</span></div>`:''}
+        ${(v.recargo||0)>0?`<div class="c-row"><span>Recargo datáfono</span><span>${fmtMoney(v.recargo)}</span></div>`:''}
+        <div class="c-row c-total"><span>TOTAL A COBRAR</span><strong>${fmtMoney(total)}</strong></div>
       </div>
       <div class="cobro-caja" style="margin-top:12px;">
-        <strong>¿Cómo queda el pago en total?</strong>
-        <p class="nota" style="margin:6px 0 10px;">Escribe cuánto queda por cada forma. La suma debe dar ${fmtMoney(total)}.</p>
+        <strong>¿Cómo paga el cliente?</strong>
+        <p class="nota" style="margin:6px 0 10px;">Cobra el total completo de ${fmtMoney(total)}. Esto reemplaza el pago anterior del pedido, así que la caja queda con el valor correcto.</p>
         <div class="botones-fila">
           <button type="button" class="btn btn-sm btn-verde" onclick="pagoRapido('efectivo')">Todo en efectivo</button>
           <button type="button" class="btn btn-sm" onclick="pagoRapido('banco')">Todo por banco</button>
           <button type="button" class="btn btn-sm" onclick="pagoRapido('tarjeta')">Todo con tarjeta</button>
+          <button type="button" class="btn btn-sm btn-ghost" onclick="pagoRapido('mitad')">Mitad y mitad</button>
         </div>
         <div class="form2" style="margin-top:6px;">
-          <div class="m-row" style="margin-bottom:8px;"><label>💵 Efectivo</label><input type="number" id="pg-efectivo" class="campo" value="${Math.round(p.efectivo)}"></div>
-          <div class="m-row" style="margin-bottom:8px;"><label>🏦 Banco</label><input type="number" id="pg-banco" class="campo" value="${Math.round(p.banco)}"></div>
-          <div class="m-row" style="margin-bottom:8px;"><label>💳 Tarjeta</label><input type="number" id="pg-tarjeta" class="campo" value="${Math.round(p.tarjeta)}"></div>
+          <div class="m-row" style="margin-bottom:8px;"><label>💵 Efectivo</label><input type="number" id="pg-efectivo" class="campo" value="${total}"></div>
+          <div class="m-row" style="margin-bottom:8px;"><label>🏦 Banco</label><input type="number" id="pg-banco" class="campo" value="0"></div>
+          <div class="m-row" style="margin-bottom:8px;"><label>💳 Tarjeta</label><input type="number" id="pg-tarjeta" class="campo" value="0"></div>
           <div class="m-row" style="margin-bottom:8px;"><label>Falta / sobra</label><div class="campo" id="pg-estado" style="display:flex;align-items:center;font-weight:800;">$ 0</div></div>
         </div>
-        ${dif!==0?`<button type="button" class="btn btn-ghost btn-sm" style="margin-top:6px;" onclick="cerrarModal();ajustarPagoVenta('${id}','diferencia')">↔ Registrar solo la diferencia</button>`:''}
+        ${dif!==0?`<button type="button" class="btn btn-ghost btn-sm" style="margin-top:6px;" onclick="cerrarModal();ajustarPagoVenta('${id}','diferencia')">↔ Cobrar solo la diferencia (${fmtMoney(Math.abs(dif))})</button>`:''}
         <div class="c-nota" id="c-nota"></div>
       </div>`,
     onAbrir:()=>{
@@ -5633,8 +5638,8 @@ function pantallaConfig(negId){
         </select></div>
         <div class="m-row"><label>Recargo del datáfono (%)</label><input id="c-pct" type="number" step="0.1" class="campo" value="${neg.pctDatafono||0}"></div>
         <div class="m-row"><label>Al editar un pedido ya cobrado</label><select id="c-ajustecobro" class="campo">
-          <option value="diferencia" ${(neg.ajusteCobro!=='total')?'selected':''}>Mostrar solo la diferencia</option>
-          <option value="total" ${(neg.ajusteCobro==='total')?'selected':''}>Pedir el total completo</option>
+          <option value="diferencia" ${(neg.ajusteCobro!=='total')?'selected':''}>Cobrar solo la diferencia</option>
+          <option value="total" ${(neg.ajusteCobro==='total')?'selected':''}>Cobrar el total nuevo completo</option>
         </select></div>
       </div>
     </div>
@@ -6076,10 +6081,10 @@ function minegocio(){
           <input id="n-pct" type="number" step="0.1" class="campo" value="${neg.pctDatafono||0}" placeholder="Ej: 4"></div>
         <div class="m-row"><label>Al editar un pedido ya cobrado</label>
           <select id="n-ajustecobro" class="campo">
-            <option value="diferencia" ${(neg.ajusteCobro!=='total')?'selected':''}>Mostrar solo la diferencia (cuánto debe o cuánto devolver)</option>
-            <option value="total" ${(neg.ajusteCobro==='total')?'selected':''}>Pedir el total completo otra vez</option>
+            <option value="diferencia" ${(neg.ajusteCobro!=='total')?'selected':''}>Cobrar solo la diferencia (dice cuánto debe o cuánto devolver)</option>
+            <option value="total" ${(neg.ajusteCobro==='total')?'selected':''}>Cobrar el total nuevo completo (como una venta normal)</option>
           </select>
-          <p class="nota">Con "solo la diferencia" el cajero registra únicamente lo que falta cobrar o devolver, y el resto del pago queda como estaba. En la misma ventana puede cambiar de forma si lo necesita.</p></div>
+          <p class="nota"><strong>Solo la diferencia:</strong> el cajero registra únicamente lo que falta cobrar o devolver; el resto del pago queda como estaba.<br><strong>Total nuevo completo:</strong> muestra el total actualizado y se cobra entero, reemplazando el pago anterior. Con las dos formas la caja queda cuadrada.</p></div>
         <div class="m-row"><label>Base fija del cajón (lo que se deja todos los días)</label>
           <input id="n-basefija" type="number" class="campo" value="${neg.baseFija!=null?neg.baseFija:''}" placeholder="Ej: 100000">
           <p class="nota">Al cerrar caja se sugiere dejar esta cantidad y retirar el resto. Déjalo vacío si cada día es distinto.</p></div>
