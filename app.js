@@ -2674,55 +2674,123 @@ function editarPedido(id){
   render();
 }
 // Cuando se edita un pedido YA COBRADO y cambia el total, hay que decir
-// cómo queda el pago: si el cliente puso más o si hay que devolverle.
-function ajustarPagoVenta(id){
+// cómo queda el pago. Hay dos formas, según lo que elija el negocio en
+// Mi Negocio → "Al editar un pedido ya cobrado":
+//  · "diferencia": solo se registra lo que el cliente debe o lo que hay que devolverle.
+//  · "total": se vuelve a repartir el total completo entre las formas de pago.
+function modoAjusteCobro(){
+  const n=STATE.negocio;
+  return (n && n.ajusteCobro==='total') ? 'total' : 'diferencia';
+}
+function ajustarPagoVenta(id, modoForzado){
   const v=misDatos('ventas').find(x=>x.id===id);
   if(!v){ toast('Pedido no encontrado','error'); return; }
   const p=pagosDe(v);
-  const pagado=p.efectivo+p.banco+p.tarjeta;
-  const total=v.total||0;
-  const dif=total-pagado;
-  abrirModal({titulo:'Ajustar el cobro de '+(v.factura||''), textoBoton:'Guardar cobro', campos:[],
+  const pagado=Math.round(p.efectivo+p.banco+p.tarjeta);
+  const total=Math.round(v.total||0);
+  const dif=total-pagado;                       // + el cliente debe · − hay que devolverle
+  const modo=modoForzado||modoAjusteCobro();
+
+  // ---------- MODO TOTAL: se reparte todo el total otra vez ----------
+  if(modo==='total' || dif===0){
+    abrirModal({titulo:'Ajustar el cobro de '+(v.factura||''), textoBoton:'Guardar cobro', campos:[],
+      extraHTML:`<div class="cobro-caja">
+        <div class="c-row"><span>Ya estaba pagado</span><strong>${fmtMoney(pagado)}</strong></div>
+        <div class="c-row"><span>Nuevo total del pedido</span><strong>${fmtMoney(total)}</strong></div>
+        ${dif!==0?`<div class="c-row c-total"><span>${dif>0?'EL CLIENTE DEBE':'HAY QUE DEVOLVERLE'}</span><strong class="${dif>0?'oro':'rojo'}">${fmtMoney(Math.abs(dif))}</strong></div>`:''}
+      </div>
+      <div class="cobro-caja" style="margin-top:12px;">
+        <strong>¿Cómo queda el pago en total?</strong>
+        <p class="nota" style="margin:6px 0 10px;">Escribe cuánto queda por cada forma. La suma debe dar ${fmtMoney(total)}.</p>
+        <div class="botones-fila">
+          <button type="button" class="btn btn-sm btn-verde" onclick="pagoRapido('efectivo')">Todo en efectivo</button>
+          <button type="button" class="btn btn-sm" onclick="pagoRapido('banco')">Todo por banco</button>
+          <button type="button" class="btn btn-sm" onclick="pagoRapido('tarjeta')">Todo con tarjeta</button>
+        </div>
+        <div class="form2" style="margin-top:6px;">
+          <div class="m-row" style="margin-bottom:8px;"><label>💵 Efectivo</label><input type="number" id="pg-efectivo" class="campo" value="${Math.round(p.efectivo)}"></div>
+          <div class="m-row" style="margin-bottom:8px;"><label>🏦 Banco</label><input type="number" id="pg-banco" class="campo" value="${Math.round(p.banco)}"></div>
+          <div class="m-row" style="margin-bottom:8px;"><label>💳 Tarjeta</label><input type="number" id="pg-tarjeta" class="campo" value="${Math.round(p.tarjeta)}"></div>
+          <div class="m-row" style="margin-bottom:8px;"><label>Falta / sobra</label><div class="campo" id="pg-estado" style="display:flex;align-items:center;font-weight:800;">$ 0</div></div>
+        </div>
+        ${dif!==0?`<button type="button" class="btn btn-ghost btn-sm" style="margin-top:6px;" onclick="cerrarModal();ajustarPagoVenta('${id}','diferencia')">↔ Registrar solo la diferencia</button>`:''}
+        <div class="c-nota" id="c-nota"></div>
+      </div>`,
+    onAbrir:()=>{
+      window._cobroTotal=total;
+      ['pg-efectivo','pg-banco','pg-tarjeta'].forEach(x=>{ const e=document.getElementById(x); if(e) e.addEventListener('input',pintarEstadoPago); });
+      pintarEstadoPago();
+    },
+    onGuardar:()=>{
+      const nuevos=leerPagos();
+      const suma=nuevos.efectivo+nuevos.banco+nuevos.tarjeta;
+      if(Math.abs(suma-total)>0.5){ toast('La suma debe dar exactamente '+fmtMoney(total),'error'); return; }
+      guardarAjusteCobro(id, {efectivo:Math.round(nuevos.efectivo), banco:Math.round(nuevos.banco), tarjeta:Math.round(nuevos.tarjeta)});
+    }});
+    return;
+  }
+
+  // ---------- MODO DIFERENCIA: solo lo que falta cobrar o devolver ----------
+  const cobra=dif>0;
+  const monto=Math.abs(dif);
+  const tope={efectivo:Math.round(p.efectivo), banco:Math.round(p.banco), tarjeta:Math.round(p.tarjeta)};
+  abrirModal({titulo:(cobra?'Cobrar la diferencia · ':'Devolver al cliente · ')+(v.factura||''),
+    textoBoton:cobra?'Registrar el cobro':'Registrar la devolución', campos:[],
     extraHTML:`<div class="cobro-caja">
-      <div class="c-row"><span>Ya estaba pagado</span><strong>${fmtMoney(pagado)}</strong></div>
-      <div class="c-row"><span>Nuevo total del pedido</span><strong>${fmtMoney(total)}</strong></div>
-      <div class="c-row c-total"><span>${dif>0?'EL CLIENTE DEBE':'HAY QUE DEVOLVERLE'}</span><strong class="${dif>0?'oro':'rojo'}">${fmtMoney(Math.abs(dif))}</strong></div>
+      <div class="c-row"><span>Total anterior</span><span>${fmtMoney(pagado)}</span></div>
+      <div class="c-row"><span>Total nuevo</span><span>${fmtMoney(total)}</span></div>
+      <div class="c-row c-total"><span>${cobra?'EL CLIENTE DEBE':'HAY QUE DEVOLVERLE'}</span><strong class="${cobra?'oro':'rojo'}">${fmtMoney(monto)}</strong></div>
     </div>
     <div class="cobro-caja" style="margin-top:12px;">
-      <strong>¿Cómo queda el pago en total?</strong>
-      <p class="nota" style="margin:6px 0 10px;">Escribe cuánto queda por cada forma. La suma debe dar ${fmtMoney(total)}.</p>
+      <strong>${cobra?'¿Con qué paga esa diferencia?':'¿De dónde sale la devolución?'}</strong>
+      <p class="nota" style="margin:6px 0 10px;">Solo registra ${fmtMoney(monto)}. El resto del pago queda como estaba.${cobra?'':' No puedes devolver por una forma más de lo que se pagó por ella.'}</p>
       <div class="botones-fila">
         <button type="button" class="btn btn-sm btn-verde" onclick="pagoRapido('efectivo')">Todo en efectivo</button>
         <button type="button" class="btn btn-sm" onclick="pagoRapido('banco')">Todo por banco</button>
         <button type="button" class="btn btn-sm" onclick="pagoRapido('tarjeta')">Todo con tarjeta</button>
       </div>
       <div class="form2" style="margin-top:6px;">
-        <div class="m-row" style="margin-bottom:8px;"><label>💵 Efectivo</label><input type="number" id="pg-efectivo" class="campo" value="${Math.round(p.efectivo)}"></div>
-        <div class="m-row" style="margin-bottom:8px;"><label>🏦 Banco</label><input type="number" id="pg-banco" class="campo" value="${Math.round(p.banco)}"></div>
-        <div class="m-row" style="margin-bottom:8px;"><label>💳 Tarjeta</label><input type="number" id="pg-tarjeta" class="campo" value="${Math.round(p.tarjeta)}"></div>
+        <div class="m-row" style="margin-bottom:8px;"><label>💵 Efectivo${cobra?'':' (pagado: '+fmtMoney(tope.efectivo)+')'}</label><input type="number" id="pg-efectivo" class="campo" value="${monto}"></div>
+        <div class="m-row" style="margin-bottom:8px;"><label>🏦 Banco${cobra?'':' (pagado: '+fmtMoney(tope.banco)+')'}</label><input type="number" id="pg-banco" class="campo" value="0"></div>
+        <div class="m-row" style="margin-bottom:8px;"><label>💳 Tarjeta${cobra?'':' (pagado: '+fmtMoney(tope.tarjeta)+')'}</label><input type="number" id="pg-tarjeta" class="campo" value="0"></div>
         <div class="m-row" style="margin-bottom:8px;"><label>Falta / sobra</label><div class="campo" id="pg-estado" style="display:flex;align-items:center;font-weight:800;">$ 0</div></div>
       </div>
+      <button type="button" class="btn btn-ghost btn-sm" style="margin-top:6px;" onclick="cerrarModal();ajustarPagoVenta('${id}','total')">↔ Mejor repartir el total completo</button>
       <div class="c-nota" id="c-nota"></div>
     </div>`,
   onAbrir:()=>{
-    window._cobroTotal=total;
+    window._cobroTotal=monto;
     ['pg-efectivo','pg-banco','pg-tarjeta'].forEach(x=>{ const e=document.getElementById(x); if(e) e.addEventListener('input',pintarEstadoPago); });
     pintarEstadoPago();
   },
   onGuardar:()=>{
-    const nuevos=leerPagos();
-    const suma=nuevos.efectivo+nuevos.banco+nuevos.tarjeta;
-    if(Math.abs(suma-total)>0.5){ toast('La suma debe dar exactamente '+fmtMoney(total),'error'); return; }
-    const ventas=misDatos('ventas');
-    const x=ventas.find(y=>y.id===id); if(!x){ cerrarModal(); return; }
-    x.pagos={efectivo:Math.round(nuevos.efectivo), banco:Math.round(nuevos.banco), tarjeta:Math.round(nuevos.tarjeta)};
-    x.metodo=metodoPrincipal(x.pagos);
-    x.pagoDescuadrado=false;
-    x.pagoEditadoPor=STATE.user.nombre; x.pagoEditadoEn=now();
-    guardarMisDatos('ventas',ventas);
-    logAudit('Ajustó el cobro tras editar', (x.factura||'')+' → '+detallePagos(x));
-    cerrarModal(); toast('Cobro ajustado','success'); render();
+    const d=leerPagos();
+    const suma=d.efectivo+d.banco+d.tarjeta;
+    if(Math.abs(suma-monto)>0.5){ toast('Debe sumar exactamente '+fmtMoney(monto),'error'); return; }
+    const signo=cobra?1:-1;
+    const fin={efectivo:Math.round(p.efectivo+signo*d.efectivo),
+               banco:Math.round(p.banco+signo*d.banco),
+               tarjeta:Math.round(p.tarjeta+signo*d.tarjeta)};
+    if(fin.efectivo<0||fin.banco<0||fin.tarjeta<0){
+      toast('No puedes devolver por una forma más de lo que se pagó por ella','error'); return;
+    }
+    guardarAjusteCobro(id, fin, (cobra?'Cobró ':'Devolvió ')+fmtMoney(monto));
   }});
+}
+// Guarda el nuevo reparto del pago en la venta
+function guardarAjusteCobro(id, pagos, detalleExtra){
+  const ventas=misDatos('ventas');
+  const x=ventas.find(y=>y.id===id); if(!x){ cerrarModal(); return; }
+  const antes=detallePagos(x);
+  x.pagos=pagos;
+  x.metodo=metodoPrincipal(pagos);
+  x.pagoDescuadrado=false;
+  x.pagoEditadoPor=STATE.user.nombre; x.pagoEditadoEn=now();
+  guardarMisDatos('ventas',ventas);
+  logAudit('Ajustó el cobro tras editar', (x.factura||'')+': '+antes+' → '+detallePagos(x)+(detalleExtra?' · '+detalleExtra:''));
+  cerrarModal();
+  toast(detalleExtra?detalleExtra:'Cobro ajustado','success');
+  render();
 }
 
 // ---------- CAMBIAR FORMA DE PAGO (después de cobrado) ----------
@@ -5564,6 +5632,10 @@ function pantallaConfig(negId){
           <option value="carta" ${neg.tipoFactura==='carta'?'selected':''}>Hoja completa</option>
         </select></div>
         <div class="m-row"><label>Recargo del datáfono (%)</label><input id="c-pct" type="number" step="0.1" class="campo" value="${neg.pctDatafono||0}"></div>
+        <div class="m-row"><label>Al editar un pedido ya cobrado</label><select id="c-ajustecobro" class="campo">
+          <option value="diferencia" ${(neg.ajusteCobro!=='total')?'selected':''}>Mostrar solo la diferencia</option>
+          <option value="total" ${(neg.ajusteCobro==='total')?'selected':''}>Pedir el total completo</option>
+        </select></div>
       </div>
     </div>
     <div class="tarjeta">
@@ -5621,6 +5693,7 @@ function guardarConfig(negId){
   n.clienteFijoTel=val('c-cftel').trim()||'0000000';
   n.sonidos=chk('c-sonidos'); n.alertaStock=chk('c-alerta');
   n.tipoFactura=val('c-fact'); n.pctDatafono=parseFloat(val('c-pct'))||0;
+  n.ajusteCobro = val('c-ajustecobro')==='total' ? 'total' : 'diferencia';
   n.tema=val('c-tema')||'oscuro';
   const _colc=val('c-color');
   n.colorTema=/^#[0-9a-fA-F]{6}$/.test(_colc)?_colc:'#01c38e';
@@ -6001,6 +6074,12 @@ function minegocio(){
           </select></div>
         <div class="m-row"><label>Recargo del datáfono (%)</label>
           <input id="n-pct" type="number" step="0.1" class="campo" value="${neg.pctDatafono||0}" placeholder="Ej: 4"></div>
+        <div class="m-row"><label>Al editar un pedido ya cobrado</label>
+          <select id="n-ajustecobro" class="campo">
+            <option value="diferencia" ${(neg.ajusteCobro!=='total')?'selected':''}>Mostrar solo la diferencia (cuánto debe o cuánto devolver)</option>
+            <option value="total" ${(neg.ajusteCobro==='total')?'selected':''}>Pedir el total completo otra vez</option>
+          </select>
+          <p class="nota">Con "solo la diferencia" el cajero registra únicamente lo que falta cobrar o devolver, y el resto del pago queda como estaba. En la misma ventana puede cambiar de forma si lo necesita.</p></div>
         <div class="m-row"><label>Base fija del cajón (lo que se deja todos los días)</label>
           <input id="n-basefija" type="number" class="campo" value="${neg.baseFija!=null?neg.baseFija:''}" placeholder="Ej: 100000">
           <p class="nota">Al cerrar caja se sugiere dejar esta cantidad y retirar el resto. Déjalo vacío si cada día es distinto.</p></div>
@@ -6072,6 +6151,7 @@ function guardarMiNegocio(){
   n.colorTema=/^#[0-9a-fA-F]{6}$/.test(_col)?_col:'#01c38e';
   n.pctDatafono=parseFloat(val('n-pct'))||0;
   { const bf=val('n-basefija'); n.baseFija = (bf===''||bf==null) ? null : (parseFloat(bf)||0); }
+  n.ajusteCobro = val('n-ajustecobro')==='total' ? 'total' : 'diferencia';
   n.sonidos=chk('n-sonidos');
   n.alertaStock=chk('n-alerta');
   n.alertaVence=chk('n-alertavence');
