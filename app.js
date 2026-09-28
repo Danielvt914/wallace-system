@@ -2333,7 +2333,7 @@ function pedidos(){
     if(colTipo) tds+=`<td>${etiq[v.tipo]||'—'}${v.mesa?'<br><span class="gris chico">'+escapeHtml(v.mesa)+'</span>':''}</td>`;
     tds+=`<td>${escapeHtml(v.cliNombre||v.mesa||'—')}${v.cliTel?`<br><span class="gris chico">${escapeHtml(v.cliTel)}</span>`:''}</td>`;
     tds+=colDinero?`<td class="negrita">${fmtMoney(v.total)}</td>`:`<td class="negrita">${uniDe(v)} und</td>`;
-    if(colDinero) tds+=`<td>${abierta?'<span class="pill pill-gold">Abierta</span>':'<span class="pill pill-verde">Pagada</span>'}${v.estado==='pagada'?`<br><span class="gris chico" title="${escapeHtml(detallePagos(v))}">${escapeHtml(metodoTexto(v))}</span>`:''}${v.pagoDescuadrado?`<br><span class="pill pill-rojo" style="margin-top:3px;">Revisar pago</span>`:''}</td>`;
+    if(colDinero) tds+=`<td>${abierta?'<span class="pill pill-gold">Abierta</span>':'<span class="pill pill-verde">Pagada</span>'}${v.estado==='pagada'?`<br><span class="gris chico" title="${escapeHtml(detallePagos(v))}">${escapeHtml(metodoTexto(v))}</span>`:''}${v.pagoDescuadrado?`<br><span class="pill pill-rojo" style="margin-top:3px;">Revisar pago</span>`:''}${bancoPendiente(v)?`<br><span class="pill pill-gold" style="margin-top:3px;">Transferencia sin verificar</span>`:''}</td>`;
     if(usaCocina) tds+=`<td>${cocBadge(v.estadoCocina)}</td>`;
     tds+=`<td><select class="busca" style="min-width:auto;padding:5px 8px;" onchange="setEstadoPedido('${v.id}',this.value)"><option value="activo" ${v.estadoPedido!=='entregado'?'selected':''}>Activo</option><option value="entregado" ${v.estadoPedido==='entregado'?'selected':''}>Entregado</option></select></td>`;
     if(usaDomi) tds+=`<td>${v.tipo==='domicilio'?selDom(v):'—'}</td>`;
@@ -2343,6 +2343,7 @@ function pedidos(){
       ${usaCocina&&tienePermiso('comanda')?`<button class="btn btn-sm" onclick="reimprimirComanda('${v.id}')" title="Comanda de cocina">👨‍🍳</button>`:''}
       ${tienePermiso('imprimir')?`<button class="btn btn-sm" onclick="imprimirFactura('${v.id}')" title="${esLog?'Reimprimir remisión':(v.estado==='pagada'?'Reimprimir factura':'Imprimir cuenta (cobro pendiente)')}">🖨️</button>`:''}
       ${v.pagoDescuadrado&&tienePermiso('cobrar')?`<button class="btn btn-sm btn-naranja" onclick="ajustarPagoVenta('${v.id}')" title="El total cambió: ajustar el cobro">⚠ Ajustar cobro</button>`:''}
+      ${bancoPendiente(v)?`<button class="btn btn-sm btn-verde" onclick="marcarVerificada('${v.id}')" title="Confirmar que la transferencia llegó">✔ Verificar</button>`:''}
       ${colDinero&&v.estado==='pagada'&&tienePermiso('cambiarpago')?`<button class="btn btn-sm" onclick="cambiarFormaPago('${v.id}')" title="Cambiar forma de pago">💳</button>`:''}
       ${tienePermiso('anular')?`<button class="btn btn-sm btn-rojo" onclick="anularPedido('${v.id}')" title="Anular">🚫</button>`:''}
       ${tienePermiso('eliminar')?`<button class="btn btn-sm btn-rojo" onclick="eliminarDefinitivo('${v.id}')" title="Eliminar por completo">🗑️</button>`:''}
@@ -2425,6 +2426,27 @@ function detallePagos(v){
   const p=pagosDe(v);
   const et={efectivo:'Efectivo',banco:'Banco',tarjeta:'Tarjeta'};
   return Object.keys(p).filter(k=>p[k]>0).map(k=>et[k]+' '+fmtMoney(p[k])).join(' · ');
+}
+// ---------- Verificación de transferencias ----------
+// Un empleado puede decir "pagó por transferencia" sin que el dinero llegue.
+// Si el negocio activa esta opción, esas ventas quedan marcadas hasta que
+// alguien confirme el comprobante.
+function exigeVerificarBanco(){ return !!(STATE.negocio && STATE.negocio.verificarBanco); }
+function bancoPendiente(v){
+  return !!(v && v.estado==='pagada' && v.bancoVerificado===false && pagosDe(v).banco>0);
+}
+function ventasPorVerificar(lista){ return (lista||[]).filter(bancoPendiente); }
+function marcarVerificada(id){
+  if(!(tienePermiso('cobrar')||tienePermiso('cambiarpago'))){ toast('No tienes permiso para verificar pagos','error'); return; }
+  const v=misDatos('ventas').find(x=>x.id===id); if(!v) return;
+  confirmarModal('¿Confirmas que la transferencia de '+fmtMoney(pagosDe(v).banco)+' de '+(v.factura||'')+' YA llegó a la cuenta?',()=>{
+    const ventas=misDatos('ventas');
+    const x=ventas.find(y=>y.id===id); if(!x) return;
+    x.bancoVerificado=true; x.verificadoPor=STATE.user.nombre; x.verificadoEn=now();
+    guardarMisDatos('ventas',ventas);
+    logAudit('Verificó transferencia', (x.factura||'')+' · '+fmtMoney(pagosDe(x).banco));
+    toast('Pago verificado','success'); render();
+  },'Sí, ya llegó');
 }
 // Suma por método de un monto repartido, para toda una lista de ventas
 function sumaPorMetodo(ventas, fnMonto){
@@ -2566,6 +2588,9 @@ function abrirCobro(v, esNuevo){
         }
         venta.pagos={efectivo:Math.round(pagos.efectivo), banco:Math.round(pagos.banco), tarjeta:Math.round(pagos.tarjeta)};
         venta.metodo=metodoPrincipal(venta.pagos);
+        // Transferencias: quedan por verificar si el negocio lo exige
+        if(exigeVerificarBanco() && venta.pagos.banco>0){ if(venta.bancoVerificado!==true) venta.bancoVerificado=false; }
+        else if(venta.pagos.banco<=0){ delete venta.bancoVerificado; }
         venta.propina=propina; venta.recargo=recargo;
         venta.total=total;
         venta.cambio=Math.round(cambio);
@@ -2789,6 +2814,8 @@ function guardarAjusteCobro(id, pagos, detalleExtra){
   const antes=detallePagos(x);
   x.pagos=pagos;
   x.metodo=metodoPrincipal(pagos);
+  if(exigeVerificarBanco() && pagos.banco>0){ if(x.bancoVerificado!==true) x.bancoVerificado=false; }
+  else if(pagos.banco<=0){ delete x.bancoVerificado; }
   x.pagoDescuadrado=false;
   x.pagoEditadoPor=STATE.user.nombre; x.pagoEditadoEn=now();
   guardarMisDatos('ventas',ventas);
@@ -2832,6 +2859,8 @@ function cambiarFormaPago(id){
     const antes=detallePagos(x);
     x.pagos={efectivo:Math.round(nuevos.efectivo), banco:Math.round(nuevos.banco), tarjeta:Math.round(nuevos.tarjeta)};
     x.metodo=metodoPrincipal(x.pagos);
+    if(exigeVerificarBanco() && x.pagos.banco>0){ if(x.bancoVerificado!==true) x.bancoVerificado=false; }
+    else if(x.pagos.banco<=0){ delete x.bancoVerificado; }
     x.pagoEditadoPor=STATE.user.nombre; x.pagoEditadoEn=now();
     guardarMisDatos('ventas',ventas);
     logAudit('Cambió forma de pago', (x.factura||'')+': '+antes+' → '+detallePagos(x));
@@ -3346,6 +3375,13 @@ function caja(){
       <div class="stat azul"><div class="stat-ico azul">${ic('cash')}</div><div class="stat-lbl">Banco</div><div class="stat-val">${fmtMoney(metodos.banco)}</div><div class="stat-sub">transferencias</div></div>
       <div class="stat gold"><div class="stat-ico gold">${ic('cash')}</div><div class="stat-lbl">Tarjeta</div><div class="stat-val">${fmtMoney(metodos.tarjeta)}</div><div class="stat-sub">datáfono</div></div>
     </div>
+    ${(()=>{ const pv=ventasPorVerificar(ventas); if(!pv.length) return '';
+      const tot=pv.reduce((a,v)=>a+pagosDe(v).banco,0);
+      return `<div class="tarjeta alerta">
+        <span class="t-tit chico">⚠️ ${pv.length} transferencia(s) sin verificar — ${fmtMoney(tot)}</span>
+        <p>Estos pagos por banco todavía no se han confirmado en la cuenta. Verifícalos antes de cerrar: si no llegaron, la plata no está.</p>
+        <div class="botones-fila" style="margin-top:8px;">${pv.slice(0,8).map(v=>`<button class="btn btn-sm btn-verde" onclick="marcarVerificada('${v.id}')">${escapeHtml(v.factura||'')} · ${fmtMoney(pagosDe(v).banco)}</button>`).join('')}</div>
+      </div>`; })()}
     <p class="nota" style="margin:-6px 0 14px;">💵 VENTA (solo ${pProds()}) recibida por cada método. Total venta: <strong class="oro">${fmtMoney(totalVenta)}</strong>.${domBancoTotal>0?` Además entraron <strong>${fmtMoney(domBancoTotal)}</strong> de domicilios por banco (se le pagan al domiciliario en efectivo).`:''}</p>
     <div class="grid2">
       <div class="tarjeta">
@@ -3462,6 +3498,7 @@ function cerrarCaja(){
   const c=Array.isArray(arr)?arr[0]:arr;
   if(!c) return;
   const ventas=ventasJornada(true);
+  const porVerificar=ventasPorVerificar(ventas);
   const efVenta=Math.round(sumaPorMetodo(ventas, v=>(v.subtotal||0)).efectivo);
   const movs=c.movimientos||[];
   const gastos=movs.filter(m=>m.tipo==='gasto').reduce((a,m)=>a+m.valor,0);
@@ -3475,7 +3512,10 @@ function cerrarCaja(){
   abrirModal({titulo:'Cerrar caja', textoBoton:'Cerrar caja', campos:[
     {id:'contado', label:'Cuenta el efectivo del cajón. Esperado: '+fmtMoney(esperado), tipo:'number', valor:String(esperado), requerido:true},
     {id:'base', label:'¿Cuánto dejas en el cajón para mañana?', tipo:'number', valor:String(sugerida), requerido:true}
-  ], extraHTML:`<div class="cobro-caja">
+  ], extraHTML:`${porVerificar.length?`<div class="alerta" style="border-radius:10px;padding:11px 14px;margin-bottom:10px;">
+      <strong class="rojo">⚠️ ${porVerificar.length} transferencia(s) sin verificar (${fmtMoney(porVerificar.reduce((a,v)=>a+pagosDe(v).banco,0))})</strong>
+      <p class="nota" style="margin-top:4px;">Ese dinero se está contando como recibido. Si no llegó a la cuenta, revísalo antes de cerrar.</p></div>`:''}
+    <div class="cobro-caja">
       <div class="c-row"><span>Contado en el cajón</span><strong id="cc-contado">${fmtMoney(esperado)}</strong></div>
       <div class="c-row"><span>Queda de base para mañana</span><strong class="oro" id="cc-base">${fmtMoney(sugerida)}</strong></div>
       <div class="c-row c-total"><span>SE LLEVA EL JEFE</span><strong id="cc-retiro">${fmtMoney(Math.max(0,esperado-sugerida))}</strong></div>
@@ -5096,17 +5136,31 @@ function contable(){
   const propinas=delMes.reduce((a,v)=>a+(v.propina||0),0);
   const domis=delMes.reduce((a,v)=>a+(v.valorDom||0),0);
   const recargos=delMes.reduce((a,v)=>a+(v.recargo||0),0);
-  const gastos=misDatos('gastos_negocio').filter(g=>(g.fecha||'').substring(0,7)===mes);
-  const totalGastos=gastos.reduce((a,g)=>a+g.valor,0);
+  // ---- EGRESOS ----
+  // Los gastos de caja se leen de los MOVIMIENTOS REALES del cajón (caja abierta
+  // y cierres del mes), no de una copia. Así el informe nunca se queda corto
+  // aunque la copia falle, y los del negocio se cuentan aparte para no duplicar.
+  const gastos=misDatos('gastos_negocio').filter(g=>(g.fecha||'').substring(0,7)===mes && g.origen!=='caja');
+  const totalGastos=gastos.reduce((a,g)=>a+g.valor,0);      // solo los del negocio
   const cierres=misDatos('cierres').filter(c=>(c.cierre||'').substring(0,7)===mes);
-  let retiros=0;
-  cierres.forEach(c=>(c.movimientos||[]).forEach(m=>{ if(m.tipo==='retiro') retiros+=m.valor; }));
-  const egresos=totalGastos;
+  const cajaArrC=misDatos('caja_actual');
+  const cajaAbC=Array.isArray(cajaArrC)?cajaArrC[0]:cajaArrC;
+  const movsMes=[];
+  cierres.forEach(c=>(c.movimientos||[]).forEach(m=>movsMes.push(m)));
+  if(cajaAbC && (cajaAbC.apertura||'').substring(0,7)===mes) (cajaAbC.movimientos||[]).forEach(m=>movsMes.push(m));
+  let retiros=0, gastosCaja=0;
+  const gCaja={}, gNeg={};
+  movsMes.forEach(m=>{
+    if(m.tipo==='retiro'){ retiros+=m.valor||0; return; }
+    if(m.tipo!=='gasto') return;
+    gastosCaja+=m.valor||0;
+    const k=m.concepto||'Otros';
+    gCaja[k]=(gCaja[k]||0)+(m.valor||0);
+  });
+  const egresos=totalGastos+gastosCaja;
   const utilidad=totalVentas-egresos;
   const sumaDif=cierres.reduce((a,c)=>a+(c.diferencia||0),0);
-  // Egresos separados: los de caja diaria vs los del negocio
-  const gCaja={}, gNeg={};
-  gastos.forEach(g=>{ const dest=(g.origen==='caja')?gCaja:gNeg; dest[g.concepto]=(dest[g.concepto]||0)+g.valor; });
+  gastos.forEach(g=>{ gNeg[g.concepto]=(gNeg[g.concepto]||0)+g.valor; });
   const concCaja=Object.entries(gCaja).sort((a,b)=>b[1]-a[1]);
   const concNeg=Object.entries(gNeg).sort((a,b)=>b[1]-a[1]);
   // Productos más vendidos del mes
@@ -5120,9 +5174,7 @@ function contable(){
   vs.forEach(v=>{ if(v.fecha) mesesSet[v.fecha.substring(0,7)]=1; });
   misDatos('gastos_negocio').forEach(g=>{ if(g.fecha) mesesSet[g.fecha.substring(0,7)]=1; });
   const meses=Object.keys(mesesSet).sort().reverse();
-  // Separar lo que salió de la caja diaria de lo que pagó el dueño aparte
-  const gastosCaja=gastos.filter(g=>g.origen==='caja').reduce((a,g)=>a+g.valor,0);
-  const gastosNeg=totalGastos-gastosCaja;
+  const gastosNeg=totalGastos;
   window._contData={mes,nombreMes:nombreMes(mes),totalVentas,metodos,totalGastos,gastosCaja,gastosNeg,
     egresos,utilidad,cierres,propinas,domis,recargos,retiros,
     conceptos:concCaja.concat(concNeg)};
@@ -5154,9 +5206,9 @@ function contable(){
         <div class="linea total-linea"><span>TOTAL VENTAS</span><strong>${fmtMoney(totalVentas)}</strong></div>
       </div>
       <div class="tarjeta"><span class="t-tit">${ic('cash')} Egresos por concepto (lo que se gastó)</span>
-        ${concCaja.length?`<p class="gris chico" style="margin:4px 0;">De la caja diaria:</p>
+        ${concCaja.length?`<p class="gris chico" style="margin:4px 0;">De la caja diaria (${fmtMoney(gastosCaja)}):</p>
           ${concCaja.map(c=>`<div class="linea"><span>${escapeHtml(c[0])}</span><strong class="rojo">${fmtMoney(c[1])}</strong></div>`).join('')}`:''}
-        ${concNeg.length?`<p class="gris chico" style="margin:8px 0 4px;">Gastos del negocio (arriendo, recibos, etc.):</p>
+        ${concNeg.length?`<p class="gris chico" style="margin:8px 0 4px;">Gastos del negocio, arriendo/recibos (${fmtMoney(totalGastos)}):</p>
           ${concNeg.map(c=>`<div class="linea"><span>${escapeHtml(c[0])}</span><strong class="rojo">${fmtMoney(c[1])}</strong></div>`).join('')}`:''}
         ${(!concCaja.length&&!concNeg.length)?'<p class="gris">Sin gastos este mes.</p>':`<div class="linea total-linea"><span>TOTAL EGRESOS</span><strong class="rojo">${fmtMoney(egresos)}</strong></div>`}
       </div>
@@ -5622,6 +5674,7 @@ function pantallaConfig(negId){
         <label class="chk"><input type="checkbox" id="c-logistica" ${neg.esLogistica?'checked':''}> Modo logística (registra entradas/salidas SIN cobrar dinero)</label>
         <label class="chk"><input type="checkbox" id="c-sonidos" ${neg.sonidos!==false?'checked':''}> Sonidos</label>
         <label class="chk"><input type="checkbox" id="c-alerta" ${neg.alertaStock!==false?'checked':''}> Avisar stock bajo</label>
+        <label class="chk"><input type="checkbox" id="c-verificarbanco" ${neg.verificarBanco?'checked':''}> Exigir verificar transferencias</label>
       </div>
       <p class="nota" style="margin-top:8px;">Marca solo lo que el negocio necesita. Ej: una tienda de accesorios no marca cocina ni propina.</p>
       <div class="form2" style="margin-top:14px;">
@@ -5696,7 +5749,7 @@ function guardarConfig(negId){
   n.usaCodBarras=chk('c-barras');
   n.clienteFijoNombre=val('c-cfnom').trim()||'Consumidor Final';
   n.clienteFijoTel=val('c-cftel').trim()||'0000000';
-  n.sonidos=chk('c-sonidos'); n.alertaStock=chk('c-alerta');
+  n.sonidos=chk('c-sonidos'); n.alertaStock=chk('c-alerta'); n.verificarBanco=chk('c-verificarbanco');
   n.tipoFactura=val('c-fact'); n.pctDatafono=parseFloat(val('c-pct'))||0;
   n.ajusteCobro = val('c-ajustecobro')==='total' ? 'total' : 'diferencia';
   n.tema=val('c-tema')||'oscuro';
@@ -6094,6 +6147,7 @@ function minegocio(){
         <label class="chk"><input type="checkbox" id="n-alerta" ${neg.alertaStock!==false?'checked':''}> Avisar cuando se agote un producto</label>
         <label class="chk"><input type="checkbox" id="n-alertavence" ${neg.alertaVence!==false?'checked':''}> Avisar productos por vencer</label>
         <label class="chk"><input type="checkbox" id="n-inventario" ${usaInventario(neg)?'checked':''}> Llevar control de inventario (stock)</label>
+        <label class="chk"><input type="checkbox" id="n-verificarbanco" ${neg.verificarBanco?'checked':''}> Exigir verificar las transferencias</label>
       </div>
       <p class="nota" style="margin-top:8px;">Si apagas el control de inventario, los ${pProds()} no llevan existencias: no se descuentan al vender ni aparecen alertas. Útil para servicios o negocios que no manejan stock.</p>
       <div class="m-row" style="margin-top:12px;">
@@ -6160,6 +6214,7 @@ function guardarMiNegocio(){
   n.sonidos=chk('n-sonidos');
   n.alertaStock=chk('n-alerta');
   n.alertaVence=chk('n-alertavence');
+  n.verificarBanco=chk('n-verificarbanco');
   // Encender/apagar el control de inventario desde el propio negocio
   {
     const quiereInv=chk('n-inventario');
