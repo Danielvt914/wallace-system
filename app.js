@@ -2293,13 +2293,18 @@ function descuentaAlPedir(){
   const n=STATE.negocio;
   if(!n || !usaInventario()) return false;
   if(n.descontarAlPedir!==undefined) return !!n.descontarAlPedir;
-  return usaCuentas();     // por defecto: sí, en los negocios con cuentas abiertas
+  return hayPedidosAbiertos();   // por defecto: sí, donde hay pedidos sin cobrar
 }
 function usaCuentas(){
   const n=STATE.negocio;
-  if(!n) return false;
-  // Si el negocio cobra en dos pasos, las cuentas ya existen por diseño
-  return n.usaCuentas===true || n.flujoPedido==='dos_pasos';
+  // Es OPCIONAL: solo aparece si el negocio la habilita en Mi Negocio.
+  // Hay negocios que cobran de una y no necesitan cuentas.
+  return !!(n && n.usaCuentas===true);
+}
+// ¿En este negocio existen pedidos sin cobrar? (cuentas abiertas o flujo de dos pasos)
+function hayPedidosAbiertos(){
+  const n=STATE.negocio;
+  return !!(n && (n.usaCuentas===true || n.flujoPedido==='dos_pasos'));
 }
 function cuentasAbiertas(){
   return ventasJornada(false).filter(v=>v.estado==='abierta')
@@ -2428,6 +2433,12 @@ function renombrarCuenta(id){
 }
 function cuentas(){
   ESCRIBIENDO=false;
+  if(!usaCuentas()){
+    return `<div class="tarjeta centro-msg"><div class="msg-ico">🧾</div>
+      <div class="t-tit centrado">Las cuentas abiertas están apagadas</div>
+      <p class="gris">Este negocio cobra de una y no usa cuentas. Si quieres ir agregando productos y cobrar al final (como en un bar o una licorera), actívalo en <strong>Mi Negocio → Usar cuentas abiertas</strong>.</p>
+      ${(STATE.user.rol==='admin'||STATE.user.esSupervisor)?`<button class="btn btn-gold" onclick="irA('minegocio')">Ir a Mi Negocio</button>`:''}</div>`;
+  }
   const lista=cuentasAbiertas();
   const total=lista.reduce((a,v)=>a+(v.total||0),0);
   const und=lista.reduce((a,v)=>a+(v.items||[]).reduce((x,i)=>x+i.qty,0),0);
@@ -2462,6 +2473,7 @@ function cuentas(){
               ${tienePermiso('cobrar')?`<button class="btn btn-sm btn-gold" onclick="cobrarPedido('${v.id}')">💵 Cobrar</button>`:''}
               ${tienePermiso('imprimir')?`<button class="btn btn-sm" onclick="imprimirFactura('${v.id}')" title="Imprimir la cuenta para que la revise el cliente">🧾</button>`:''}
               <button class="btn btn-sm btn-ghost" onclick="renombrarCuenta('${v.id}')" title="Cambiar mesa o nombre">✏️</button>
+              ${tienePermiso('anular')?`<button class="btn btn-sm btn-rojo" onclick="cancelarCuenta('${v.id}')" title="Se fueron sin consumir o sin pagar">🚫 Cancelar</button>`:''}
             </div>
           </div>`;
         }).join('')}
@@ -2469,6 +2481,27 @@ function cuentas(){
         <p class="gris">No hay cuentas abiertas. Abre una y ve agregándole productos; se cobra cuando el cliente se va.</p>
         <button class="btn btn-gold" onclick="nuevaCuentaDesdeCero()">+ Abrir cuenta</button></div>`}
     </div>`;
+}
+// Cancelar una cuenta: no consumieron o no pagaron. Devuelve el producto al
+// inventario (si ya se había descontado) y queda registrado quién la canceló.
+function cancelarCuenta(id){
+  if(!tienePermiso('anular')){ toast('No tienes permiso para cancelar cuentas','error'); return; }
+  const v=misDatos('ventas').find(x=>x.id===id);
+  if(!v){ toast('Cuenta no encontrada','error'); return; }
+  if(v.estado!=='abierta'){ toast('Esa cuenta ya fue cobrada. Usa Anular desde Pedidos.','error'); return; }
+  const und=(v.items||[]).reduce((a,i)=>a+i.qty,0);
+  const devuelve = v.stockAplicado===true && usaInventario();
+  confirmarModal('¿Cancelar la cuenta de '+nombreCuenta(v)+' por '+fmtMoney(v.total||0)+'?'
+    +(devuelve?' Los '+und+' producto(s) vuelven al inventario.':''),()=>{
+    const ventas=misDatos('ventas');
+    const x=ventas.find(y=>y.id===id); if(!x) return;
+    if(devuelve) devolverStock(x, 'Cuenta cancelada · '+nombreCuenta(x));
+    x.estado='anulada'; x.anulada=now(); x.anuladaPor=STATE.user.nombre; x.motivoAnulacion='Cuenta cancelada';
+    guardarMisDatos('ventas',ventas);
+    logAudit('Canceló cuenta abierta', (x.factura||'')+' · '+nombreCuenta(x)+' · '+fmtMoney(x.total||0)+(devuelve?' · inventario devuelto':''));
+    toast('Cuenta cancelada'+(devuelve?' · producto devuelto al inventario':''),'info');
+    render();
+  },'Sí, cancelar');
 }
 function nuevaCuentaDesdeCero(){
   STATE.agregandoCuentaId=null;
@@ -2880,7 +2913,7 @@ function anularPedido(id){
     venta.estado='anulada';
     venta.anulada=now();
     venta.anuladaPor=STATE.user.nombre;
-    if(teniaStock) devolverStock(venta);       // devuelve y deja la marca
+    if(teniaStock) devolverStock(venta, 'Anulación del pedido '+(venta.factura||''));   // devuelve y deja constancia
     guardarMisDatos('ventas',ventas);
     logAudit('Anuló pedido', (venta.factura||'')+' · '+fmtMoney(venta.total));
     toast('Pedido anulado','info');
@@ -3104,7 +3137,7 @@ function eliminarDefinitivo(id){
   if(!v){ toast('Pedido no encontrado','error'); return; }
   confirmarModal('⚠️ Eliminar PERMANENTEMENTE '+(v.factura||'este pedido')+' ('+fmtMoney(v.total)+'). Se descuenta de ventas, caja y reportes. No se puede deshacer. ¿Continuar?', ()=>{
     const teniaStock = v.stockAplicado===true || (v.stockAplicado===undefined && v.estado==='pagada');
-    if(teniaStock) devolverStock(v);
+    if(teniaStock) devolverStock(v, 'Eliminación del pedido '+(v.factura||''));
     eliminarMisDatos('ventas',id);
     logAudit('Eliminó definitivamente', (v.factura||'')+' · '+fmtMoney(v.total));
     toast('Pedido eliminado por completo','error'); render();
@@ -3313,11 +3346,12 @@ function descontarStock(venta){
   venta.stockAplicado=true;
   if(agot.length) toast('⚠️ Se agotó: '+agot.join(', ')+'. Revisa el inventario.','error');
 }
-// Devuelve el inventario de una venta (anular, eliminar)
-function devolverStock(venta){
+// Devuelve el inventario de una venta (anular, eliminar).
+// Queda REGISTRADO en Movimientos: es la forma de comprobar que la mercancía volvió.
+function devolverStock(venta, motivo){
   if(!usaInventario() || !venta) return;
   if(venta.stockAplicado===false) return;                // ya se había devuelto
-  moverInventario(requerimientos(venta.items), +1, 'Devolución '+(venta.factura||''), false);
+  moverInventario(requerimientos(venta.items), +1, motivo||('Devolución · '+(venta.factura||'')), true);
   venta.stockAplicado=false;
 }
 // Ajusta el inventario cuando se EDITA un pedido que ya había descontado
@@ -4029,7 +4063,7 @@ function inventario(){
     ${(()=>{ const m=misDatos('movimientos').slice(0,8); if(!m.length) return '';
       return `<div class="tarjeta">
         <span class="t-tit">${ic('history')} Últimos movimientos de inventario</span>
-        <p class="nota">Aquí queda todo lo que entra y sale sin ser una venta: compras, ajustes de conteo, daños y ediciones de pedidos.</p>
+        <p class="nota">Aquí queda todo lo que entra y sale <strong>sin ser una venta normal</strong>: compras, ajustes de conteo, daños, ediciones de pedidos y <strong>devoluciones por anular o cancelar</strong>. Las ventas del día se ven en ${pPedidos(true)} e Historial.</p>
         <div class="tabla-wrap"><table class="tabla">
           <thead><tr><th>Producto</th><th>Movimiento</th><th>Cantidad</th><th>Motivo</th><th>Quién</th><th>Fecha</th></tr></thead>
           <tbody>${m.map(x=>`<tr>
@@ -6373,10 +6407,11 @@ function minegocio(){
         <label class="chk"><input type="checkbox" id="n-alertavence" ${neg.alertaVence!==false?'checked':''}> Avisar productos por vencer</label>
         <label class="chk"><input type="checkbox" id="n-inventario" ${usaInventario(neg)?'checked':''}> Llevar control de inventario (stock)</label>
         <label class="chk"><input type="checkbox" id="n-verificarbanco" ${neg.verificarBanco?'checked':''}> Exigir verificar las transferencias</label>
-        <label class="chk"><input type="checkbox" id="n-cuentas" ${(neg.usaCuentas||neg.flujoPedido==='dos_pasos')?'checked':''} ${neg.flujoPedido==='dos_pasos'?'disabled':''}> Usar cuentas abiertas (agregar y cobrar al final)</label>
+        <label class="chk"><input type="checkbox" id="n-cuentas" ${neg.usaCuentas?'checked':''}> Usar cuentas abiertas (agregar y cobrar al final)</label>
         <label class="chk"><input type="checkbox" id="n-descontarpedir" ${descuentaAlPedir()?'checked':''}> Descontar el inventario apenas se pide (no al cobrar)</label>
       </div>
       <p class="nota" style="margin-top:8px;">Si apagas el control de inventario, los ${pProds()} no llevan existencias: no se descuentan al vender ni aparecen alertas. Útil para servicios o negocios que no manejan stock.</p>
+      <p class="nota" style="margin-top:8px;">🧾 <strong>Cuentas abiertas:</strong> agrega una ventana para llevar cuentas por mesa o por cliente, irles sumando productos y cobrar al final. Es para bares, licoreras y restaurantes. Si tu negocio cobra de una, déjala apagada y no aparece.</p>
       <p class="nota" style="margin-top:8px;">🍺 <strong>Descontar al pedir:</strong> apenas se agrega el producto a una cuenta o pedido, sale del inventario. Es lo correcto en licoreras y bares, donde el producto ya se entregó. Si lo apagas, el stock baja solo cuando se cobra.</p>
       <div class="m-row" style="margin-top:12px;">
         <label>Avisar cuántos días antes de que un producto se venza</label>
