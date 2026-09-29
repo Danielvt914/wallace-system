@@ -896,6 +896,12 @@ function seed(){
     DB.set('superadmins',[{id:'sa1', nombre:'Roldán Aldana', usuario:'superadmin', pass:'ROLYSANTCCIAWALLACEPOS54321', rolSuper:'dueno', creado:now()}]);
   }
   if(!DB.get('negocios')) DB.set('negocios',[]);
+  // Negocios viejos sin fecha de creación: se les pone la de hoy una sola vez
+  try{
+    const ns=DB.get('negocios')||[]; let cambio=false;
+    ns.forEach(n=>{ if(!n.creado){ n.creado=now(); cambio=true; } });
+    if(cambio) DB.set('negocios',ns);
+  }catch(e){}
   if(!DB.get('usuarios')) DB.set('usuarios',[]);
 }
 
@@ -927,10 +933,20 @@ function panelSuperAdmin(){
     if(suma>top.total) top={nombre:n.nombre, total:suma};
   });
   const q=(STATE.buscaNegocio||'').toLowerCase();
-  const lista=q?negocios.filter(n=>(n.nombre||'').toLowerCase().includes(q)||(n.tipo||'').toLowerCase().includes(q)||(n.ciudad||'').toLowerCase().includes(q)):negocios;
+  let lista=q?negocios.filter(n=>(n.nombre||'').toLowerCase().includes(q)||(n.tipo||'').toLowerCase().includes(q)
+      ||(n.ciudad||'').toLowerCase().includes(q)||(n.vendedorNombre||'').toLowerCase().includes(q)):negocios;
+  // Filtro por vendedor a cargo
+  if(STATE.filtroVendedor){
+    lista = STATE.filtroVendedor==='sin' ? lista.filter(n=>!n.vendedorId) : lista.filter(n=>n.vendedorId===STATE.filtroVendedor);
+  }
+  const sas=DB.get('superadmins')||[];
+  const nombreVend=id=>{ const v=sas.find(x=>x.id===id); return v?v.nombre:''; };
+  const antig=n=>{ if(!n.creado) return '—'; const d=Math.floor((Date.now()-new Date(n.creado).getTime())/86400000);
+    return d<30?d+' d':(Math.floor(d/30)+' mes'+(Math.floor(d/30)===1?'':'es')); };
 
   // ===== PANEL PARA VENDEDORES (equipo comercial): solo demos =====
   if(STATE.user.rolSuper==='vendedor'){
+    const misClientes=negocios.filter(n=>!n.esDemo && n.vendedorId===STATE.user.id);
     const demos=(q?lista:negocios).filter(n=>n.esDemo);
     const misDemos=demos.filter(n=>!n.demoDe || n.demoDe===STATE.user.id);   // sus demos (o todos los demos si no hay dueño marcado)
     return `
@@ -952,7 +968,23 @@ function panelSuperAdmin(){
       </div>
       <div class="stats">
         <div class="stat azul"><div class="stat-ico azul">${ic('box')}</div><div class="stat-lbl">Tus demos</div><div class="stat-val">${misDemos.length}</div><div class="stat-sub">para mostrar</div></div>
+        <div class="stat verde"><div class="stat-ico verde">${ic('building')}</div><div class="stat-lbl">Clientes a tu cargo</div><div class="stat-val">${misClientes.length}</div><div class="stat-sub">${misClientes.filter(n=>n.activo).length} activo(s)</div></div>
+        <div class="stat gold"><div class="stat-ico gold">${ic('cash')}</div><div class="stat-lbl">Tu cartera al mes</div><div class="stat-val">${fmtMoney(misClientes.filter(n=>n.activo).reduce((a,n)=>a+(n.precioMes||0),0))}</div><div class="stat-sub">de los que están activos</div></div>
       </div>
+      ${misClientes.length?`<div class="tarjeta">
+        <span class="t-tit">${ic('building')} Tus clientes</span>
+        <p class="gris">Negocios reales que tú vendiste. No puedes entrar a sus datos, solo ver cómo van.</p>
+        <div class="tabla-wrap"><table class="tabla">
+          <thead><tr><th>Negocio</th><th>Ciudad</th><th>Plan</th><th>Desde</th><th>Estado</th></tr></thead>
+          <tbody>${misClientes.map(n=>`<tr>
+            <td><strong>${escapeHtml(n.nombre)}</strong></td>
+            <td class="gris">${escapeHtml(n.ciudad||'—')}</td>
+            <td>${escapeHtml(n.plan||'—')}<br><span class="gris chico">${fmtMoney(n.precioMes||0)}/mes</span></td>
+            <td class="gris chico">${n.creado?(n.creado||'').split('T')[0]:'—'}</td>
+            <td>${n.activo?'<span class="pill pill-verde">Activo</span>':'<span class="pill pill-rojo">Suspendido</span>'}</td>
+          </tr>`).join('')}</tbody>
+        </table></div>
+      </div>`:''}
       <div class="tarjeta">
         <div class="t-cab">
           <span class="t-tit">${ic('building')} Mis demostraciones</span>
@@ -1005,22 +1037,49 @@ function panelSuperAdmin(){
       <div class="stat verde"><div class="stat-ico verde">${ic('cash')}</div><div class="stat-lbl">Ventas históricas</div><div class="stat-val">${fmtMoney(ventasTot)}</div><div class="stat-sub">todos los negocios</div></div>
       <div class="stat gold"><div class="stat-ico gold">${ic('building')}</div><div class="stat-lbl">Negocio con más ventas</div><div class="stat-val" style="font-size:19px;">${escapeHtml(top.nombre)}</div><div class="stat-sub">${fmtMoney(top.total)}</div></div>
     </div>
+    ${(()=>{ const sas2=DB.get('superadmins')||[];
+      const porVend={};
+      reales.forEach(n=>{ const k=n.vendedorId||'sin'; if(!porVend[k]) porVend[k]={n:0,mes:0,activos:0};
+        porVend[k].n++; if(n.activo){ porVend[k].activos++; porVend[k].mes+=(n.precioMes||0); } });
+      const filas=Object.keys(porVend);
+      if(filas.length<=1 && filas[0]==='sin') return '';
+      return `<div class="tarjeta">
+        <span class="t-tit">${ic('users')} Cartera por vendedor</span>
+        <p class="gris">Cuántos clientes atiende cada uno y cuánto factura su cartera al mes.</p>
+        <div class="tabla-wrap"><table class="tabla">
+          <thead><tr><th>Vendedor</th><th>Negocios</th><th>Activos</th><th>Factura al mes</th></tr></thead>
+          <tbody>${filas.map(k=>{
+            const v=sas2.find(x=>x.id===k);
+            return `<tr>
+              <td><strong>${k==='sin'?'<span class="rojo">Sin asignar</span>':escapeHtml(v?v.nombre:'(eliminado)')}</strong>${v&&v.rolSuper==='vendedor'?' <span class="pill pill-verde chico">vendedor</span>':''}</td>
+              <td class="negrita">${porVend[k].n}</td>
+              <td class="verde">${porVend[k].activos}</td>
+              <td class="oro negrita">${fmtMoney(porVend[k].mes)}</td>
+            </tr>`;}).join('')}</tbody>
+        </table></div>
+      </div>`; })()}
     <div class="tarjeta">
       <div class="t-cab">
         <span class="t-tit">${ic('building')} Negocios</span>
         <div class="t-acc">
-          <input type="text" class="busca" placeholder="🔍 Buscar negocio..." value="${escapeHtml(STATE.buscaNegocio||'')}" oninput="STATE.buscaNegocio=this.value;render()">
+          <input type="text" class="busca" placeholder="🔍 Buscar negocio, ciudad o vendedor..." value="${escapeHtml(STATE.buscaNegocio||'')}" oninput="STATE.buscaNegocio=this.value;render()">
+          <select class="busca" onchange="STATE.filtroVendedor=this.value;render()">
+            <option value="">Todos los vendedores</option>
+            <option value="sin" ${STATE.filtroVendedor==='sin'?'selected':''}>Sin asignar</option>
+            ${sas.map(v=>`<option value="${v.id}" ${STATE.filtroVendedor===v.id?'selected':''}>${escapeHtml(v.nombre)}</option>`).join('')}
+          </select>
           <button class="btn btn-ghost" onclick="crearNegocioDemo()" title="Crea un negocio de ejemplo ya lleno para mostrar">✨ Crear demo</button>
           <button class="btn btn-gold" onclick="nuevoNegocio()">${ic('plus')} Crear negocio</button>
         </div>
       </div>
       <div class="tabla-wrap"><table class="tabla tabla-cards">
-        <thead><tr><th>Negocio</th><th>Tipo</th><th>Flujo</th><th>Plan</th><th>Precio/mes</th><th>Usuarios</th><th>Estado</th><th>Acciones</th></tr></thead>
+        <thead><tr><th>Negocio</th><th>Tipo</th><th>Vendedor</th><th>Desde</th><th>Plan</th><th>Precio/mes</th><th>Usuarios</th><th>Estado</th><th>Acciones</th></tr></thead>
         <tbody>
         ${lista.length? lista.map(n=>`<tr>
           <td data-label="Negocio"><strong>${escapeHtml(n.nombre)}</strong>${n.esDemo?' <span class="pill pill-azul" style="font-size:9px;">DEMO</span>':''}${n.ciudad?`<br><span class="gris">${escapeHtml(n.ciudad)}</span>`:''}${(n.sucursales&&n.sucursales.length>1)?`<br><span class="gris">📍 ${n.sucursales.length} sedes</span>`:''}</td>
           <td data-label="Tipo">${escapeHtml(n.tipo)}</td>
-          <td data-label="Flujo"><span class="pill ${n.flujoPedido==='dos_pasos'?'pill-gold':''}">${n.flujoPedido==='dos_pasos'?'Confirmar → Cobrar':'Cobro directo'}</span></td>
+          <td data-label="Vendedor">${n.vendedorId?escapeHtml(nombreVend(n.vendedorId)||n.vendedorNombre||'—'):'<span class="pill pill-rojo chico">Sin asignar</span>'}</td>
+          <td data-label="Desde" class="gris chico">${n.creado?(n.creado||'').split('T')[0]:'—'}<br>${antig(n)}</td>
           <td data-label="Plan">${escapeHtml(n.plan||'—')}</td>
           <td data-label="Precio/mes">${fmtMoney(n.precioMes)}</td>
           <td data-label="Usuarios">${(DB.get('usuarios')||[]).filter(u=>u.negocioId===n.id).length}</td>
@@ -1029,6 +1088,8 @@ function panelSuperAdmin(){
             <button class="btn btn-sm btn-verde" onclick="entrarComoNegocio('${n.id}')">Entrar</button>
             <button class="btn btn-sm" onclick="configNegocio('${n.id}')">Configurar</button>
             <button class="btn btn-sm" onclick="usuariosNegocio('${n.id}')">Usuarios</button>
+            <button class="btn btn-sm" onclick="reporteMensualNegocio('${n.id}')" title="Informe mensual en PDF">📄 Informe</button>
+            <button class="btn btn-sm" onclick="asignarVendedor('${n.id}')" title="Asignar vendedor a cargo">👤 Vendedor</button>
             <button class="btn btn-sm ${n.activo?'btn-naranja':'btn-verde'}" onclick="toggleNegocio('${n.id}')">${n.activo?'Suspender':'Activar'}</button>
             ${STATE.user.rolSuper==='dueno'?`<button class="btn btn-sm btn-rojo" onclick="eliminarNegocio('${n.id}')" title="Eliminar empresa">🗑️</button>`:''}
           </td>
@@ -1181,7 +1242,9 @@ function nuevoNegocio(){
       {valor:'Básico',label:'Básico'},{valor:'Profesional',label:'Profesional'},{valor:'Premium',label:'Premium'}]},
     {id:'precio', label:'Precio mensual', tipo:'number', valor:'149900'},
     {id:'usuario', label:'Usuario del administrador', requerido:true, placeholder:'admin'},
-    {id:'pass', label:'Contraseña', requerido:true, valor:'admin123'}
+    {id:'pass', label:'Contraseña', requerido:true, valor:'admin123'},
+    {id:'vendedor', label:'Vendedor a cargo', tipo:'select',
+      opciones:[{valor:'',label:'— Sin asignar —'}].concat((DB.get('superadmins')||[]).map(v=>({valor:v.id,label:v.nombre})))}
   ], extraHTML:`<div class="m-row"><label>¿Cómo cobra este negocio?</label>
       <select id="m-flujo">
         <option value="directo">Cobro directo (tienda: se cobra al instante)</option>
@@ -1210,7 +1273,9 @@ function nuevoNegocio(){
       tiposEntrega:perfil.tiposEntrega.slice(),
       funciones:perfil.funciones.slice(),
       tipoFactura:'pos', pctDatafono:0, sonidos:true, tema:'claro',
-      sucursales:[], creado:now()
+      sucursales:[], creado:now(),
+      vendedorId:d.vendedor||null,
+      vendedorNombre:((DB.get('superadmins')||[]).find(v=>v.id===d.vendedor)||{}).nombre||''
     });
     DB.set('negocios',negocios);
     const usuarios=DB.get('usuarios')||[];
@@ -1569,6 +1634,27 @@ function crearDemoDeTipo(tipoDemo, cerrarYToast){
     return true;
 }
 
+// Asignar o cambiar el vendedor a cargo de un negocio
+function asignarVendedor(id){
+  const negocios=DB.get('negocios')||[];
+  const n=negocios.find(x=>x.id===id); if(!n) return;
+  const sas=DB.get('superadmins')||[];
+  abrirModal({titulo:'Vendedor a cargo de '+n.nombre, textoBoton:'Guardar', campos:[
+    {id:'vend', label:'Vendedor', tipo:'select', valor:n.vendedorId||'',
+      opciones:[{valor:'',label:'— Sin asignar —'}].concat(sas.map(v=>({valor:v.id,label:v.nombre+(v.rolSuper==='vendedor'?' (vendedor)':'')})))},
+    {id:'notas', label:'Notas comerciales (opcional)', valor:n.notasComerciales||''}
+  ], extraHTML:`<p class="nota">Queda registrado quién atiende este cliente. Se puede filtrar la lista por vendedor y sale en el informe mensual.</p>`,
+  onGuardar:(d)=>{
+    const arr=DB.get('negocios')||[];
+    const x=arr.find(y=>y.id===id); if(!x){ cerrarModal(); return; }
+    x.vendedorId=d.vend||null;
+    const v=sas.find(y=>y.id===x.vendedorId);
+    x.vendedorNombre=v?v.nombre:'';
+    x.notasComerciales=d.notas||'';
+    DB.set('negocios',arr);
+    cerrarModal(); toast(x.vendedorId?('Asignado a '+x.vendedorNombre):'Vendedor quitado','success'); render();
+  }});
+}
 function toggleNegocio(id){
   const negocios=DB.get('negocios')||[];
   const n=negocios.find(x=>x.id===id); if(!n) return;
@@ -5409,13 +5495,12 @@ function contable(){
     if(m.tipo==='retiro'){ retiros+=m.valor||0; return; }
     if(m.tipo!=='gasto') return;
     gastosCaja+=m.valor||0;
-    const k=m.concepto||'Otros';
-    gCaja[k]=(gCaja[k]||0)+(m.valor||0);
+    acumConcepto(gCaja, m.concepto||'Otros', m.valor||0);
   });
   const egresos=totalGastos+gastosCaja;
   const utilidad=totalVentas-egresos;
   const sumaDif=cierres.reduce((a,c)=>a+(c.diferencia||0),0);
-  gastos.forEach(g=>{ gNeg[g.concepto]=(gNeg[g.concepto]||0)+g.valor; });
+  gastos.forEach(g=>acumConcepto(gNeg,g.concepto,g.valor));
   const concCaja=Object.entries(gCaja).sort((a,b)=>b[1]-a[1]);
   const concNeg=Object.entries(gNeg).sort((a,b)=>b[1]-a[1]);
   // Productos más vendidos del mes
@@ -5461,11 +5546,13 @@ function contable(){
         <div class="linea total-linea"><span>TOTAL VENTAS</span><strong>${fmtMoney(totalVentas)}</strong></div>
       </div>
       <div class="tarjeta"><span class="t-tit">${ic('cash')} Egresos por concepto (lo que se gastó)</span>
-        ${concCaja.length?`<p class="gris chico" style="margin:4px 0;">De la caja diaria (${fmtMoney(gastosCaja)}):</p>
-          ${concCaja.map(c=>`<div class="linea"><span>${escapeHtml(c[0])}</span><strong class="rojo">${fmtMoney(c[1])}</strong></div>`).join('')}`:''}
-        ${concNeg.length?`<p class="gris chico" style="margin:8px 0 4px;">Gastos del negocio, arriendo/recibos (${fmtMoney(totalGastos)}):</p>
-          ${concNeg.map(c=>`<div class="linea"><span>${escapeHtml(c[0])}</span><strong class="rojo">${fmtMoney(c[1])}</strong></div>`).join('')}`:''}
-        ${(!concCaja.length&&!concNeg.length)?'<p class="gris">Sin gastos este mes.</p>':`<div class="linea total-linea"><span>TOTAL EGRESOS</span><strong class="rojo">${fmtMoney(egresos)}</strong></div>`}
+        ${concCaja.length?`<div class="cc-sec"><span>De la caja diaria</span><span>${fmtMoney(gastosCaja)}</span></div>
+          ${conceptosCompactoHTML(gCaja,{id:'ct-caja',max:5,base:egresos})}`:''}
+        ${concNeg.length?`<div class="cc-sec" style="margin-top:14px;"><span>Gastos del negocio</span><span>${fmtMoney(totalGastos)}</span></div>
+          ${conceptosCompactoHTML(gNeg,{id:'ct-neg',max:6,base:egresos})}`:''}
+        ${(!concCaja.length&&!concNeg.length)?'<p class="gris">Sin gastos este mes.</p>':`
+          <div class="linea total-linea"><span>TOTAL EGRESOS</span><strong class="rojo">${fmtMoney(egresos)}</strong></div>
+          ${totalVentas>0?`<p class="nota" style="margin-top:8px;">Los gastos se llevan el <strong class="rojo">${Math.round(egresos/totalVentas*1000)/10}%</strong> de lo vendido. Queda el <strong class="verde">${Math.round(utilidad/totalVentas*1000)/10}%</strong> de utilidad.</p>`:''}`}
       </div>
     </div>
     ${(propinas+domis+recargos+retiros)>0?`<div class="tarjeta">
@@ -5520,62 +5607,192 @@ function nombreMes(m){
 //  GASTOS DEL NEGOCIO
 // ============================================================
 let _mesGas=null;
+// ---------- Conceptos de gasto ----------
+// Se agregan UNA vez y después solo se seleccionan. Antes cada quien los
+// escribía distinto ("arriendo", "Arriendo local") y el informe se llenaba
+// de líneas repetidas.
+const CONCEPTOS_BASE=['Arriendo','Servicios públicos','Recibo de luz','Recibo de agua','Recibo de gas',
+  'Internet / Teléfono','Mercancía / Proveedores','Insumos','Nómina','Mantenimiento','Impuestos',
+  'Publicidad','Transporte','Aseo','Otros'];
+function normConcepto(x){ return String(x||'').trim().replace(/\s+/g,' '); }
+function claveConcepto(x){ return normConcepto(x).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
+function getConceptosGasto(){
+  let base=DB.get(claveDe(STATE.negocio.id,'conceptos_gasto'));
+  if(!Array.isArray(base)) base=CONCEPTOS_BASE.concat(misDatos('gastos_negocio').map(g=>g.concepto));
+  const out=[];
+  base.forEach(c=>{ const n=normConcepto(c); if(n && !out.some(x=>claveConcepto(x)===claveConcepto(n))) out.push(n); });
+  return out.sort((a,b)=>a.localeCompare(b,'es'));
+}
+function guardarConceptos(lista){ DB.set(claveDe(STATE.negocio.id,'conceptos_gasto'), lista); }
+// Suma sin duplicar por mayúsculas, tildes o espacios
+function acumConcepto(obj, nombre, monto){
+  let n=normConcepto(nombre)||'Otros';
+  // Se muestra siempre con el nombre oficial del catálogo, no como lo escribieron
+  try{
+    const oficial=getConceptosGasto().find(x=>claveConcepto(x)===claveConcepto(n));
+    if(oficial) n=oficial;
+  }catch(e){}
+  const ex=Object.keys(obj).find(x=>claveConcepto(x)===claveConcepto(n))||n;
+  obj[ex]=(obj[ex]||0)+(monto||0);
+}
+// Lista compacta con barra y porcentaje (como en Portal Imperial)
+window._ccOpen=window._ccOpen||{};
+function conceptosCompactoHTML(obj, opts){
+  opts=opts||{};
+  const arr=Object.entries(obj||{}).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
+  if(!arr.length) return `<p class="gris chico" style="margin:4px 0 10px;">${opts.vacio||'Sin gastos.'}</p>`;
+  const base=opts.base||arr.reduce((a,[,v])=>a+v,0);
+  const fila=([k,v])=>{
+    const pct=base>0?Math.round(v/base*1000)/10:0;
+    return `<div class="cc-row"><div class="cc-top"><span class="cc-name" title="${escapeHtml(k)}">${escapeHtml(k)}</span>
+      <span class="cc-val">${fmtMoney(v)}<small>${pct}%</small></span></div>
+      <div class="cc-bar"><i style="width:${Math.max(Math.min(pct,100),1.5)}%"></i></div></div>`;
+  };
+  const max=opts.max||6, vis=arr.slice(0,max), resto=arr.slice(max);
+  let html=`<div class="cc-list">${vis.map(fila).join('')}`;
+  if(resto.length){
+    const suma=resto.reduce((a,[,v])=>a+v,0); const id=opts.id||'cc';
+    html+=`<details class="cc-more" ${window._ccOpen[id]?'open':''} ontoggle="window._ccOpen['${id}']=this.open">
+      <summary>Ver ${resto.length} concepto(s) más · ${fmtMoney(suma)}</summary>
+      <div class="cc-scroll">${resto.map(fila).join('')}</div></details>`;
+  }
+  return html+'</div>';
+}
+function opcionesConcepto(lista, sel){
+  return `<option value="">Seleccione un concepto...</option>`+
+    lista.map(c=>`<option value="${escapeHtml(c)}" ${claveConcepto(c)===claveConcepto(sel||'')?'selected':''}>${escapeHtml(c)}</option>`).join('');
+}
+function agregarConceptoGasto(){
+  const inp=document.getElementById('g-nuevoconcepto');
+  const n=normConcepto(inp&&inp.value);
+  if(!n){ toast('Escribe el nombre del concepto','error'); return; }
+  const lista=getConceptosGasto();
+  const ex=lista.find(x=>claveConcepto(x)===claveConcepto(n));
+  if(ex){ toast('"'+ex+'" ya existe, queda seleccionado','info'); }
+  else { lista.push(n); guardarConceptos(lista); logAudit('Agregó concepto de gasto',n); toast('Concepto agregado: '+n,'success'); }
+  const sel=document.getElementById('m-concepto');
+  if(sel){ sel.innerHTML=opcionesConcepto(getConceptosGasto(), ex||n); }
+  if(inp) inp.value='';
+  const w=document.getElementById('g-boxconcepto'); if(w) w.style.display='none';
+}
+function toggleNuevoConcepto(){
+  const w=document.getElementById('g-boxconcepto'); if(!w) return;
+  const abrir=w.style.display==='none';
+  w.style.display=abrir?'block':'none';
+  if(abrir) setTimeout(()=>{ const i=document.getElementById('g-nuevoconcepto'); if(i) i.focus(); },40);
+}
+function administrarConceptos(){
+  const lista=getConceptosGasto();
+  abrirModal({titulo:'Conceptos de gasto', textoBoton:'Listo', campos:[],
+    extraHTML:`<p class="nota">Estos son los conceptos que aparecen al registrar un gasto. Quitar uno no borra los gastos ya registrados con él.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">
+        ${lista.map(c=>`<span class="pill pill-gold" style="padding:5px 6px 5px 11px;">${escapeHtml(c)}
+          <button type="button" onclick="quitarConcepto(this.dataset.c)" data-c="${escapeHtml(c)}" style="background:none;border:none;color:var(--rojo);cursor:pointer;font-size:15px;padding:0 2px;">×</button></span>`).join('')}
+      </div>`,
+    onGuardar:()=>{ cerrarModal(); render(); }});
+}
+function quitarConcepto(nombre){
+  if(!nombre) return;
+  const lista=getConceptosGasto().filter(x=>claveConcepto(x)!==claveConcepto(nombre));
+  guardarConceptos(lista);
+  logAudit('Quitó concepto de gasto',nombre);
+  cerrarModal(); toast('Concepto quitado','info'); administrarConceptos();
+}
+
 function gastosneg(){
   ESCRIBIENDO=false;
   const gastos=misDatos('gastos_negocio');
   const mes=_mesGas||today().substring(0,7);
   const delMes=gastos.filter(g=>(g.fecha||'').substring(0,7)===mes);
   const total=delMes.reduce((a,g)=>a+g.valor,0);
+  // Ventas del mes, para saber qué tanto pesa cada gasto
+  const ventasMes=misDatos('ventas').filter(v=>v.estado==='pagada' && (v.fecha||'').substring(0,7)===mes)
+    .reduce((a,v)=>a+(v.subtotal!=null?v.subtotal:(v.total||0)),0);
+  const pctVentas = ventasMes>0 ? Math.round(total/ventasMes*1000)/10 : null;
   const porConcepto={};
-  delMes.forEach(g=>{ porConcepto[g.concepto]=(porConcepto[g.concepto]||0)+g.valor; });
-  const conceptos=Object.entries(porConcepto).sort((a,b)=>b[1]-a[1]);
+  delMes.forEach(g=>acumConcepto(porConcepto,g.concepto,g.valor));
+  const propios=delMes.filter(g=>g.origen!=='caja').reduce((a,g)=>a+g.valor,0);
+  const deCaja=total-propios;
   const mesesSet={}; mesesSet[today().substring(0,7)]=1;
   gastos.forEach(g=>{ if(g.fecha) mesesSet[g.fecha.substring(0,7)]=1; });
   const meses=Object.keys(mesesSet).sort().reverse();
+  // Mes anterior, para comparar
+  const [a1,m1]=mes.split('-').map(Number);
+  const dPrev=new Date(a1,m1-2,1);
+  const mesPrev=dPrev.getFullYear()+'-'+String(dPrev.getMonth()+1).padStart(2,'0');
+  const totalPrev=gastos.filter(g=>(g.fecha||'').substring(0,7)===mesPrev).reduce((a,g)=>a+g.valor,0);
+  const dif=total-totalPrev;
 
   return `
     <div class="tarjeta">
       <div class="t-cab">
         <div><span class="t-tit">${ic('cash')} Gastos del Negocio</span>
-          <p class="gris">Gastos que paga el dueño aparte de la caja: arriendo, servicios, mercancía.</p></div>
+          <p class="gris">Todo lo que sale de plata: lo que paga el dueño aparte y lo que sale de la caja diaria.</p></div>
         <div class="t-acc">
           <select class="busca" onchange="_mesGas=this.value;render()">
             ${meses.map(m=>`<option value="${m}" ${m===mes?'selected':''}>${nombreMes(m)}</option>`).join('')}
           </select>
+          <button class="btn btn-sm btn-ghost" onclick="administrarConceptos()">Conceptos</button>
           <button class="btn btn-gold" onclick="nuevoGasto()">+ Registrar gasto</button>
         </div>
       </div>
     </div>
+    <div class="stats">
+      <div class="stat rojo"><div class="stat-ico rojo">${ic('cash')}</div><div class="stat-lbl">Gastos de ${nombreMes(mes)}</div>
+        <div class="stat-val">${fmtMoney(total)}</div>
+        <div class="stat-sub">${totalPrev>0?(dif>=0?'▲ '+fmtMoney(dif)+' más que el mes pasado':'▼ '+fmtMoney(-dif)+' menos que el mes pasado'):delMes.length+' gasto(s)'}</div></div>
+      <div class="stat gold"><div class="stat-ico gold">${ic('report')}</div><div class="stat-lbl">Peso sobre las ventas</div>
+        <div class="stat-val">${pctVentas!==null?pctVentas+'%':'—'}</div>
+        <div class="stat-sub">${ventasMes>0?'de '+fmtMoney(ventasMes)+' vendidos':'sin ventas este mes'}</div></div>
+      <div class="stat azul"><div class="stat-ico azul">${ic('cash')}</div><div class="stat-lbl">De la caja diaria</div>
+        <div class="stat-val">${fmtMoney(deCaja)}</div><div class="stat-sub">salió del cajón</div></div>
+      <div class="stat verde"><div class="stat-ico verde">${ic('box')}</div><div class="stat-lbl">Pagados aparte</div>
+        <div class="stat-val">${fmtMoney(propios)}</div><div class="stat-sub">los paga el dueño</div></div>
+    </div>
     <div class="grid2">
-      <div class="tarjeta"><span class="t-tit">Resumen de ${nombreMes(mes)}</span>
-        <div class="stat-grande">${fmtMoney(total)}</div>
-        <p class="gris centrado">${delMes.length} gasto(s)</p>
-        ${conceptos.map(c=>`<div class="linea"><span>${escapeHtml(c[0])}</span><strong>${fmtMoney(c[1])}</strong></div>`).join('')}
+      <div class="tarjeta">
+        <div class="cc-sec"><span>En qué se fue la plata</span><span>${Object.keys(porConcepto).length} concepto(s)</span></div>
+        ${conceptosCompactoHTML(porConcepto,{id:'gn-mes',max:7,vacio:'Sin gastos este mes.'})}
+        ${ventasMes>0?`<p class="nota" style="margin-top:12px;">El porcentaje es sobre el total de gastos. De cada ${fmtMoney(100000)} vendidos, se van <strong class="rojo">${fmtMoney(Math.round(total/ventasMes*100000))}</strong> en gastos.</p>`:''}
       </div>
-      <div class="tarjeta"><span class="t-tit">Detalle</span>
+      <div class="tarjeta"><span class="t-tit">Detalle de ${nombreMes(mes)}</span>
         <div class="tabla-wrap"><table class="tabla">
-          <thead><tr><th>Fecha</th><th>Concepto</th><th>Valor</th><th></th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Concepto</th><th>Pagado con</th><th>Valor</th><th></th></tr></thead>
           <tbody>${delMes.length?delMes.map(g=>`<tr>
             <td class="gris chico">${(g.fecha||'').split('T')[0]}</td>
-            <td>${escapeHtml(g.concepto)}${g.origen==='caja'?' <span class="pill pill-azul">de caja</span>':''}${g.nota?`<br><span class="gris chico">${escapeHtml(g.nota)}</span>`:''}</td>
-            <td class="negrita">${fmtMoney(g.valor)}</td>
+            <td><strong>${escapeHtml(g.concepto)}</strong>${g.origen==='caja'?' <span class="pill pill-azul chico">de caja</span>':''}${g.nota?`<br><span class="gris chico">${escapeHtml(g.nota)}</span>`:''}${g.por?`<br><span class="gris chico">${escapeHtml(g.por)}</span>`:''}</td>
+            <td class="gris">${escapeHtml(g.metodo||'—')}</td>
+            <td class="negrita rojo">${fmtMoney(g.valor)}</td>
             <td><button class="btn btn-sm btn-rojo" onclick="eliminarGasto('${g.id}')">×</button></td>
-          </tr>`).join(''):'<tr><td colspan="4" class="gris">Sin gastos este mes.</td></tr>'}</tbody>
+          </tr>`).join(''):'<tr><td colspan="5" class="gris">Sin gastos este mes.</td></tr>'}</tbody>
         </table></div>
       </div>
     </div>`;
 }
 function nuevoGasto(){
+  const lista=getConceptosGasto();
   abrirModal({titulo:'Registrar gasto', textoBoton:'Guardar', campos:[
-    {id:'concepto', label:'Concepto', requerido:true, placeholder:'Arriendo, servicios, mercancía...'},
+    {id:'concepto', label:'Concepto', tipo:'select', opciones:[{valor:'',label:'Seleccione un concepto...'}].concat(lista.map(c=>({valor:c,label:c})))},
     {id:'valor', label:'Valor', tipo:'number', requerido:true},
     {id:'fecha', label:'Fecha', tipo:'date', valor:today()},
     {id:'metodo', label:'Pagado con', tipo:'select', opciones:[
       {valor:'Efectivo',label:'Efectivo'},{valor:'Banco',label:'Banco'},{valor:'Tarjeta',label:'Tarjeta'}]},
     {id:'nota', label:'Nota (opcional)'}
-  ], onGuardar:(d)=>{
+  ], extraHTML:`<div style="margin-top:-6px;">
+      <button type="button" class="btn btn-sm btn-ghost" onclick="toggleNuevoConcepto()">+ Agregar concepto nuevo</button>
+      <div id="g-boxconcepto" style="display:none;margin-top:8px;padding:10px;border:1px dashed var(--linea);border-radius:10px;">
+        <p class="nota" style="margin:0 0 6px;">Escríbelo una sola vez. Después solo lo seleccionas.</p>
+        <div style="display:flex;gap:6px;">
+          <input type="text" id="g-nuevoconcepto" class="campo" style="margin:0;" placeholder="Ej: Gas, Desechables, Aseo"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();agregarConceptoGasto();}">
+          <button type="button" class="btn btn-verde btn-sm" onclick="agregarConceptoGasto()">Guardar</button>
+        </div>
+      </div>
+    </div>`,
+  onGuardar:(d)=>{
+    if(!normConcepto(d.concepto)){ toast('Seleccione el concepto del gasto','error'); return; }
     const arr=misDatos('gastos_negocio');
-    arr.unshift({id:uid(), concepto:d.concepto, valor:parseFloat(d.valor)||0,
+    arr.unshift({id:uid(), concepto:normConcepto(d.concepto), valor:parseFloat(d.valor)||0,
       fecha:d.fecha||today(), metodo:d.metodo, nota:d.nota, por:STATE.user.nombre, creado:now()});
     guardarMisDatos('gastos_negocio',arr);
     logAudit('Registró gasto', d.concepto+' · '+fmtMoney(parseFloat(d.valor)||0));
@@ -5847,174 +6064,235 @@ function imprimirContable(){
 function configNegocio(id){ window._logoNuevo=undefined; STATE.page='config:'+id; render(); }
 function usuariosNegocio(id){ STATE.page='usuarios:'+id; render(); }
 
+let _cfgTab='datos';
+function cfgTab(t){ _cfgTab=t; render(); }
 function pantallaConfig(negId){
   const neg=(DB.get('negocios')||[]).find(n=>n.id===negId);
   if(!neg) return '<div class="tarjeta">Negocio no encontrado</div>';
   const F=neg.funciones||[];
-  const todas=[['ventas','Nueva Venta'],['catalogo','Inventario'],['caja','Caja'],['facturas','Facturas'],
-    ['clientes','Clientes'],['cocina','Cocina'],['citas','Agendar'],['domicilios','Domicilios'],
-    ['inventario','Control de stock'],['reportes','Reportes'],['contable','Contable'],['gastosneg','Gastos del negocio']];
-  const entregas=[['mesa','Mesa'],['llevar','Para llevar'],['domicilio','Domicilio'],['envio','Envío nacional']];
-  return `
-  <div class="topbar">
-    <h1>${ic('cog')} Configurar: ${escapeHtml(neg.nombre)}</h1>
-    <div class="tb-der"><button class="btn btn-ghost btn-sm" onclick="STATE.page='';render()">← Volver</button></div>
-  </div>
-  <div class="contenido">
-    <div class="tarjeta">
-      <span class="t-tit">Datos del negocio</span>
+  const vendedores=(DB.get('superadmins')||[]);
+  const nUsuarios=(DB.get('usuarios')||[]).filter(u=>u.negocioId===negId).length;
+  const dias=neg.creado?Math.floor((Date.now()-new Date(neg.creado).getTime())/86400000):null;
+  const tabs=[['datos','Datos del negocio'],['comercial','Plan y vendedor'],['operacion','Cómo opera'],
+              ['ventanas','Ventanas habilitadas'],['sucursales','Sucursales']];
+  const t=_cfgTab;
+  // --- Todas las ventanas del sistema, en UN SOLO lugar ---
+  const GRUPOS=[
+    ['Ventas y pedidos',[['ventas','Nueva Venta'],['facturas','Facturas e impresión']]],
+    ['Catálogo e inventario',[['catalogo','Menú / Inventario / Combos'],['inventario','Control de stock y conteos']]],
+    ['Dinero',[['caja','Caja'],['contable','Registro Contable'],['gastosneg','Gastos del Negocio']]],
+    ['Operación',[['cocina','Pantalla de Cocina (KDS)'],['domicilios','Domicilios y cuadre'],['citas','Agenda de citas']]],
+    ['Clientes y reportes',[['clientes','Clientes'],['reportes','Reportes']]]
+  ];
+  const sec=(titulo,cuerpo)=>`<div class="tarjeta"><span class="t-tit">${titulo}</span>${cuerpo}</div>`;
+  let cuerpo='';
+  if(t==='datos'){
+    cuerpo=sec('Identificación', `
+      <p class="nota">Estos datos salen en el encabezado de todas las facturas.</p>
       <div class="form2">
-        <div class="m-row"><label>Nombre</label><input id="c-nombre" class="campo" value="${escapeHtml(neg.nombre)}"></div>
-        <div class="m-row"><label>Tipo</label><select id="c-tipo" class="campo">${Object.keys(PERFILES).map(t=>`<option ${neg.tipo===t?'selected':''}>${t}</option>`).join('')}</select></div>
-        <div class="m-row"><label>NIT</label><input id="c-nit" class="campo" value="${escapeHtml(neg.nit||'')}"></div>
+        <div class="m-row"><label>Nombre del negocio</label><input id="c-nombre" class="campo" value="${escapeHtml(neg.nombre)}"></div>
+        <div class="m-row"><label>Tipo</label><select id="c-tipo" class="campo">${Object.keys(PERFILES).map(x=>`<option ${neg.tipo===x?'selected':''}>${x}</option>`).join('')}</select></div>
+        <div class="m-row"><label>NIT / Cédula</label><input id="c-nit" class="campo" value="${escapeHtml(neg.nit||'')}"></div>
         <div class="m-row"><label>Teléfono</label><input id="c-tel" class="campo" value="${escapeHtml(neg.tel||'')}"></div>
         <div class="m-row"><label>Dirección</label><input id="c-dir" class="campo" value="${escapeHtml(neg.dir||'')}"></div>
         <div class="m-row"><label>Ciudad</label><input id="c-ciudad" class="campo" value="${escapeHtml(neg.ciudad||'')}"></div>
-        <div class="m-row"><label>Eslogan (opcional)</label><input id="c-eslogan" class="campo" value="${escapeHtml(neg.eslogan||'')}" placeholder="Ej: Accesorios con estilo"></div>
-        <div class="m-row"><label>Plan</label><select id="c-plan" class="campo">${['Básico','Profesional','Premium'].map(p=>`<option ${neg.plan===p?'selected':''}>${p}</option>`).join('')}</select></div>
-        <div class="m-row"><label>Precio mensual</label><input id="c-precio" type="number" class="campo" value="${neg.precioMes||0}"></div>
-      </div>
-      <p class="nota">Estos datos salen en el encabezado de todas las facturas del negocio.</p>
-    </div>
-    <div class="tarjeta">
-      <span class="t-tit">${ic('box')} Logo del negocio</span>
-      <p class="gris">Aparece en el menú lateral del sistema y en todas las facturas.</p>
+        <div class="m-row"><label>Eslogan (opcional)</label><input id="c-eslogan" class="campo" value="${escapeHtml(neg.eslogan||'')}"></div>
+      </div>`)
+    + sec(ic('box')+' Logo y apariencia', `
       <div class="logo-zona">
-        <div class="logo-vista" id="logo-vista">
-          ${neg.logo?`<img src="${neg.logo}" alt="logo">`:`<div class="logo-vacio">Sin logo</div>`}
-        </div>
+        <div class="logo-vista" id="logo-vista">${neg.logo?`<img src="${neg.logo}" alt="logo">`:`<div class="logo-vacio">Sin logo</div>`}</div>
         <div class="logo-acc">
           <input type="file" id="n-logo" accept="image/*" onchange="cargarLogo(this)" style="display:none;">
           <button class="btn btn-gold" onclick="document.getElementById('n-logo').click()">Subir logo</button>
           ${neg.logo?`<button class="btn btn-rojo btn-sm" onclick="quitarLogo()">Quitar</button>`:''}
-          <p class="nota">La imagen se reduce sola para no pesar.</p>
+          <p class="nota">Sale en el menú lateral y en las facturas.</p>
         </div>
       </div>
-    </div>
-    <div class="tarjeta">
-      <span class="t-tit">¿Cómo cobra este negocio?</span>
-      <p class="gris">Define si se toma el pedido y se cobra después, o si se cobra de una vez.</p>
-      <select id="c-flujo" class="campo" style="max-width:420px;">
-        <option value="directo" ${neg.flujoPedido!=='dos_pasos'?'selected':''}>Cobro directo — se cobra al instante (tiendas)</option>
-        <option value="dos_pasos" ${neg.flujoPedido==='dos_pasos'?'selected':''}>Confirmar y luego cobrar (restaurantes)</option>
-      </select>
-    </div>
-    <div class="tarjeta">
-      <span class="t-tit">Vocabulario personalizado</span>
-      <p class="nota">Personaliza cómo el sistema llama a las cosas según tu negocio. Ej: un restaurante usa "Plato/Platos", una tienda "Producto/Productos", una boutique "Prenda/Prendas".</p>
-      <div class="form2">
-        <div class="m-row"><label>Producto (singular)</label><input id="c-pal1" class="campo" value="${escapeHtml(neg.palabraProducto||'Producto')}" placeholder="Ej: Producto, Plato, Artículo"></div>
-        <div class="m-row"><label>Productos (plural)</label><input id="c-pal2" class="campo" value="${escapeHtml(neg.palabraProductos||'Productos')}" placeholder="Ej: Productos, Platos, Artículos"></div>
-        <div class="m-row"><label>Cómo llamas al pedido/venta</label><input id="c-palped" class="campo" value="${escapeHtml(neg.palabraPedido||'Pedido')}" placeholder="Ej: Pedido, Orden, Venta"></div>
-        <div class="m-row"><label>Cómo llamas al personal</label><input id="c-palpers" class="campo" value="${escapeHtml(neg.palabraPersonal||'Personal')}" placeholder="Ej: Mesero, Personal, Vendedor"></div>
-      </div>
-    </div>
-    <div class="tarjeta">
-      <span class="t-tit">Tipos de entrega</span>
-      <div class="checks">${entregas.map(e=>`<label class="chk"><input type="checkbox" class="c-ent" value="${e[0]}" ${(neg.tiposEntrega||[]).indexOf(e[0])>-1?'checked':''}> ${e[1]}</label>`).join('')}</div>
-    </div>
-    <div class="tarjeta">
-      <span class="t-tit">Pantallas habilitadas</span>
-      <div class="checks">${todas.map(f=>`<label class="chk"><input type="checkbox" class="c-fun" value="${f[0]}" ${F.indexOf(f[0])>-1?'checked':''}> ${f[1]}</label>`).join('')}</div>
-    </div>
-    <div class="tarjeta">
-      <span class="t-tit">Opciones</span>
-      <div class="checks">
-        <label class="chk"><input type="checkbox" id="c-mesas" ${neg.usaMesas?'checked':''}> Usa mesas</label>
-        <label class="chk"><input type="checkbox" id="c-cocina" ${neg.usaCocina?'checked':''}> Usa cocina (pantalla KDS)</label>
-        <label class="chk"><input type="checkbox" id="c-propina" ${(neg.usaPropina!==undefined?neg.usaPropina:neg.usaCocina)?'checked':''}> Cobra propina (personal de servicio)</label>
-        <label class="chk"><input type="checkbox" id="c-domis" ${(neg.usaDomicilios!==undefined?neg.usaDomicilios:(neg.tiposEntrega||[]).indexOf('domicilio')>-1)?'checked':''}> Maneja domicilios</label>
-        <label class="chk"><input type="checkbox" id="c-recetas" ${neg.usaRecetas?'checked':''}> Usa recetas (descuenta insumos)</label>
-        <label class="chk"><input type="checkbox" id="c-citas" ${neg.usaCitas?'checked':''}> Usa agenda</label>
-        <label class="chk"><input type="checkbox" id="c-logistica" ${neg.esLogistica?'checked':''}> Modo logística (registra entradas/salidas SIN cobrar dinero)</label>
-        <label class="chk"><input type="checkbox" id="c-sonidos" ${neg.sonidos!==false?'checked':''}> Sonidos</label>
-        <label class="chk"><input type="checkbox" id="c-alerta" ${neg.alertaStock!==false?'checked':''}> Avisar stock bajo</label>
-        <label class="chk"><input type="checkbox" id="c-verificarbanco" ${neg.verificarBanco?'checked':''}> Exigir verificar transferencias</label>
-        <label class="chk"><input type="checkbox" id="c-cuentas" ${neg.usaCuentas?'checked':''}> Usar cuentas abiertas</label>
-        <label class="chk"><input type="checkbox" id="c-descontarpedir" ${(neg.descontarAlPedir!==undefined?neg.descontarAlPedir:(neg.usaCuentas||neg.flujoPedido==='dos_pasos'))?'checked':''}> Descontar inventario al pedir</label>
-      </div>
-      <p class="nota" style="margin-top:8px;">Marca solo lo que el negocio necesita. Ej: una tienda de accesorios no marca cocina ni propina.</p>
       <div class="form2" style="margin-top:14px;">
-        <div class="m-row"><label>Apariencia del sistema</label><select id="c-tema" class="campo">
+        <div class="m-row"><label>Tema</label><select id="c-tema" class="campo">
           <option value="oscuro" ${neg.tema!=='claro'?'selected':''}>Oscuro neón</option>
-          <option value="claro" ${neg.tema==='claro'?'selected':''}>Claro / fondo blanco</option>
-        </select></div>
-        <div class="m-row"><label>Color principal</label>
-          <input id="c-color" type="color" class="campo" style="height:46px;padding:5px;cursor:pointer;" value="${/^#[0-9a-fA-F]{6}$/.test(neg.colorTema||'')?neg.colorTema:'#01c38e'}"></div>
+          <option value="claro" ${neg.tema==='claro'?'selected':''}>Claro / fondo blanco</option></select></div>
+        <div class="m-row"><label>Color principal</label><input id="c-color" type="color" class="campo" style="height:46px;padding:5px;cursor:pointer;" value="${/^#[0-9a-fA-F]{6}$/.test(neg.colorTema||'')?neg.colorTema:'#01c38e'}"></div>
         <div class="m-row"><label>Tamaño de factura</label><select id="c-fact" class="campo">
           <option value="pos" ${neg.tipoFactura==='pos'?'selected':''}>Tirilla POS (80mm)</option>
           <option value="media" ${neg.tipoFactura==='media'?'selected':''}>Media hoja</option>
-          <option value="carta" ${neg.tipoFactura==='carta'?'selected':''}>Hoja completa</option>
-        </select></div>
+          <option value="carta" ${neg.tipoFactura==='carta'?'selected':''}>Hoja completa</option></select></div>
         <div class="m-row"><label>Recargo del datáfono (%)</label><input id="c-pct" type="number" step="0.1" class="campo" value="${neg.pctDatafono||0}"></div>
-        <div class="m-row"><label>Al editar un pedido ya cobrado</label><select id="c-ajustecobro" class="campo">
-          <option value="diferencia" ${(neg.ajusteCobro!=='total')?'selected':''}>Cobrar solo la diferencia</option>
-          <option value="total" ${(neg.ajusteCobro==='total')?'selected':''}>Cobrar el total nuevo completo</option>
+      </div>`);
+  }
+  else if(t==='comercial'){
+    cuerpo=sec('💼 Plan y cobro', `
+      <div class="form2">
+        <div class="m-row"><label>Plan</label><select id="c-plan" class="campo">${['Básico','Profesional','Empresarial'].map(x=>`<option ${(neg.plan===x)?'selected':''}>${x}</option>`).join('')}</select></div>
+        <div class="m-row"><label>Precio mensual</label><input id="c-precio" type="number" class="campo" value="${neg.precioMes||0}"></div>
+        <div class="m-row"><label>Día de pago del mes</label><input id="c-diapago" type="number" min="1" max="31" class="campo" value="${neg.diaPago||''}" placeholder="Ej: 5"></div>
+        <div class="m-row"><label>Estado</label><div class="campo" style="display:flex;align-items:center;">${neg.activo?'<span class="pill pill-verde">Activo</span>':'<span class="pill pill-rojo">Suspendido</span>'}</div></div>
+      </div>`)
+    + sec(ic('users')+' Vendedor a cargo', `
+      <p class="nota">Quién vendió este negocio y lo atiende. Sirve para saber a quién le corresponde cada cliente.</p>
+      <div class="form2">
+        <div class="m-row"><label>Vendedor asignado</label><select id="c-vendedor" class="campo">
+          <option value="">— Sin asignar —</option>
+          ${vendedores.map(v=>`<option value="${v.id}" ${neg.vendedorId===v.id?'selected':''}>${escapeHtml(v.nombre)}${v.rolSuper==='vendedor'?' (vendedor)':''}</option>`).join('')}
         </select></div>
-      </div>
-    </div>
-    <div class="tarjeta">
-      <span class="t-tit">⚡ Venta rápida (tiendas de alto flujo)</span>
-      <p class="nota">Para tiendas, papelerías, minimarkets: el cajero solo escanea o toca productos y cobra, sin escribir datos del cliente en cada venta.</p>
+        <div class="m-row"><label>Notas comerciales</label><input id="c-notas" class="campo" value="${escapeHtml(neg.notasComerciales||'')}" placeholder="Ej: referido por Portal Imperial"></div>
+      </div>`)
+    + sec(ic('history')+' Historia del cliente', `
+      <div class="linea"><span>Fecha de creación</span><strong>${neg.creado?fmtDate(neg.creado):'—'}</strong></div>
+      <div class="linea"><span>Antigüedad</span><strong>${dias!==null?(dias>=30?Math.floor(dias/30)+' mes(es) · '+dias+' días':dias+' días'):'—'}</strong></div>
+      <div class="linea"><span>Usuarios creados</span><strong>${nUsuarios}</strong></div>
+      <div class="linea"><span>Ventas registradas</span><strong>${(datosDe(negId,'ventas')||[]).filter(v=>v.estado==='pagada').length}</strong></div>
+      <div class="linea total-linea"><span>Facturado desde que entró</span><strong>${fmtMoney((neg.precioMes||0)*Math.max(1,Math.ceil((dias||0)/30)))}</strong></div>
+      <div class="botones-fila" style="margin-top:14px;">
+        <button class="btn btn-gold" onclick="reporteMensualNegocio('${negId}')">📄 Reporte mensual en PDF</button>
+      </div>`);
+  }
+  else if(t==='operacion'){
+    const entregas=[['mesa','Mesa'],['llevar','Para llevar'],['domicilio','Domicilio'],['envio','Envío nacional']];
+    cuerpo=sec('Cómo cobra', `
+      <div class="m-row"><label>Flujo de cobro</label><select id="c-flujo" class="campo">
+        <option value="directo" ${neg.flujoPedido!=='dos_pasos'?'selected':''}>Cobro directo — se cobra al instante (tiendas)</option>
+        <option value="dos_pasos" ${neg.flujoPedido==='dos_pasos'?'selected':''}>Confirmar y luego cobrar (restaurantes)</option>
+      </select></div>
+      <div class="m-row"><label>Al editar un pedido ya cobrado</label><select id="c-ajustecobro" class="campo">
+        <option value="diferencia" ${(neg.ajusteCobro!=='total')?'selected':''}>Cobrar solo la diferencia</option>
+        <option value="total" ${(neg.ajusteCobro==='total')?'selected':''}>Cobrar el total nuevo completo</option>
+      </select></div>
+      <div class="m-row"><label>Tipos de entrega</label>
+        <div class="checks">${entregas.map(e=>`<label class="chk"><input type="checkbox" class="c-ent" value="${e[0]}" ${(neg.tiposEntrega||[]).indexOf(e[0])>-1?'checked':''}> ${e[1]}</label>`).join('')}</div></div>`)
+    + sec('Funcionamiento del negocio', `
       <div class="checks">
-        <label class="chk"><input type="checkbox" id="c-clientefijo" ${neg.usaClienteFijo?'checked':''}> Usar cliente predeterminado (no pedir datos en cada venta)</label>
-        <label class="chk"><input type="checkbox" id="c-barras" ${neg.usaCodBarras?'checked':''}> Usar lector de código de barras (pistola USB)</label>
+        <label class="chk"><input type="checkbox" id="c-mesas" ${neg.usaMesas?'checked':''}> Usa mesas</label>
+        <label class="chk"><input type="checkbox" id="c-cocina" ${neg.usaCocina?'checked':''}> Usa cocina (KDS)</label>
+        <label class="chk"><input type="checkbox" id="c-recetas" ${neg.usaRecetas?'checked':''}> Usa recetas (descuenta insumos)</label>
+        <label class="chk"><input type="checkbox" id="c-citas" ${neg.usaCitas?'checked':''}> Usa agenda de citas</label>
+        <label class="chk"><input type="checkbox" id="c-cuentas" ${neg.usaCuentas?'checked':''}> Cuentas abiertas</label>
+        <label class="chk"><input type="checkbox" id="c-descontarpedir" ${(neg.descontarAlPedir!==undefined?neg.descontarAlPedir:(neg.usaCuentas||neg.flujoPedido==='dos_pasos'))?'checked':''}> Descontar inventario al pedir</label>
+        <label class="chk"><input type="checkbox" id="c-propina" ${(neg.usaPropina!==undefined?neg.usaPropina:neg.usaCocina)?'checked':''}> Cobra propina</label>
+        <label class="chk"><input type="checkbox" id="c-domis" ${(neg.usaDomicilios!==undefined?neg.usaDomicilios:(neg.tiposEntrega||[]).indexOf('domicilio')>-1)?'checked':''}> Maneja domicilios</label>
+        <label class="chk"><input type="checkbox" id="c-logistica" ${neg.esLogistica?'checked':''}> Modo logística (sin dinero)</label>
+        <label class="chk"><input type="checkbox" id="c-clientefijo" ${neg.usaClienteFijo?'checked':''}> Venta rápida (cliente predeterminado)</label>
+        <label class="chk"><input type="checkbox" id="c-barras" ${neg.usaCodBarras?'checked':''}> Lector de código de barras</label>
+        <label class="chk"><input type="checkbox" id="c-verificarbanco" ${neg.verificarBanco?'checked':''}> Exigir verificar transferencias</label>
+        <label class="chk"><input type="checkbox" id="c-sonidos" ${neg.sonidos!==false?'checked':''}> Sonidos</label>
+        <label class="chk"><input type="checkbox" id="c-alerta" ${neg.alertaStock!==false?'checked':''}> Avisar stock bajo</label>
       </div>
-      <div class="form2" style="margin-top:12px;">
-        <div class="m-row"><label>Nombre del cliente predeterminado</label><input id="c-cfnom" class="campo" value="${escapeHtml(neg.clienteFijoNombre||'Consumidor Final')}" placeholder="Ej: Consumidor Final"></div>
-        <div class="m-row"><label>Teléfono predeterminado</label><input id="c-cftel" class="campo" value="${escapeHtml(neg.clienteFijoTel||'0000000')}" placeholder="Ej: 0000000"></div>
-      </div>
-      <p class="nota">Con el cliente predeterminado activado, en Nueva Venta ya vienen esos datos puestos y el teléfono deja de ser obligatorio. Con el lector activado, aparece una barra para escanear productos y agregarlos solos al carrito.</p>
-    </div>
-    <div class="tarjeta">
-      <span class="t-tit">Sucursales</span>
-      <p class="gris">Cada sucursal maneja su <strong>caja, pedidos y cierres</strong> por separado. El inventario, clientes, gastos y contabilidad se comparten.</p>
-      ${(neg.sucursales||[]).length?(neg.sucursales||[]).map((s,i)=>`<div class="suc-fila">
-        <input type="text" class="campo c-suc" value="${escapeHtml(s.nombre)}" placeholder="Nombre">
+      <div class="form2" style="margin-top:14px;">
+        <div class="m-row"><label>Cliente predeterminado</label><input id="c-cfnom" class="campo" value="${escapeHtml(neg.clienteFijoNombre||'Consumidor Final')}"></div>
+        <div class="m-row"><label>Teléfono predeterminado</label><input id="c-cftel" class="campo" value="${escapeHtml(neg.clienteFijoTel||'0000000')}"></div>
+      </div>`)
+    + sec('Vocabulario', `
+      <p class="nota">Cómo llama este negocio a las cosas. Cambia los textos de todo el sistema.</p>
+      <div class="form2">
+        <div class="m-row"><label>Producto (singular)</label><input id="c-pal1" class="campo" value="${escapeHtml(neg.palabraProducto||'Producto')}"></div>
+        <div class="m-row"><label>Productos (plural)</label><input id="c-pal2" class="campo" value="${escapeHtml(neg.palabraProductos||'Productos')}"></div>
+        <div class="m-row"><label>Pedido / venta</label><input id="c-palped" class="campo" value="${escapeHtml(neg.palabraPedido||'Pedido')}"></div>
+        <div class="m-row"><label>Personal</label><input id="c-palpers" class="campo" value="${escapeHtml(neg.palabraPersonal||'Personal')}"></div>
+      </div>`);
+  }
+  else if(t==='ventanas'){
+    cuerpo=sec('🪟 Ventanas habilitadas para este negocio', `
+      <p class="nota">Todo lo que el negocio puede ver está aquí, en un solo lugar. Lo que desmarque no le aparece a nadie, ni al administrador del negocio. Los permisos de cada empleado se manejan aparte, dentro del negocio.</p>
+      ${GRUPOS.map(g=>`<div style="margin-top:16px;">
+        <div class="cc-sec"><span>${g[0]}</span><span>${g[1].filter(x=>F.indexOf(x[0])>-1).length}/${g[1].length}</span></div>
+        <div class="checks">${g[1].map(x=>`<label class="chk"><input type="checkbox" class="c-fun" value="${x[0]}" ${F.indexOf(x[0])>-1?'checked':''}> ${x[1]}</label>`).join('')}</div>
+      </div>`).join('')}
+      <div class="botones-fila" style="margin-top:16px;">
+        <button class="btn btn-sm" onclick="document.querySelectorAll('.c-fun').forEach(c=>c.checked=true)">Marcar todo</button>
+        <button class="btn btn-sm btn-ghost" onclick="document.querySelectorAll('.c-fun').forEach(c=>c.checked=false)">Quitar todo</button>
+        <button class="btn btn-sm btn-ghost" onclick="aplicarPlantillaPlan()">Aplicar lo del plan ${escapeHtml(neg.plan||'')}</button>
+      </div>`);
+  }
+  else {
+    cuerpo=sec('📍 Sucursales', `
+      <p class="nota">Cada sucursal maneja su <strong>caja, pedidos y cierres</strong> por separado. Inventario, clientes y contabilidad se comparten.</p>
+      ${(neg.sucursales||[]).length?(neg.sucursales||[]).map((x,i)=>`<div class="suc-fila">
+        <input type="text" class="campo c-suc" value="${escapeHtml(x.nombre)}" placeholder="Nombre">
         <button class="btn btn-sm btn-rojo" onclick="quitarSucursal('${negId}',${i})">×</button>
       </div>`).join(''):'<p class="gris chico">Sin sucursales: funciona como un solo punto de venta.</p>'}
-      <button class="btn btn-sm" onclick="agregarSucursal('${negId}')">+ Agregar sucursal</button>
+      <button class="btn btn-sm" onclick="agregarSucursal('${negId}')">+ Agregar sucursal</button>`);
+  }
+  return `
+  <div class="topbar">
+    <h1>${ic('cog')} ${escapeHtml(neg.nombre)}</h1>
+    <div class="tb-der">
+      <span class="pill ${neg.activo?'pill-verde':'pill-rojo'}">${neg.activo?'Activo':'Suspendido'}</span>
+      <span class="pill pill-gold">${escapeHtml(neg.plan||'Sin plan')}</span>
+      <button class="btn btn-ghost btn-sm" onclick="STATE.page='';render()">← Volver</button>
     </div>
+  </div>
+  <div class="contenido">
+    <div class="cats" style="margin-bottom:18px;">
+      ${tabs.map(x=>`<button class="cat ${t===x[0]?'on':''}" onclick="cfgTab('${x[0]}')">${x[1]}</button>`).join('')}
+    </div>
+    ${cuerpo}
     <div class="tarjeta">
       <button class="btn btn-gold btn-block btn-grande" onclick="guardarConfig('${negId}')">Guardar configuración</button>
+      <p class="nota centrado" style="margin-top:10px;">Se guarda todo lo de esta pestaña. Las demás conservan lo que ya tenían.</p>
     </div>
   </div>`;
 }
+// Deja marcadas las ventanas que corresponden al plan del negocio
+const VENTANAS_POR_PLAN={
+  'Básico':['ventas','facturas','catalogo','inventario','caja','clientes'],
+  'Profesional':['ventas','facturas','catalogo','inventario','caja','clientes','cocina','domicilios','reportes','contable','gastosneg','citas'],
+  'Empresarial':['ventas','facturas','catalogo','inventario','caja','clientes','cocina','domicilios','reportes','contable','gastosneg','citas']
+};
+function aplicarPlantillaPlan(){
+  const sel=document.getElementById('c-plan');
+  const plan=sel?sel.value:'Profesional';
+  const lista=VENTANAS_POR_PLAN[plan]||VENTANAS_POR_PLAN['Profesional'];
+  document.querySelectorAll('.c-fun').forEach(c=>{ c.checked = lista.indexOf(c.value)>-1; });
+  toast('Marcadas las ventanas del plan '+plan,'info');
+}
+
 function guardarConfig(negId){
   const negocios=JSON.parse(JSON.stringify(DB.get('negocios')||[]));
   const i=negocios.findIndex(n=>n.id===negId);
   if(i<0){ toast('Negocio no encontrado','error'); return; }
   const n=negocios[i];
+  // Solo se guarda lo que existe en la pestaña abierta: así una pestaña no
+  // borra lo configurado en otra.
+  const hay=id=>!!document.getElementById(id);
   const val=id=>{ const e=document.getElementById(id); return e?e.value:''; };
   const chk=id=>{ const e=document.getElementById(id); return e?e.checked:false; };
-  n.nombre=val('c-nombre').trim()||n.nombre;
-  n.tipo=val('c-tipo'); n.nit=val('c-nit').trim(); n.tel=val('c-tel').trim();
-  n.dir=val('c-dir').trim(); n.ciudad=val('c-ciudad').trim();
-  n.eslogan=val('c-eslogan').trim();
-  if(window._logoNuevo!==undefined){ n.logo=window._logoNuevo; window._logoNuevo=undefined; }
-  n.plan=val('c-plan'); n.precioMes=parseInt(val('c-precio'))||0;
-  n.flujoPedido=val('c-flujo');
-  n.palabraProducto=val('c-pal1').trim()||'Producto';
-  n.palabraProductos=val('c-pal2').trim()||'Productos';
-  n.palabraPedido=val('c-palped').trim()||'Pedido';
-  n.palabraPersonal=val('c-palpers').trim()||'Personal';
-  n.usaMesas=chk('c-mesas'); n.usaCocina=chk('c-cocina');
-  n.usaPropina=chk('c-propina'); n.usaDomicilios=chk('c-domis');
-  n.usaRecetas=chk('c-recetas'); n.usaCitas=chk('c-citas');
-  n.esLogistica=chk('c-logistica');
-  n.usaClienteFijo=chk('c-clientefijo');
-  n.usaCodBarras=chk('c-barras');
-  n.clienteFijoNombre=val('c-cfnom').trim()||'Consumidor Final';
-  n.clienteFijoTel=val('c-cftel').trim()||'0000000';
-  n.sonidos=chk('c-sonidos'); n.alertaStock=chk('c-alerta'); n.verificarBanco=chk('c-verificarbanco'); n.usaCuentas=chk('c-cuentas'); n.descontarAlPedir=chk('c-descontarpedir');
-  n.tipoFactura=val('c-fact'); n.pctDatafono=parseFloat(val('c-pct'))||0;
-  n.ajusteCobro = val('c-ajustecobro')==='total' ? 'total' : 'diferencia';
-  n.tema=val('c-tema')||'oscuro';
-  const _colc=val('c-color');
-  n.colorTema=/^#[0-9a-fA-F]{6}$/.test(_colc)?_colc:'#01c38e';
-  n.tiposEntrega=Array.prototype.slice.call(document.querySelectorAll('.c-ent:checked')).map(c=>c.value);
-  if(!n.tiposEntrega.length) n.tiposEntrega=['llevar'];
-  n.funciones=Array.prototype.slice.call(document.querySelectorAll('.c-fun:checked')).map(c=>c.value);
+  if(hay('c-nombre')){
+    n.nombre=val('c-nombre').trim()||n.nombre;
+    n.tipo=val('c-tipo'); n.nit=val('c-nit').trim(); n.tel=val('c-tel').trim();
+    n.dir=val('c-dir').trim(); n.ciudad=val('c-ciudad').trim(); n.eslogan=val('c-eslogan').trim();
+    n.tema=val('c-tema')||'oscuro';
+    const col=val('c-color'); n.colorTema=/^#[0-9a-fA-F]{6}$/.test(col)?col:'#01c38e';
+    n.tipoFactura=val('c-fact'); n.pctDatafono=parseFloat(val('c-pct'))||0;
+    if(window._logoNuevo!==undefined){ n.logo=window._logoNuevo; window._logoNuevo=undefined; }
+  }
+  if(hay('c-plan')){
+    n.plan=val('c-plan'); n.precioMes=parseInt(val('c-precio'))||0;
+    const dp=parseInt(val('c-diapago')); n.diaPago=isNaN(dp)?null:Math.min(31,Math.max(1,dp));
+    n.vendedorId=val('c-vendedor')||null;
+    const v=(DB.get('superadmins')||[]).find(x=>x.id===n.vendedorId);
+    n.vendedorNombre=v?v.nombre:'';
+    n.notasComerciales=val('c-notas').trim();
+  }
+  if(hay('c-flujo')){
+    n.flujoPedido=val('c-flujo');
+    n.ajusteCobro=val('c-ajustecobro')==='total'?'total':'diferencia';
+    n.tiposEntrega=Array.prototype.slice.call(document.querySelectorAll('.c-ent:checked')).map(c=>c.value);
+    if(!n.tiposEntrega.length) n.tiposEntrega=['llevar'];
+    n.usaMesas=chk('c-mesas'); n.usaCocina=chk('c-cocina'); n.usaRecetas=chk('c-recetas');
+    n.usaCitas=chk('c-citas'); n.usaCuentas=chk('c-cuentas'); n.descontarAlPedir=chk('c-descontarpedir');
+    n.usaPropina=chk('c-propina'); n.usaDomicilios=chk('c-domis'); n.esLogistica=chk('c-logistica');
+    n.usaClienteFijo=chk('c-clientefijo'); n.usaCodBarras=chk('c-barras');
+    n.verificarBanco=chk('c-verificarbanco'); n.sonidos=chk('c-sonidos'); n.alertaStock=chk('c-alerta');
+    n.clienteFijoNombre=val('c-cfnom').trim()||'Consumidor Final';
+    n.clienteFijoTel=val('c-cftel').trim()||'0000000';
+    n.palabraProducto=val('c-pal1').trim()||'Producto';
+    n.palabraProductos=val('c-pal2').trim()||'Productos';
+    n.palabraPedido=val('c-palped').trim()||'Pedido';
+    n.palabraPersonal=val('c-palpers').trim()||'Personal';
+  }
+  if(document.querySelectorAll('.c-fun').length){
+    n.funciones=Array.prototype.slice.call(document.querySelectorAll('.c-fun:checked')).map(c=>c.value);
+  }
   const sucs=Array.prototype.slice.call(document.querySelectorAll('.c-suc'));
   if(sucs.length && n.sucursales){
     sucs.forEach((inp,x)=>{ if(n.sucursales[x]) n.sucursales[x].nombre=inp.value.trim()||n.sucursales[x].nombre; });
@@ -6023,8 +6301,142 @@ function guardarConfig(negId){
   DB.set('negocios',negocios);
   if(STATE.negocio && STATE.negocio.id===negId) STATE.negocio=JSON.parse(JSON.stringify(n));
   toast('Configuración guardada','success');
-  STATE.page=''; render();
+  render();
 }
+// ============================================================
+//  REPORTE MENSUAL DEL NEGOCIO (PDF / impresión) — para el super admin
+// ============================================================
+let _repNegMes=null;
+function reporteMensualNegocio(negId){
+  const neg=(DB.get('negocios')||[]).find(n=>n.id===negId);
+  if(!neg){ toast('Negocio no encontrado','error'); return; }
+  const ventas=(datosDe(negId,'ventas')||[]);
+  const mesesSet={}; mesesSet[today().substring(0,7)]=1;
+  ventas.forEach(v=>{ if(v.fecha) mesesSet[v.fecha.substring(0,7)]=1; });
+  const meses=Object.keys(mesesSet).sort().reverse();
+  abrirModal({titulo:'📄 Reporte mensual · '+neg.nombre, textoBoton:'Generar PDF', campos:[
+    {id:'mes', label:'Mes del informe', tipo:'select', opciones:meses.map(m=>({valor:m,label:nombreMes(m)}))}
+  ], extraHTML:`<p class="nota">Se abre listo para imprimir o guardar como PDF (en la ventana de impresión elija "Guardar como PDF").</p>`,
+  onGuardar:(d)=>{ cerrarModal(); imprimirReporteNegocio(negId, d.mes); }});
+}
+function imprimirReporteNegocio(negId, mes){
+  const neg=(DB.get('negocios')||[]).find(n=>n.id===negId); if(!neg) return;
+  const ventas=(datosDe(negId,'ventas')||[]).filter(v=>v.estado==='pagada' && (v.fecha||'').substring(0,7)===mes);
+  const anuladas=(datosDe(negId,'ventas')||[]).filter(v=>v.estado==='anulada' && (v.fecha||'').substring(0,7)===mes);
+  const monto=v=>(v.subtotal!=null?v.subtotal:(v.total||0));
+  const totalVentas=ventas.reduce((a,v)=>a+monto(v),0);
+  // Reparto por método (respeta los pagos divididos)
+  const met={efectivo:0,banco:0,tarjeta:0};
+  ventas.forEach(v=>{
+    const p=(v.pagos&&(v.pagos.efectivo||v.pagos.banco||v.pagos.tarjeta))?v.pagos:null;
+    if(p){ const tot=(p.efectivo||0)+(p.banco||0)+(p.tarjeta||0)||1; const m=monto(v);
+      met.efectivo+=m*(p.efectivo||0)/tot; met.banco+=m*(p.banco||0)/tot; met.tarjeta+=m*(p.tarjeta||0)/tot; }
+    else if(met[v.metodo]!==undefined) met[v.metodo]+=monto(v);
+    else met.efectivo+=monto(v);
+  });
+  // Gastos: de la caja (cierres del mes) + los del negocio
+  const cierres=(datosDe(negId,'cierres')||[]).filter(c=>(c.cierre||'').substring(0,7)===mes);
+  const gastosNeg=(datosDe(negId,'gastos_negocio')||[]).filter(g=>(g.fecha||'').substring(0,7)===mes && g.origen!=='caja');
+  let gastosCaja=0, retiros=0; const porConcepto={};
+  cierres.forEach(c=>(c.movimientos||[]).forEach(m=>{
+    if(m.tipo==='retiro') retiros+=m.valor||0;
+    if(m.tipo==='gasto'){ gastosCaja+=m.valor||0; const k=m.concepto||'Otros'; porConcepto[k]=(porConcepto[k]||0)+(m.valor||0); }
+  }));
+  gastosNeg.forEach(g=>{ const k=g.concepto||'Otros'; porConcepto[k]=(porConcepto[k]||0)+(g.valor||0); });
+  const totalGastosNeg=gastosNeg.reduce((a,g)=>a+g.valor,0);
+  const egresos=gastosCaja+totalGastosNeg;
+  const utilidad=totalVentas-egresos;
+  const conceptos=Object.entries(porConcepto).sort((a,b)=>b[1]-a[1]);
+  // Productos más vendidos
+  const items={};
+  ventas.forEach(v=>(v.items||[]).forEach(i=>{ if(!items[i.nombre]) items[i.nombre]={q:0,t:0};
+    items[i.nombre].q+=i.qty; items[i.nombre].t+=i.precio*i.qty; }));
+  const top=Object.entries(items).sort((a,b)=>b[1].t-a[1].t).slice(0,10);
+  // Días y descuadres
+  const porDia={}; ventas.forEach(v=>{ const d=(v.fecha||'').split('T')[0]; porDia[d]=(porDia[d]||0)+monto(v); });
+  const dias=Object.keys(porDia).length;
+  const sumaDif=cierres.reduce((a,c)=>a+(c.diferencia||0),0);
+  const usuarios=(DB.get('usuarios')||[]).filter(u=>u.negocioId===negId);
+  const vend=(DB.get('superadmins')||[]).find(x=>x.id===neg.vendedorId);
+  const pct=x=>totalVentas>0?(Math.round(x/totalVentas*1000)/10)+'%':'—';
+  const fila=(a,b,c2)=>`<tr><td style="padding:6px 8px;">${a}</td><td style="padding:6px 8px;text-align:right;">${b}</td><td style="padding:6px 8px;text-align:right;color:#666;">${c2||''}</td></tr>`;
+  const html=`<div style="font-family:Arial,sans-serif;color:#111;max-width:180mm;margin:0 auto;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #132d46;padding-bottom:10px;">
+      <div>
+        <div style="font-size:23px;font-weight:800;">${escapeHtml(neg.nombre)}</div>
+        <div style="font-size:12px;color:#555;">${escapeHtml(neg.tipo||'')}${neg.ciudad?' · '+escapeHtml(neg.ciudad):''}${neg.nit?' · NIT '+escapeHtml(neg.nit):''}</div>
+        <div style="font-size:12px;color:#555;">Cliente desde: ${neg.creado?fmtDate(neg.creado).split(' ')[0]:'—'} · Plan ${escapeHtml(neg.plan||'—')} (${fmtMoney(neg.precioMes||0)}/mes)</div>
+        ${vend?`<div style="font-size:12px;color:#555;">Vendedor a cargo: <strong>${escapeHtml(vend.nombre)}</strong></div>`:''}
+      </div>
+      <div style="text-align:right;">
+        ${neg.logo?`<img src="${neg.logo}" style="max-height:58px;">`:''}
+        <div style="font-size:11px;color:#888;margin-top:4px;">Informe generado<br>${new Date().toLocaleString('es-CO')}</div>
+      </div>
+    </div>
+    <div style="text-align:center;font-size:17px;font-weight:800;margin:14px 0 4px;">INFORME MENSUAL — ${nombreMes(mes).toUpperCase()}</div>
+    <div style="text-align:center;font-size:11px;color:#777;margin-bottom:14px;">Informe interno de gestión. No es un documento tributario.</div>
+
+    <div style="display:flex;gap:10px;margin-bottom:16px;">
+      <div style="flex:1;border:1px solid #ddd;border-radius:8px;padding:10px;text-align:center;">
+        <div style="font-size:10px;color:#777;letter-spacing:1px;">VENTAS</div>
+        <div style="font-size:19px;font-weight:800;">${fmtMoney(totalVentas)}</div>
+        <div style="font-size:10px;color:#777;">${ventas.length} venta(s) · ${dias} día(s)</div></div>
+      <div style="flex:1;border:1px solid #ddd;border-radius:8px;padding:10px;text-align:center;">
+        <div style="font-size:10px;color:#777;letter-spacing:1px;">GASTOS</div>
+        <div style="font-size:19px;font-weight:800;color:#c0392b;">${fmtMoney(egresos)}</div>
+        <div style="font-size:10px;color:#777;">${pct(egresos)} de las ventas</div></div>
+      <div style="flex:1;border:1px solid #ddd;border-radius:8px;padding:10px;text-align:center;">
+        <div style="font-size:10px;color:#777;letter-spacing:1px;">UTILIDAD</div>
+        <div style="font-size:19px;font-weight:800;color:${utilidad>=0?'#186a3b':'#c0392b'};">${fmtMoney(utilidad)}</div>
+        <div style="font-size:10px;color:#777;">${pct(utilidad)} de las ventas</div></div>
+      <div style="flex:1;border:1px solid #ddd;border-radius:8px;padding:10px;text-align:center;">
+        <div style="font-size:10px;color:#777;letter-spacing:1px;">TICKET PROMEDIO</div>
+        <div style="font-size:19px;font-weight:800;">${fmtMoney(ventas.length?Math.round(totalVentas/ventas.length):0)}</div>
+        <div style="font-size:10px;color:#777;">por venta</div></div>
+    </div>
+
+    <h3 style="font-size:13px;border-bottom:1px solid #999;padding-bottom:3px;">Ventas por forma de pago</h3>
+    <table style="width:100%;font-size:12px;border-collapse:collapse;">
+      ${fila('Efectivo',fmtMoney(Math.round(met.efectivo)),pct(met.efectivo))}
+      ${fila('Banco / transferencia',fmtMoney(Math.round(met.banco)),pct(met.banco))}
+      ${fila('Tarjeta / datáfono',fmtMoney(Math.round(met.tarjeta)),pct(met.tarjeta))}
+      <tr style="border-top:2px solid #333;font-weight:800;">${'<td style="padding:6px 8px;">TOTAL</td><td style="padding:6px 8px;text-align:right;">'+fmtMoney(totalVentas)+'</td><td></td>'}</tr>
+    </table>
+
+    <h3 style="font-size:13px;border-bottom:1px solid #999;padding-bottom:3px;margin-top:16px;">En qué se fue la plata</h3>
+    <table style="width:100%;font-size:12px;border-collapse:collapse;">
+      ${conceptos.length?conceptos.map(c=>fila(escapeHtml(c[0]),fmtMoney(c[1]),pct(c[1]))).join(''):'<tr><td style="padding:6px 8px;color:#777;">Sin gastos registrados este mes</td></tr>'}
+      <tr style="border-top:2px solid #333;font-weight:800;"><td style="padding:6px 8px;">TOTAL EGRESOS</td><td style="padding:6px 8px;text-align:right;">${fmtMoney(egresos)}</td><td style="padding:6px 8px;text-align:right;color:#666;">${pct(egresos)}</td></tr>
+    </table>
+    ${retiros>0?`<p style="font-size:11px;color:#777;margin-top:6px;">Retiros del dueño en el mes: ${fmtMoney(retiros)} (no son gasto del negocio).</p>`:''}
+
+    ${top.length?`<h3 style="font-size:13px;border-bottom:1px solid #999;padding-bottom:3px;margin-top:16px;">Lo más vendido</h3>
+    <table style="width:100%;font-size:12px;border-collapse:collapse;">
+      <tr style="background:#f2f4f7;font-weight:700;"><td style="padding:6px 8px;">Producto</td><td style="padding:6px 8px;text-align:right;">Unidades</td><td style="padding:6px 8px;text-align:right;">Total</td></tr>
+      ${top.map(t=>fila(escapeHtml(t[0]),t[1].q,fmtMoney(t[1].t))).join('')}
+    </table>`:''}
+
+    <h3 style="font-size:13px;border-bottom:1px solid #999;padding-bottom:3px;margin-top:16px;">Control y operación</h3>
+    <table style="width:100%;font-size:12px;border-collapse:collapse;">
+      ${fila('Cierres de caja del mes',cierres.length,'')}
+      ${fila('Resultado de los cierres', sumaDif===0?'Cuadraron todos':(sumaDif>0?'Sobró '+fmtMoney(sumaDif):'Faltó '+fmtMoney(Math.abs(sumaDif))),'')}
+      ${fila('Ventas anuladas',anuladas.length,fmtMoney(anuladas.reduce((a,v)=>a+(v.total||0),0)))}
+      ${fila('Usuarios del sistema',usuarios.length,usuarios.filter(u=>u.activo!==false).length+' activo(s)')}
+      ${fila('Sucursales',(neg.sucursales||[]).length||1,'')}
+    </table>
+
+    <div style="margin-top:26px;border-top:1px dashed #999;padding-top:8px;text-align:center;font-size:10px;color:#777;">
+      WALLACE COMPANY SYSTEM · wallacecompany11@gmail.com<br>
+      Informe generado automáticamente por el sistema · ${escapeHtml(neg.nombre)} · ${nombreMes(mes)}
+    </div>
+  </div>`;
+  const w=window.open('','_blank','width=900,height=700');
+  if(!w){ toast('Permite las ventanas emergentes para generar el PDF','error'); return; }
+  w.document.write('<html><head><title>Informe '+escapeHtml(neg.nombre)+' '+nombreMes(mes)+'</title><meta charset="utf-8"><style>@page{size:letter;margin:14mm;}body{margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}h3{margin:14px 0 6px;}</style></head><body>'+html+'</body></html>');
+  w.document.close();
+  setTimeout(()=>w.print(),500);
+}
+
 function agregarSucursal(negId){
   abrirModal({titulo:'Nueva sucursal', textoBoton:'Agregar', campos:[
     {id:'nombre', label:'Nombre de la sede', requerido:true, placeholder:'Ej: Sede Cabecera'}
