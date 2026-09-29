@@ -1737,6 +1737,14 @@ function nuevaVenta(){
       </div>
       <div class="tarjeta carrito">
         <div class="carrito-cab">
+          ${STATE.agregandoCuentaId?(()=>{ const cu=misDatos('ventas').find(x=>x.id===STATE.agregandoCuentaId)||{};
+            return `<div class="tarjeta-pend" style="padding:10px 12px;border-radius:10px;margin-bottom:10px;">
+              <div class="flex-between" style="gap:8px;flex-wrap:wrap;">
+                <span class="oro negrita">🧾 Agregando a ${escapeHtml(nombreCuenta(cu))}</span>
+                <button class="btn btn-sm btn-ghost" onclick="salirDeCuenta()">Salir</button>
+              </div>
+              <div class="gris chico" style="margin-top:4px;">La cuenta ya tiene ${(cu.items||[]).reduce((a,i)=>a+i.qty,0)} und por ${fmtMoney(cu.total||0)}. Lo que agregues aquí se le suma.</div>
+            </div>`; })():''}
           ${STATE.editandoVentaId?(()=>{ const ed=misDatos('ventas').find(x=>x.id===STATE.editandoVentaId)||{};
             return `<div class="tarjeta-pend" style="padding:10px 12px;border-radius:10px;margin-bottom:10px;">
               <div class="flex-between" style="gap:8px;flex-wrap:wrap;">
@@ -1779,9 +1787,15 @@ function nuevaVenta(){
           <div id="linea-dom">${valorDom>0?`<div class="linea"><span>${_vTipo==='envio'?'Envío':'Domicilio'}</span><span>${fmtMoney(valorDom)}</span></div>`:''}</div>
           <div class="total"><span>TOTAL</span><span id="venta-total">${fmtMoney(total+valorDom)}</span></div>
           `}
-          <button class="btn btn-gold btn-block btn-grande" id="btn-confirmar" onclick="${STATE.editandoVentaId?'guardarEdicionPedido()':(neg.esLogistica?'registrarSalida()':(dosPasos?'confirmarPedido()':'cobrarDirecto()'))}">
-            ${STATE.editandoVentaId?'💾 Guardar cambios':(neg.esLogistica?'📦 Registrar salida':(dosPasos?'✓ Confirmar pedido':'💵 Cobrar ahora'))}
-          </button>
+          ${STATE.agregandoCuentaId?`
+            <button class="btn btn-verde btn-block btn-grande" id="btn-confirmar" onclick="agregarACuenta()">➕ Agregar a la cuenta</button>
+          `:`
+            <button class="btn btn-gold btn-block btn-grande" id="btn-confirmar" onclick="${STATE.editandoVentaId?'guardarEdicionPedido()':(neg.esLogistica?'registrarSalida()':(dosPasos?'confirmarPedido()':'cobrarDirecto()'))}">
+              ${STATE.editandoVentaId?'💾 Guardar cambios':(neg.esLogistica?'📦 Registrar salida':(dosPasos?'✓ Confirmar pedido':'💵 Cobrar ahora'))}
+            </button>
+            ${(usaCuentas()&&!dosPasos&&!STATE.editandoVentaId&&!neg.esLogistica)?`
+              <button class="btn btn-block btn-sm" style="margin-top:8px;" onclick="abrirCuentaNueva()">🧾 Dejar como cuenta abierta (cobrar después)</button>`:''}
+          `}
         </div>`:''}
       </div>
     </div>`;
@@ -1943,7 +1957,7 @@ function quitarItemCarrito(idx){
 function vaciarCarrito(){ _carrito=[]; _desc=0; _descMot=''; render(); }
 function limpiarPedido(){
   _carrito=[]; _vObs=''; _desc=0; _descMot=''; _vMesa='';
-  STATE.editandoVentaId=null;
+  STATE.editandoVentaId=null; STATE.agregandoCuentaId=null;
   const neg=STATE.negocio;
   // Venta rápida: precargar el cliente predeterminado (tiendas de alto flujo)
   if(neg && neg.usaClienteFijo){
@@ -2260,6 +2274,191 @@ function imprimirComanda(v){
 }
 
 // ============================================================
+//  CUENTAS ABIERTAS
+//  Para licoreras, bares y restaurantes: se abre una cuenta por mesa o
+//  por cliente, se le van agregando productos durante la noche y se cobra
+//  al final. Cada producto que se agrega descuenta inventario al cobrar.
+// ============================================================
+function usaCuentas(){
+  const n=STATE.negocio;
+  if(!n) return false;
+  // Si el negocio cobra en dos pasos, las cuentas ya existen por diseño
+  return n.usaCuentas===true || n.flujoPedido==='dos_pasos';
+}
+function cuentasAbiertas(){
+  return ventasJornada(false).filter(v=>v.estado==='abierta')
+    .sort((a,b)=>new Date(a.fecha||0)-new Date(b.fecha||0));
+}
+function nombreCuenta(v){
+  if(!v) return 'cuenta';
+  if(v.mesa) return v.mesa;
+  if(v.cliNombre) return v.cliNombre;
+  return v.factura||'Cuenta';
+}
+function minutosAbierta(v){
+  return Math.max(0, Math.floor((Date.now()-new Date(v.fecha||Date.now()).getTime())/60000));
+}
+function tiempoTxt(min){
+  if(min<60) return min+' min';
+  const h=Math.floor(min/60), m=min%60;
+  return h+'h '+(m?m+'m':'');
+}
+// Abre la cuenta con lo que hay en el carrito (negocios de cobro directo)
+function abrirCuentaNueva(){
+  if(!_carrito.length){ toast('Agrega productos primero','error'); return; }
+  if(!validarClientePedido()) return;
+  if(_guardando) return;
+  _guardando=true;
+  try{
+    const venta=armarVenta('abierta');
+    venta.estado='abierta';
+    venta.esCuenta=true;
+    const ventas=misDatos('ventas');
+    ventas.unshift(venta);
+    guardarMisDatos('ventas',ventas);
+    logAudit('Abrió cuenta', (venta.factura||'')+' · '+nombreCuenta(venta));
+    sonidoPedido();
+    if(STATE.negocio.usaCocina){ try{ imprimirComanda(venta); }catch(e){} }
+    limpiarPedido(); ESCRIBIENDO=false; STATE.pageNeg='cuentas'; render();
+    toast('Cuenta abierta: '+nombreCuenta(venta),'success');
+  }catch(e){ console.error(e); toast('Error al abrir la cuenta','error'); }
+  finally{ _guardando=false; }
+}
+// Entra al modo "agregar productos a esta cuenta"
+function irAgregarACuenta(id){
+  const v=misDatos('ventas').find(x=>x.id===id);
+  if(!v){ toast('Cuenta no encontrada','error'); return; }
+  if(v.estado!=='abierta'){ toast('Esa cuenta ya fue cobrada','error'); return; }
+  if(STATE.editandoVentaId){ toast('Termina la edición que tienes abierta','error'); return; }
+  STATE.agregandoCuentaId=id;
+  _carrito=[]; _vObs='';
+  _vTipo=v.tipo||'llevar'; _vMesa=v.mesa||'';
+  _vCli={nombre:v.cliNombre||'', tel:v.cliTel||'', dir:v.cliDir||'', barrio:v.cliBarrio||'',
+    ciudad:v.cliCiudad||'', depto:v.cliDepto||'', transportadora:v.transportadora||'',
+    domiciliario:v.domiciliario||'', valorDom:v.valorDom||0};
+  ESCRIBIENDO=true;
+  STATE.pageNeg='ventas';
+  render();
+  toast('Agregando a '+nombreCuenta(v),'info');
+}
+function salirDeCuenta(){
+  STATE.agregandoCuentaId=null;
+  limpiarPedido(); ESCRIBIENDO=false; STATE.pageNeg='cuentas'; render();
+}
+// Suma lo del carrito a la cuenta (no la reemplaza)
+function agregarACuenta(){
+  if(_guardando) return;
+  const id=STATE.agregandoCuentaId;
+  if(!id){ toast('No hay ninguna cuenta abierta seleccionada','error'); return; }
+  if(!_carrito.length){ toast('Agrega productos primero','error'); return; }
+  const ventas=misDatos('ventas');
+  const v=ventas.find(x=>x.id===id);
+  if(!v){ toast('Esa cuenta ya no existe','error'); salirDeCuenta(); return; }
+  if(v.estado!=='abierta'){ toast('Esa cuenta ya fue cobrada','error'); salirDeCuenta(); return; }
+  // Si el inventario ya se había descontado (raro en cuentas), revisar que alcance
+  if(v.stockAplicado===true){
+    const faltan=faltantesPara(requerimientos(_carrito));
+    if(faltan.length){ toast('⛔ No alcanza el inventario: '+faltan.join(', '),'error'); sonidoError(); return; }
+  }
+  _guardando=true;
+  bloquearBoton('btn-confirmar','Guardando…');
+  try{
+    const nuevos=JSON.parse(JSON.stringify(_carrito));
+    const items=(v.items||[]).slice();
+    nuevos.forEach(n=>{
+      const ya=items.find(i=>i.prodId===n.prodId && i.precio===n.precio && (i.obs||'')===(n.obs||''));
+      if(ya) ya.qty+=n.qty; else items.push(n);
+    });
+    v.items=items;
+    const bruto=items.reduce((a,i)=>a+i.precio*i.qty,0);
+    v.subtotalBruto=bruto;
+    v.subtotal=Math.max(0,bruto-(v.descuento||0));
+    v.total=v.subtotal+(v.valorDom||0)+(v.propina||0)+(v.recargo||0);
+    v.agregadoPor=STATE.user.nombre; v.agregadoEn=now();
+    if(_vObs) v.obs=((v.obs?v.obs+' · ':'')+_vObs);
+    if(v.stockAplicado===true) ajustarStockPorEdicion([], nuevos, v.factura);
+    if(STATE.negocio.usaCocina && v.estadoCocina && v.estadoCocina!=='entregado') v.estadoCocina='pendiente';
+    guardarMisDatos('ventas',ventas);
+    logAudit('Agregó a la cuenta', (v.factura||'')+' · '+nuevos.reduce((a,i)=>a+i.qty,0)+' und · total '+fmtMoney(v.total));
+    sonidoPedido();
+    // Comanda solo de lo NUEVO, para que cocina no repita lo anterior
+    if(STATE.negocio.usaCocina){
+      try{ imprimirComanda(Object.assign({}, v, {items:nuevos, obs:'AGREGADO A '+nombreCuenta(v)})); }catch(e){}
+    }
+    const nom=nombreCuenta(v), tot=v.total;
+    STATE.agregandoCuentaId=null;
+    limpiarPedido(); ESCRIBIENDO=false; STATE.pageNeg='cuentas'; render();
+    toast('Agregado a '+nom+' · va en '+fmtMoney(tot),'success');
+  }catch(e){ console.error(e); toast('Error al agregar','error'); }
+  finally{ _guardando=false; }
+}
+// Cambiar el nombre o la mesa de una cuenta
+function renombrarCuenta(id){
+  const v=misDatos('ventas').find(x=>x.id===id); if(!v) return;
+  abrirModal({titulo:'Nombre de la cuenta', textoBoton:'Guardar', campos:[
+    {id:'nombre', label:'Mesa o nombre del cliente', valor:v.mesa||v.cliNombre||'', requerido:true, placeholder:'Ej: Mesa 4, Don Jorge'}
+  ], onGuardar:(d)=>{
+    const ventas=misDatos('ventas');
+    const x=ventas.find(y=>y.id===id); if(!x){ cerrarModal(); return; }
+    if(x.tipo==='mesa') x.mesa=d.nombre.trim(); else x.cliNombre=d.nombre.trim();
+    guardarMisDatos('ventas',ventas);
+    cerrarModal(); toast('Cuenta renombrada','success'); render();
+  }});
+}
+function cuentas(){
+  ESCRIBIENDO=false;
+  const lista=cuentasAbiertas();
+  const total=lista.reduce((a,v)=>a+(v.total||0),0);
+  const und=lista.reduce((a,v)=>a+(v.items||[]).reduce((x,i)=>x+i.qty,0),0);
+  return `
+    <div class="stats">
+      <div class="stat gold"><div class="stat-ico gold">${ic('report')}</div><div class="stat-lbl">Cuentas abiertas</div><div class="stat-val">${lista.length}</div><div class="stat-sub">sin cobrar</div></div>
+      <div class="stat verde"><div class="stat-ico verde">${ic('cash')}</div><div class="stat-lbl">Por cobrar</div><div class="stat-val">${fmtMoney(total)}</div><div class="stat-sub">${und} ${pProds()}</div></div>
+      ${lista.length?`<div class="stat azul"><div class="stat-ico azul">${ic('history')}</div><div class="stat-lbl">La más antigua</div><div class="stat-val" style="font-size:19px;">${tiempoTxt(minutosAbierta(lista[0]))}</div><div class="stat-sub">${escapeHtml(nombreCuenta(lista[0]))}</div></div>`:''}
+    </div>
+    <div class="tarjeta">
+      <div class="t-cab">
+        <div><span class="t-tit">🧾 Cuentas abiertas</span>
+          <p class="gris">Se les va agregando durante la noche y se cobran al final. Toca una para agregarle más.</p></div>
+        <button class="btn btn-gold" onclick="nuevaCuentaDesdeCero()">+ Abrir cuenta</button>
+      </div>
+      ${lista.length?`<div class="kds-grid">
+        ${lista.map(v=>{
+          const min=minutosAbierta(v);
+          const cls=min<60?'krono-verde':min<180?'krono-amar':'krono-rojo';
+          return `<div class="kds-card ${cls}">
+            <div class="kds-top">
+              <span class="kds-ref">${escapeHtml(nombreCuenta(v))}</span>
+              <span class="kds-krono">${fmtMoney(v.total||0)}</span>
+            </div>
+            <div class="kds-tipo">${escapeHtml(v.factura||'')} · abierta hace ${tiempoTxt(min)}${v.vendedor?' · '+escapeHtml(v.vendedor):''}</div>
+            <div class="kds-items">
+              ${(v.items||[]).slice(0,6).map(i=>`<div class="kds-item"><strong>${i.qty}×</strong> ${escapeHtml(i.nombre)} <span class="gris">${fmtMoney(i.precio*i.qty)}</span></div>`).join('')}
+              ${(v.items||[]).length>6?`<div class="gris chico">+ ${(v.items||[]).length-6} más…</div>`:''}
+            </div>
+            <div class="kds-acc">
+              <button class="btn btn-sm btn-verde" onclick="irAgregarACuenta('${v.id}')">➕ Agregar</button>
+              ${tienePermiso('cobrar')?`<button class="btn btn-sm btn-gold" onclick="cobrarPedido('${v.id}')">💵 Cobrar</button>`:''}
+              ${tienePermiso('imprimir')?`<button class="btn btn-sm" onclick="imprimirFactura('${v.id}')" title="Imprimir la cuenta para que la revise el cliente">🧾</button>`:''}
+              <button class="btn btn-sm btn-ghost" onclick="renombrarCuenta('${v.id}')" title="Cambiar mesa o nombre">✏️</button>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`:`<div class="centro-msg"><div class="msg-ico">🧾</div>
+        <p class="gris">No hay cuentas abiertas. Abre una y ve agregándole productos; se cobra cuando el cliente se va.</p>
+        <button class="btn btn-gold" onclick="nuevaCuentaDesdeCero()">+ Abrir cuenta</button></div>`}
+    </div>`;
+}
+function nuevaCuentaDesdeCero(){
+  STATE.agregandoCuentaId=null;
+  limpiarPedido();
+  STATE.pageNeg='ventas';
+  ESCRIBIENDO=true;
+  render();
+  toast('Arma el pedido y usa "Dejar como cuenta abierta"','info');
+}
+
+// ============================================================
 //  PEDIDOS
 // ============================================================
 let _pBusca='';
@@ -2357,6 +2556,7 @@ function pedidos(){
         <div class="t-acc">
           <input type="text" class="busca" placeholder="🔍 ${esLog?'Remisión':'Factura'}, cliente${usaDomi?', teléfono':''}..." value="${escapeHtml(_pBusca)}" oninput="_pBusca=this.value">
           <button class="btn btn-sm" onclick="refrescarDeLaNube()">🔄 Actualizar</button>
+          ${usaCuentas()?`<button class="btn btn-sm" onclick="irA('cuentas')">🧾 Cuentas abiertas</button>`:''}
           <button class="btn btn-gold" onclick="irA('ventas')">+ ${pPedido(true)}</button>
         </div>
       </div>
@@ -5675,6 +5875,7 @@ function pantallaConfig(negId){
         <label class="chk"><input type="checkbox" id="c-sonidos" ${neg.sonidos!==false?'checked':''}> Sonidos</label>
         <label class="chk"><input type="checkbox" id="c-alerta" ${neg.alertaStock!==false?'checked':''}> Avisar stock bajo</label>
         <label class="chk"><input type="checkbox" id="c-verificarbanco" ${neg.verificarBanco?'checked':''}> Exigir verificar transferencias</label>
+        <label class="chk"><input type="checkbox" id="c-cuentas" ${neg.usaCuentas?'checked':''}> Usar cuentas abiertas</label>
       </div>
       <p class="nota" style="margin-top:8px;">Marca solo lo que el negocio necesita. Ej: una tienda de accesorios no marca cocina ni propina.</p>
       <div class="form2" style="margin-top:14px;">
@@ -5749,7 +5950,7 @@ function guardarConfig(negId){
   n.usaCodBarras=chk('c-barras');
   n.clienteFijoNombre=val('c-cfnom').trim()||'Consumidor Final';
   n.clienteFijoTel=val('c-cftel').trim()||'0000000';
-  n.sonidos=chk('c-sonidos'); n.alertaStock=chk('c-alerta'); n.verificarBanco=chk('c-verificarbanco');
+  n.sonidos=chk('c-sonidos'); n.alertaStock=chk('c-alerta'); n.verificarBanco=chk('c-verificarbanco'); n.usaCuentas=chk('c-cuentas');
   n.tipoFactura=val('c-fact'); n.pctDatafono=parseFloat(val('c-pct'))||0;
   n.ajusteCobro = val('c-ajustecobro')==='total' ? 'total' : 'diferencia';
   n.tema=val('c-tema')||'oscuro';
@@ -5838,7 +6039,7 @@ function editarUsuario(negId,userId){
   const permActuales = (u&&u.permisos&&u.permisos.length)?u.permisos:(PERMISOS_POR_ROL[(u?u.rol:'cajero')]||[]);
   const TODAS_PANTALLAS=[['inicio','Dashboard'],['ventas','Nueva Venta'],['pedidos','Pedidos'],
     ['catalogo','Menú / Inventario'],['caja','Caja'],['cocina','Cocina'],['citas','Agendar'],
-    ['domicilios','Domicilios'],['clientes','Clientes'],['combos','Menú y Combos'],['conteo','Conteo de Inventario'],['reimpresiones','Reimpresiones'],
+    ['domicilios','Domicilios'],['clientes','Clientes'],['cuentas','Cuentas Abiertas'],['combos','Menú y Combos'],['conteo','Conteo de Inventario'],['reimpresiones','Reimpresiones'],
     ['tiempos','Tiempos de Entrega'],['reportes','Reportes'],['historial','Historial'],
     ['contable','Contable'],['gastosneg','Gastos'],['auditoria','Auditoría'],
     ['usuarios','Usuarios'],['config','Configuración']];
@@ -5985,10 +6186,10 @@ function renderContenido(){
     inventario:neg.usaRecetas?'Menú':'Inventario', insumos:'Insumos', caja:'Caja', cocina:'Cocina', citas:'Agendar',
     domicilios:'Domicilios', cuadredomi:'Cuadre de Domiciliarios', clientes:'Clientes', reportes:'Reportes',
     contable:'Registro Contable', gastosneg:'Gastos del Negocio', minegocio:'Mi Negocio',
-    tiempos:'Tiempos de Entrega', historial:'Historial', auditoria:'Auditoría', reimpresiones:'Reimpresiones', conteo:'Conteo de Inventario', combos:'Menú y Combos', usuarios:'Usuarios'};
+    tiempos:'Tiempos de Entrega', historial:'Historial', auditoria:'Auditoría', reimpresiones:'Reimpresiones', conteo:'Conteo de Inventario', combos:'Menú y Combos', usuarios:'Usuarios', cuentas:'Cuentas Abiertas'};
   const pantallas={inicio, ventas:nuevaVenta, pedidos, inventario, insumos:pantallaInsumos, caja,
     clientes, domicilios, cuadredomi:cuadreDomi, reportes, contable, gastosneg, minegocio, citas, cocina,
-    tiempos, historial, auditoria, reimpresiones, conteo, combos, usuarios:usuariosNeg};
+    tiempos, historial, auditoria, reimpresiones, conteo, combos, usuarios:usuariosNeg, cuentas};
   const fn=pantallas[STATE.pageNeg];
   let contenido='';
   if(!fn){
@@ -6023,6 +6224,7 @@ function armarMenu(){
   items.push({id:'inicio', ic:'dashboard', txt:'Dashboard'});
   if(F.indexOf('ventas')>-1) items.push({id:'ventas', ic:'cart', txt:'+ '+pPedido(true)});
   items.push({id:'pedidos', ic:'report', txt:pPedidos(true)});
+  if(usaCuentas()) items.push({id:'cuentas', ic:'cash', txt:'Cuentas Abiertas'});
   if(F.indexOf('catalogo')>-1){
     if(neg.usaRecetas){
       // Restaurante: el menú de platos y el inventario de insumos son cosas distintas
@@ -6070,6 +6272,7 @@ function armarMenu(){
     if(it.id==='cuadredomi') id='domicilios';
     if(it.id==='conteo') id='catalogo';
     if(it.id==='combos') id='catalogo';
+    if(it.id==='cuentas') id='pedidos';
     if(it.id==='minegocio') id='config';
     if(it.id==='auditoria') id='__solo_admin__';   // ya se filtró arriba por rol
     if(permitidas.indexOf(it.id)>-1 || permitidas.indexOf(id)>-1){
@@ -6148,6 +6351,7 @@ function minegocio(){
         <label class="chk"><input type="checkbox" id="n-alertavence" ${neg.alertaVence!==false?'checked':''}> Avisar productos por vencer</label>
         <label class="chk"><input type="checkbox" id="n-inventario" ${usaInventario(neg)?'checked':''}> Llevar control de inventario (stock)</label>
         <label class="chk"><input type="checkbox" id="n-verificarbanco" ${neg.verificarBanco?'checked':''}> Exigir verificar las transferencias</label>
+        <label class="chk"><input type="checkbox" id="n-cuentas" ${(neg.usaCuentas||neg.flujoPedido==='dos_pasos')?'checked':''} ${neg.flujoPedido==='dos_pasos'?'disabled':''}> Usar cuentas abiertas (agregar y cobrar al final)</label>
       </div>
       <p class="nota" style="margin-top:8px;">Si apagas el control de inventario, los ${pProds()} no llevan existencias: no se descuentan al vender ni aparecen alertas. Útil para servicios o negocios que no manejan stock.</p>
       <div class="m-row" style="margin-top:12px;">
@@ -6215,6 +6419,7 @@ function guardarMiNegocio(){
   n.alertaStock=chk('n-alerta');
   n.alertaVence=chk('n-alertavence');
   n.verificarBanco=chk('n-verificarbanco');
+  n.usaCuentas=chk('n-cuentas');
   // Encender/apagar el control de inventario desde el propio negocio
   {
     const quiereInv=chk('n-inventario');
@@ -6853,11 +7058,11 @@ function vistaNegocio(){
     inventario:neg.usaRecetas?'Menú':'Inventario', insumos:'Insumos', caja:'Caja', cocina:'Cocina', citas:'Agendar',
     domicilios:'Domicilios', cuadredomi:'Cuadre de Domiciliarios', clientes:'Clientes', reportes:'Reportes',
     contable:'Registro Contable', gastosneg:'Gastos del Negocio', minegocio:'Mi Negocio',
-    tiempos:'Tiempos de Entrega', historial:'Historial', auditoria:'Auditoría', reimpresiones:'Reimpresiones', conteo:'Conteo de Inventario', combos:'Menú y Combos', usuarios:'Usuarios',
+    tiempos:'Tiempos de Entrega', historial:'Historial', auditoria:'Auditoría', reimpresiones:'Reimpresiones', conteo:'Conteo de Inventario', combos:'Menú y Combos', usuarios:'Usuarios', cuentas:'Cuentas Abiertas',
     citas:'Agendar', cocina:'Cocina'};
   const pantallas={inicio, ventas:nuevaVenta, pedidos, inventario, insumos:pantallaInsumos, caja,
     clientes, domicilios, cuadredomi:cuadreDomi, reportes, contable, gastosneg, minegocio, citas, cocina,
-    tiempos, historial, auditoria, reimpresiones, conteo, combos, usuarios:usuariosNeg};
+    tiempos, historial, auditoria, reimpresiones, conteo, combos, usuarios:usuariosNeg, cuentas};
   const fn=pantallas[STATE.pageNeg];
   let contenido='';
   if(!fn){
