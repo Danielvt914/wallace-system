@@ -2148,6 +2148,10 @@ function confirmarPedido(){
   if(!_carrito.length){ toast('Agrega productos primero','error'); return; }
   if(!validarClientePedido()) return;
   const editando=!!STATE.editandoVentaId;
+  if(!editando && descuentaAlPedir()){
+    const faltan=faltantesPara(requerimientos(_carrito));
+    if(faltan.length){ toast('⛔ No alcanza el inventario: '+faltan.join(', '),'error'); sonidoError(); return; }
+  }
   const ventasPrev=misDatos('ventas');
   const orig = editando ? ventasPrev.find(x=>x.id===STATE.editandoVentaId) : null;
   const yaDescontado = !!(orig && orig.stockAplicado===true);
@@ -2164,6 +2168,8 @@ function confirmarPedido(){
     const totalAntes = orig ? (orig.total||0) : 0;
     const estadoAntes = orig ? orig.estado : null;
     const venta=armarVenta('abierta');
+    // Si el negocio descuenta al pedir, el inventario sale ya mismo
+    if(!editando && descuentaAlPedir()) descontarStock(venta);
     const ventas=misDatos('ventas');
     if(editando){
       const i=ventas.findIndex(x=>x.id===venta.id);
@@ -2279,6 +2285,16 @@ function imprimirComanda(v){
 //  por cliente, se le van agregando productos durante la noche y se cobra
 //  al final. Cada producto que se agrega descuenta inventario al cobrar.
 // ============================================================
+// ¿El inventario se descuenta apenas se pide, o hasta que se cobra?
+// En una licorera o un bar el producto YA salió de la nevera al pedirlo,
+// así que el stock debe bajar de una. En otros negocios puede convenir
+// esperar al cobro. Se elige en Mi Negocio.
+function descuentaAlPedir(){
+  const n=STATE.negocio;
+  if(!n || !usaInventario()) return false;
+  if(n.descontarAlPedir!==undefined) return !!n.descontarAlPedir;
+  return usaCuentas();     // por defecto: sí, en los negocios con cuentas abiertas
+}
 function usaCuentas(){
   const n=STATE.negocio;
   if(!n) return false;
@@ -2308,15 +2324,20 @@ function abrirCuentaNueva(){
   if(!_carrito.length){ toast('Agrega productos primero','error'); return; }
   if(!validarClientePedido()) return;
   if(_guardando) return;
+  if(descuentaAlPedir()){
+    const faltan=faltantesPara(requerimientos(_carrito));
+    if(faltan.length){ toast('⛔ No alcanza el inventario: '+faltan.join(', '),'error'); sonidoError(); return; }
+  }
   _guardando=true;
   try{
     const venta=armarVenta('abierta');
     venta.estado='abierta';
     venta.esCuenta=true;
+    if(descuentaAlPedir()) descontarStock(venta);   // el producto ya salió: baja el stock
     const ventas=misDatos('ventas');
     ventas.unshift(venta);
     guardarMisDatos('ventas',ventas);
-    logAudit('Abrió cuenta', (venta.factura||'')+' · '+nombreCuenta(venta));
+    logAudit('Abrió cuenta', (venta.factura||'')+' · '+nombreCuenta(venta)+(venta.stockAplicado?' · inventario descontado':''));
     sonidoPedido();
     if(STATE.negocio.usaCocina){ try{ imprimirComanda(venta); }catch(e){} }
     limpiarPedido(); ESCRIBIENDO=false; STATE.pageNeg='cuentas'; render();
@@ -2419,7 +2440,7 @@ function cuentas(){
     <div class="tarjeta">
       <div class="t-cab">
         <div><span class="t-tit">🧾 Cuentas abiertas</span>
-          <p class="gris">Se les va agregando durante la noche y se cobran al final. Toca una para agregarle más.</p></div>
+          <p class="gris">Se les va agregando durante la noche y se cobran al final. Toca una para agregarle más.${usaInventario()?(descuentaAlPedir()?' El inventario se descuenta apenas se agrega el producto.':' El inventario se descuenta al cobrar.'):''}</p></div>
         <button class="btn btn-gold" onclick="nuevaCuentaDesdeCero()">+ Abrir cuenta</button>
       </div>
       ${lista.length?`<div class="kds-grid">
@@ -5876,6 +5897,7 @@ function pantallaConfig(negId){
         <label class="chk"><input type="checkbox" id="c-alerta" ${neg.alertaStock!==false?'checked':''}> Avisar stock bajo</label>
         <label class="chk"><input type="checkbox" id="c-verificarbanco" ${neg.verificarBanco?'checked':''}> Exigir verificar transferencias</label>
         <label class="chk"><input type="checkbox" id="c-cuentas" ${neg.usaCuentas?'checked':''}> Usar cuentas abiertas</label>
+        <label class="chk"><input type="checkbox" id="c-descontarpedir" ${(neg.descontarAlPedir!==undefined?neg.descontarAlPedir:(neg.usaCuentas||neg.flujoPedido==='dos_pasos'))?'checked':''}> Descontar inventario al pedir</label>
       </div>
       <p class="nota" style="margin-top:8px;">Marca solo lo que el negocio necesita. Ej: una tienda de accesorios no marca cocina ni propina.</p>
       <div class="form2" style="margin-top:14px;">
@@ -5950,7 +5972,7 @@ function guardarConfig(negId){
   n.usaCodBarras=chk('c-barras');
   n.clienteFijoNombre=val('c-cfnom').trim()||'Consumidor Final';
   n.clienteFijoTel=val('c-cftel').trim()||'0000000';
-  n.sonidos=chk('c-sonidos'); n.alertaStock=chk('c-alerta'); n.verificarBanco=chk('c-verificarbanco'); n.usaCuentas=chk('c-cuentas');
+  n.sonidos=chk('c-sonidos'); n.alertaStock=chk('c-alerta'); n.verificarBanco=chk('c-verificarbanco'); n.usaCuentas=chk('c-cuentas'); n.descontarAlPedir=chk('c-descontarpedir');
   n.tipoFactura=val('c-fact'); n.pctDatafono=parseFloat(val('c-pct'))||0;
   n.ajusteCobro = val('c-ajustecobro')==='total' ? 'total' : 'diferencia';
   n.tema=val('c-tema')||'oscuro';
@@ -6352,8 +6374,10 @@ function minegocio(){
         <label class="chk"><input type="checkbox" id="n-inventario" ${usaInventario(neg)?'checked':''}> Llevar control de inventario (stock)</label>
         <label class="chk"><input type="checkbox" id="n-verificarbanco" ${neg.verificarBanco?'checked':''}> Exigir verificar las transferencias</label>
         <label class="chk"><input type="checkbox" id="n-cuentas" ${(neg.usaCuentas||neg.flujoPedido==='dos_pasos')?'checked':''} ${neg.flujoPedido==='dos_pasos'?'disabled':''}> Usar cuentas abiertas (agregar y cobrar al final)</label>
+        <label class="chk"><input type="checkbox" id="n-descontarpedir" ${descuentaAlPedir()?'checked':''}> Descontar el inventario apenas se pide (no al cobrar)</label>
       </div>
       <p class="nota" style="margin-top:8px;">Si apagas el control de inventario, los ${pProds()} no llevan existencias: no se descuentan al vender ni aparecen alertas. Útil para servicios o negocios que no manejan stock.</p>
+      <p class="nota" style="margin-top:8px;">🍺 <strong>Descontar al pedir:</strong> apenas se agrega el producto a una cuenta o pedido, sale del inventario. Es lo correcto en licoreras y bares, donde el producto ya se entregó. Si lo apagas, el stock baja solo cuando se cobra.</p>
       <div class="m-row" style="margin-top:12px;">
         <label>Avisar cuántos días antes de que un producto se venza</label>
         <input id="n-diasvence" type="number" min="0" class="campo" value="${neg.diasAvisoVence!=null?neg.diasAvisoVence:7}" placeholder="Ej: 7"></div>
@@ -6420,6 +6444,7 @@ function guardarMiNegocio(){
   n.alertaVence=chk('n-alertavence');
   n.verificarBanco=chk('n-verificarbanco');
   n.usaCuentas=chk('n-cuentas');
+  n.descontarAlPedir=chk('n-descontarpedir');
   // Encender/apagar el control de inventario desde el propio negocio
   {
     const quiereInv=chk('n-inventario');
