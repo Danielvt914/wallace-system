@@ -516,7 +516,37 @@ const STATE = {
 
 function uid(){ return 'id'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function now(){ return new Date().toISOString(); }
-function today(){ return new Date().toISOString().split('T')[0]; }
+// OJO: antes el "día" se sacaba de la fecha UTC, así que en Colombia cambiaba
+// de día a las 7 de la noche. Ahora se usa la fecha LOCAL del equipo.
+function fechaLocal(d){
+  d = d ? new Date(d) : new Date();
+  if(isNaN(d.getTime())) return '';
+  const p=n=>String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
+}
+function today(){ return fechaLocal(); }
+// ---------- JORNADA DE TRABAJO ----------
+// Hay negocios que abren de noche y cierran en la madrugada. Para ellos el
+// "día" NO es el del calendario: todo lo que se venda hasta que se cierre la
+// caja pertenece al día en que esa caja se ABRIÓ. Así una jornada no queda
+// partida en dos días y los informes cuadran.
+function jornadaActual(){
+  try{
+    const arr=misDatos('caja_actual');
+    const c=Array.isArray(arr)?arr[0]:arr;
+    if(c && c.apertura) return fechaLocal(c.apertura);
+  }catch(e){}
+  return today();
+}
+// Jornada a la que pertenece una venta (las viejas usan su propia fecha)
+function jornadaDe(v){
+  if(!v) return '';
+  if(v.jornada) return v.jornada;
+  return fechaLocal(v.fecha);
+}
+function mesDeJornada(v){ return (jornadaDe(v)||'').substring(0,7); }
+// Jornada de un cierre de caja: el día en que se abrió esa caja
+function jornadaCierre(c){ return (c&&c.jornada) ? c.jornada : fechaLocal(c&&(c.apertura||c.cierre)); }
 function fmtMoney(n){ return '$ '+(Math.round(n||0)).toLocaleString('es-CO'); }
 // Formato corto para etiquetas de gráficas: 1.2M, 950k, 500
 function fmtCorto(n){
@@ -929,7 +959,7 @@ function panelSuperAdmin(){
     vs=vs.filter(v=>v.estado==='pagada');
     const suma=vs.reduce((a,v)=>a+(v.total||0),0);
     ventasTot+=suma;
-    ventasHoy+=vs.filter(v=>(v.fecha||'').startsWith(hoy)).reduce((a,v)=>a+(v.total||0),0);
+    ventasHoy+=vs.filter(v=>(v.jornada||fechaLocal(v.fecha))===hoy).reduce((a,v)=>a+(v.total||0),0);
     if(suma>top.total) top={nombre:n.nombre, total:suma};
   });
   const q=(STATE.buscaNegocio||'').toLowerCase();
@@ -2115,6 +2145,7 @@ function armarVenta(estado){
   // del pago y la venta quedaba descuadrada.
   return Object.assign({}, orig||{}, {
     id:id, factura:factura,
+    jornada: (orig&&orig.jornada) ? orig.jornada : jornadaActual(),
     items:_carrito.slice(),
     subtotal:total, subtotalBruto:bruto, descuento:_desc, descMotivo:_descMot,
     valorDom, propina, recargo,
@@ -2613,7 +2644,7 @@ function ventasJornada(soloPagadas){
     vs=vs.filter(v=> v.cajaId===cajaAbierta.id || new Date(v.fecha||0).getTime()>=desde);
   } else {
     const h=today();
-    vs=vs.filter(v=>(v.fecha||'').startsWith(h));
+    vs=vs.filter(v=>jornadaDe(v)===h);
   }
   return soloPagadas ? vs.filter(v=>v.estado==='pagada') : vs;
 }
@@ -2692,7 +2723,7 @@ function pedidos(){
   return `
     <div class="tarjeta">
       <div class="t-cab">
-        <span class="t-tit">${ic('report')} ${pPedidos(true)} <span class="gris chico" style="font-weight:normal;">${cajaAbierta?'(caja actual)':'(hoy)'}</span></span>
+        <span class="t-tit">${ic('report')} ${pPedidos(true)} <span class="gris chico" style="font-weight:normal;">${cajaAbierta?('jornada del '+fechaLocal(cajaAbierta.apertura)):'(hoy)'}</span></span>
         <div class="t-acc">
           <input type="text" class="busca" placeholder="🔍 ${esLog?'Remisión':'Factura'}, cliente${usaDomi?', teléfono':''}..." value="${escapeHtml(_pBusca)}" oninput="_pBusca=this.value">
           <button class="btn btn-sm" onclick="refrescarDeLaNube()">🔄 Actualizar</button>
@@ -3529,7 +3560,7 @@ function inicio(){
   // Semana y mes
   const d7=new Date(); d7.setDate(d7.getDate()-7);
   const sem=vs.filter(v=>new Date(v.fecha)>=d7).reduce((a,v)=>a+montoVenta(v),0);
-  const mes=vs.filter(v=>(v.fecha||'').substring(0,7)===h.substring(0,7)).reduce((a,v)=>a+montoVenta(v),0);
+  const mes=vs.filter(v=>mesDeJornada(v)===h.substring(0,7)).reduce((a,v)=>a+montoVenta(v),0);
   const pend=ventasJornada(false).filter(v=>v.estado==='abierta');
   // Gráfico 7 días
   const dias=[];
@@ -3537,7 +3568,7 @@ function inicio(){
     const d=new Date(); d.setDate(d.getDate()-i);
     const k=d.toISOString().split('T')[0];
     dias.push({lbl:['D','L','M','X','J','V','S'][d.getDay()],
-      tot:vs.filter(v=>(v.fecha||'').startsWith(k)).reduce((a,v)=>a+montoVenta(v),0)});
+      tot:vs.filter(v=>jornadaDe(v)===k).reduce((a,v)=>a+montoVenta(v),0)});
   }
   const mx=Math.max.apply(null,dias.map(d=>d.tot).concat([1]));
   const metodos=sumaPorMetodo(hoy, montoVenta);
@@ -3549,7 +3580,7 @@ function inicio(){
   const uniDe=v=>(v.items||[]).reduce((a,i)=>a+(i.qty||0),0);
   const uniHoy=hoy.reduce((a,v)=>a+uniDe(v),0);
   const uniSem=vs.filter(v=>new Date(v.fecha)>=d7).reduce((a,v)=>a+uniDe(v),0);
-  const uniMes=vs.filter(v=>(v.fecha||'').substring(0,7)===h.substring(0,7)).reduce((a,v)=>a+uniDe(v),0);
+  const uniMes=vs.filter(v=>mesDeJornada(v)===h.substring(0,7)).reduce((a,v)=>a+uniDe(v),0);
 
   if(neg.esLogistica){
     const diasU=[];
@@ -3557,7 +3588,7 @@ function inicio(){
       const d=new Date(); d.setDate(d.getDate()-i);
       const k=d.toISOString().split('T')[0];
       diasU.push({lbl:['D','L','M','X','J','V','S'][d.getDay()],
-        tot:vs.filter(v=>(v.fecha||'').startsWith(k)).reduce((a,v)=>a+uniDe(v),0)});
+        tot:vs.filter(v=>jornadaDe(v)===k).reduce((a,v)=>a+uniDe(v),0)});
     }
     const mxU=Math.max.apply(null,diasU.map(d=>d.tot).concat([1]));
     return `
@@ -3727,6 +3758,7 @@ function caja(){
     <div class="grid2">
       <div class="tarjeta">
         <span class="t-tit">${ic('cash')} Resumen de caja — ${escapeHtml(c.cajero||'')}</span>
+        <div class="linea"><span>Jornada</span><strong class="oro">${fechaLocal(c.apertura)}${fechaLocal(c.apertura)!==today()?' <span class="gris chico">(sigue abierta desde ayer)</span>':''}</strong></div>
         <div class="linea"><span>Apertura</span><span class="gris chico">${fmtDate(c.apertura)}</span></div>
         <div class="linea"><span>Base inicial</span><strong>${fmtMoney(c.base||0)}</strong></div>
         <div class="linea"><span>Ventas reales (solo ${pProds()})</span><strong class="oro">${fmtMoney(totalVenta)}</strong></div>
@@ -3885,7 +3917,7 @@ function cerrarCaja(){
     if(baseManana>contado){ toast('La base para mañana no puede ser mayor a lo contado','error'); return; }
     const retiroJefe=contado-baseManana;
     const dif=contado-esperado;
-    const cierre=Object.assign({}, c, {id:uid(), cierre:now(), cerradaPor:STATE.user.nombre,
+    const cierre=Object.assign({}, c, {id:uid(), cierre:now(), jornada:fechaLocal(c.apertura), cerradaPor:STATE.user.nombre,
       totalVentas:ventas.reduce((a,v)=>a+(v.subtotal||0),0),
       efVenta, gastos, retiros, entradas, propEf, domEf,
       esperado, contado, diferencia:dif, motivoDescuadre:(d.motivo||''),
@@ -3927,6 +3959,7 @@ function imprimirCierre(c){
     </div>
     <div style="text-align:center;font-size:17px;font-weight:800;border-top:2px solid #000;border-bottom:2px solid #000;padding:6px 0;margin:8px 0;">CIERRE DE CAJA</div>
     <div style="font-size:13px;line-height:1.7;">
+      <div style="display:flex;justify-content:space-between;"><span>Jornada:</span><span><strong>${jornadaCierre(c)}</strong></span></div>
       <div style="display:flex;justify-content:space-between;"><span>Cajero:</span><span>${escapeHtml(c.cerradaPor||c.cajero||'')}</span></div>
       <div style="display:flex;justify-content:space-between;"><span>Apertura:</span><span>${fmtDate(c.apertura)}</span></div>
       <div style="display:flex;justify-content:space-between;"><span>Cierre:</span><span>${fmtDate(c.cierre)}</span></div>
@@ -5342,7 +5375,7 @@ function reportes(){
   const neg=STATE.negocio;
   const vs=misDatos('ventas').filter(v=>v.estado==='pagada');
   const h=today();
-  const hoy=vs.filter(v=>(v.fecha||'').startsWith(h));
+  const hoy=vs.filter(v=>jornadaDe(v)===h);
   const totHoy=hoy.reduce((a,v)=>a+(v.subtotal||0),0);
   const ticket=hoy.length?Math.round(totHoy/hoy.length):0;
   const d7=new Date(); d7.setDate(d7.getDate()-7);
@@ -5355,7 +5388,7 @@ function reportes(){
     const d=new Date(); d.setDate(d.getDate()-i);
     const k=d.toISOString().split('T')[0];
     dias.push({lbl:['DOM','LUN','MAR','MIÉ','JUE','VIE','SÁB'][d.getDay()],
-      tot:vs.filter(v=>(v.fecha||'').startsWith(k)).reduce((a,v)=>a+(v.subtotal||0),0)});
+      tot:vs.filter(v=>jornadaDe(v)===k).reduce((a,v)=>a+(v.subtotal||0),0)});
   }
   const mx=Math.max.apply(null,dias.map(d=>d.tot).concat([1]));
   // Gráfico 12 meses
@@ -5368,13 +5401,13 @@ function reportes(){
     const yy=String(d.getFullYear()).slice(2);
     const etq=(d.getMonth()===0||i===11)?MESNOM[d.getMonth()]+' '+yy:MESNOM[d.getMonth()];
     meses.push({lbl:etq,
-      tot:vs.filter(v=>(v.fecha||'').substring(0,7)===k).reduce((a,v)=>a+(v.subtotal||0),0)});
+      tot:vs.filter(v=>mesDeJornada(v)===k).reduce((a,v)=>a+(v.subtotal||0),0)});
   }
   const mxM=Math.max.apply(null,meses.map(m=>m.tot).concat([1]));
   // Ventas últimos 30 días para más/menos vendidos y horas pico
   const d30=new Date(); d30.setDate(d30.getDate()-30);
   const k30=d30.toISOString().split('T')[0];
-  const v30=vs.filter(v=>(v.fecha||'').split('T')[0]>=k30);
+  const v30=vs.filter(v=>jornadaDe(v)>=k30);
   const items={};
   v30.forEach(v=>(v.items||[]).forEach(i=>{ if(!items[i.nombre])items[i.nombre]={qty:0,total:0}; items[i.nombre].qty+=i.qty; items[i.nombre].total+=i.precio*i.qty; }));
   const ordenados=Object.entries(items).sort((a,b)=>b[1].qty-a[1].qty);
@@ -5467,8 +5500,8 @@ function contable(){
   const [anio,mnum]=mes.split('-').map(Number);
   const dPrev=new Date(anio,mnum-2,1); const mesPrev=dPrev.getFullYear()+'-'+String(dPrev.getMonth()+1).padStart(2,'0');
   const vs=misDatos('ventas').filter(v=>v.estado==='pagada');
-  const delMes=vs.filter(v=>(v.fecha||'').substring(0,7)===mes);
-  const delPrev=vs.filter(v=>(v.fecha||'').substring(0,7)===mesPrev);
+  const delMes=vs.filter(v=>mesDeJornada(v)===mes);
+  const delPrev=vs.filter(v=>mesDeJornada(v)===mesPrev);
   const totalVentas=delMes.reduce((a,v)=>a+(v.subtotal||0),0);
   const totalPrev=delPrev.reduce((a,v)=>a+(v.subtotal||0),0);
   const difV=totalVentas-totalPrev;
@@ -5483,12 +5516,12 @@ function contable(){
   // aunque la copia falle, y los del negocio se cuentan aparte para no duplicar.
   const gastos=misDatos('gastos_negocio').filter(g=>(g.fecha||'').substring(0,7)===mes && g.origen!=='caja');
   const totalGastos=gastos.reduce((a,g)=>a+g.valor,0);      // solo los del negocio
-  const cierres=misDatos('cierres').filter(c=>(c.cierre||'').substring(0,7)===mes);
+  const cierres=misDatos('cierres').filter(c=>(jornadaCierre(c)||'').substring(0,7)===mes);
   const cajaArrC=misDatos('caja_actual');
   const cajaAbC=Array.isArray(cajaArrC)?cajaArrC[0]:cajaArrC;
   const movsMes=[];
   cierres.forEach(c=>(c.movimientos||[]).forEach(m=>movsMes.push(m)));
-  if(cajaAbC && (cajaAbC.apertura||'').substring(0,7)===mes) (cajaAbC.movimientos||[]).forEach(m=>movsMes.push(m));
+  if(cajaAbC && fechaLocal(cajaAbC.apertura).substring(0,7)===mes) (cajaAbC.movimientos||[]).forEach(m=>movsMes.push(m));
   let retiros=0, gastosCaja=0;
   const gCaja={}, gNeg={};
   movsMes.forEach(m=>{
@@ -5508,10 +5541,10 @@ function contable(){
   delMes.forEach(v=>(v.items||[]).forEach(i=>{ if(!items[i.nombre])items[i.nombre]={qty:0,total:0}; items[i.nombre].qty+=i.qty; items[i.nombre].total+=i.precio*i.qty; }));
   const topProd=Object.entries(items).sort((a,b)=>b[1].qty-a[1].qty).slice(0,10);
   // Días de mayor venta
-  const porDia={}; delMes.forEach(v=>{ const d=(v.fecha||'').split('T')[0]; porDia[d]=(porDia[d]||0)+(v.subtotal||0); });
+  const porDia={}; delMes.forEach(v=>{ const d=jornadaDe(v); porDia[d]=(porDia[d]||0)+(v.subtotal||0); });
   const topDias=Object.entries(porDia).sort((a,b)=>b[1]-a[1]).slice(0,5);
   const mesesSet={}; mesesSet[today().substring(0,7)]=1;
-  vs.forEach(v=>{ if(v.fecha) mesesSet[v.fecha.substring(0,7)]=1; });
+  vs.forEach(v=>{ const m2=mesDeJornada(v); if(m2) mesesSet[m2]=1; });
   misDatos('gastos_negocio').forEach(g=>{ if(g.fecha) mesesSet[g.fecha.substring(0,7)]=1; });
   const meses=Object.keys(mesesSet).sort().reverse();
   const gastosNeg=totalGastos;
@@ -5580,7 +5613,7 @@ function contable(){
       <div class="tabla-wrap"><table class="tabla">
         <thead><tr><th>Día</th><th>Cajero</th><th>Esperado</th><th>Contado</th><th>Base dejada</th><th>Retirado</th><th>Resultado</th><th></th></tr></thead>
         <tbody>${cierres.map(c=>`<tr>
-          <td>${(c.cierre||'').split('T')[0]}</td>
+          <td>${jornadaCierre(c)}${fechaLocal(c.cierre)!==jornadaCierre(c)?'<br><span class="gris chico">cerró el '+fechaLocal(c.cierre)+'</span>':''}</td>
           <td>${escapeHtml(c.cerradaPor||c.cajero||'—')}</td>
           <td>${fmtMoney(c.esperado||0)}</td>
           <td>${fmtMoney(c.contado||0)}</td>
@@ -5706,7 +5739,7 @@ function gastosneg(){
   const delMes=gastos.filter(g=>(g.fecha||'').substring(0,7)===mes);
   const total=delMes.reduce((a,g)=>a+g.valor,0);
   // Ventas del mes, para saber qué tanto pesa cada gasto
-  const ventasMes=misDatos('ventas').filter(v=>v.estado==='pagada' && (v.fecha||'').substring(0,7)===mes)
+  const ventasMes=misDatos('ventas').filter(v=>v.estado==='pagada' && mesDeJornada(v)===mes)
     .reduce((a,v)=>a+(v.subtotal!=null?v.subtotal:(v.total||0)),0);
   const pctVentas = ventasMes>0 ? Math.round(total/ventasMes*1000)/10 : null;
   const porConcepto={};
@@ -6312,7 +6345,7 @@ function reporteMensualNegocio(negId){
   if(!neg){ toast('Negocio no encontrado','error'); return; }
   const ventas=(datosDe(negId,'ventas')||[]);
   const mesesSet={}; mesesSet[today().substring(0,7)]=1;
-  ventas.forEach(v=>{ if(v.fecha) mesesSet[v.fecha.substring(0,7)]=1; });
+  ventas.forEach(v=>{ const m2=(v.jornada||fechaLocal(v.fecha)||'').substring(0,7); if(m2) mesesSet[m2]=1; });
   const meses=Object.keys(mesesSet).sort().reverse();
   abrirModal({titulo:'📄 Reporte mensual · '+neg.nombre, textoBoton:'Generar PDF', campos:[
     {id:'mes', label:'Mes del informe', tipo:'select', opciones:meses.map(m=>({valor:m,label:nombreMes(m)}))}
@@ -6321,8 +6354,9 @@ function reporteMensualNegocio(negId){
 }
 function imprimirReporteNegocio(negId, mes){
   const neg=(DB.get('negocios')||[]).find(n=>n.id===negId); if(!neg) return;
-  const ventas=(datosDe(negId,'ventas')||[]).filter(v=>v.estado==='pagada' && (v.fecha||'').substring(0,7)===mes);
-  const anuladas=(datosDe(negId,'ventas')||[]).filter(v=>v.estado==='anulada' && (v.fecha||'').substring(0,7)===mes);
+  const jorn=v=>(v.jornada||fechaLocal(v.fecha)||'').substring(0,7);
+  const ventas=(datosDe(negId,'ventas')||[]).filter(v=>v.estado==='pagada' && jorn(v)===mes);
+  const anuladas=(datosDe(negId,'ventas')||[]).filter(v=>v.estado==='anulada' && jorn(v)===mes);
   const monto=v=>(v.subtotal!=null?v.subtotal:(v.total||0));
   const totalVentas=ventas.reduce((a,v)=>a+monto(v),0);
   // Reparto por método (respeta los pagos divididos)
@@ -6335,7 +6369,7 @@ function imprimirReporteNegocio(negId, mes){
     else met.efectivo+=monto(v);
   });
   // Gastos: de la caja (cierres del mes) + los del negocio
-  const cierres=(datosDe(negId,'cierres')||[]).filter(c=>(c.cierre||'').substring(0,7)===mes);
+  const cierres=(datosDe(negId,'cierres')||[]).filter(c=>((c.jornada||fechaLocal(c.apertura||c.cierre))||'').substring(0,7)===mes);
   const gastosNeg=(datosDe(negId,'gastos_negocio')||[]).filter(g=>(g.fecha||'').substring(0,7)===mes && g.origen!=='caja');
   let gastosCaja=0, retiros=0; const porConcepto={};
   cierres.forEach(c=>(c.movimientos||[]).forEach(m=>{
@@ -6353,7 +6387,7 @@ function imprimirReporteNegocio(negId, mes){
     items[i.nombre].q+=i.qty; items[i.nombre].t+=i.precio*i.qty; }));
   const top=Object.entries(items).sort((a,b)=>b[1].t-a[1].t).slice(0,10);
   // Días y descuadres
-  const porDia={}; ventas.forEach(v=>{ const d=(v.fecha||'').split('T')[0]; porDia[d]=(porDia[d]||0)+monto(v); });
+  const porDia={}; ventas.forEach(v=>{ const d=v.jornada||fechaLocal(v.fecha); porDia[d]=(porDia[d]||0)+monto(v); });
   const dias=Object.keys(porDia).length;
   const sumaDif=cierres.reduce((a,c)=>a+(c.diferencia||0),0);
   const usuarios=(DB.get('usuarios')||[]).filter(u=>u.negocioId===negId);
@@ -7217,7 +7251,7 @@ function cobrarCitaEntregada(cita){
           valorDom:0, propina:0, recargo:0, total:bruto,
           metodo:metodo, estado:'pagada',
           tipo:'llevar', cajaId:cajaAbierta?cajaAbierta.id:null,
-          vendedor:STATE.user.nombre, fecha:now(),
+          vendedor:STATE.user.nombre, fecha:now(), jornada:jornadaActual(),
           obs:'Entrega de agendamiento'+(cita.detalle?' · '+cita.detalle:''), mesa:'',
           cliNombre:cita.cliente||'', cliTel:cita.tel||'', cliDir:'', cliBarrio:'',
           cliCiudad:'', cliDepto:'', transportadora:'', domiciliario:'',
@@ -7441,7 +7475,7 @@ function historial(){
   const mes=_hMes||today().substring(0,7);
   let vs=misDatos('ventas').slice().sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
   // Por defecto se muestra el mes seleccionado (como Portal Imperial)
-  if(mes!=='todos') vs=vs.filter(v=>(v.fecha||'').substring(0,7)===mes);
+  if(mes!=='todos') vs=vs.filter(v=>mesDeJornada(v)===mes);
   if(_hFiltro==='pagadas') vs=vs.filter(v=>v.estado==='pagada');
   else if(_hFiltro==='anuladas') vs=vs.filter(v=>v.estado==='anulada');
   else if(_hFiltro==='abiertas') vs=vs.filter(v=>v.estado==='abierta');
@@ -7451,7 +7485,7 @@ function historial(){
   const totalPag=vs.filter(v=>v.estado==='pagada').reduce((a,v)=>a+(v.total||0),0);
   // Meses disponibles
   const mesesSet={}; mesesSet[today().substring(0,7)]=1;
-  misDatos('ventas').forEach(v=>{ if(v.fecha) mesesSet[v.fecha.substring(0,7)]=1; });
+  misDatos('ventas').forEach(v=>{ const m2=mesDeJornada(v); if(m2) mesesSet[m2]=1; });
   const meses=Object.keys(mesesSet).sort().reverse();
   return `
     <div class="tarjeta">
@@ -7470,7 +7504,7 @@ function historial(){
       </div>
       <p class="nota">${vs.length} venta(s) · Total pagado: <strong class="oro">${fmtMoney(totalPag)}</strong></p>
       <div class="tabla-wrap"><table class="tabla">
-        <thead><tr><th>Factura</th><th>Tipo</th><th>Cliente</th><th>Método</th><th>Total</th><th>Estado</th><th>Fecha</th><th></th></tr></thead>
+        <thead><tr><th>Factura</th><th>Tipo</th><th>Cliente</th><th>Método</th><th>Total</th><th>Estado</th><th>Jornada</th><th></th></tr></thead>
         <tbody>${vs.length? vs.slice(0,200).map(v=>`<tr>
           <td><strong class="oro">${escapeHtml(v.factura||'—')}</strong></td>
           <td>${etiq[v.tipo]||'—'}</td>
@@ -7478,7 +7512,7 @@ function historial(){
           <td class="gris" title="${escapeHtml(detallePagos(v))}">${escapeHtml(metodoTexto(v))}</td>
           <td class="negrita">${fmtMoney(v.total)}</td>
           <td>${v.estado==='pagada'?'<span class="pill pill-verde">Pagada</span>':v.estado==='anulada'?'<span class="pill pill-rojo">Anulada</span>':'<span class="pill pill-gold">Por cobrar</span>'}</td>
-          <td class="gris chico">${fmtDate(v.fecha)}</td>
+          <td class="gris chico">${jornadaDe(v)}${jornadaDe(v)!==fechaLocal(v.fecha)?'<br><span class="oro chico">madrugada</span>':''}<br><span class="gris chico">${fmtDate(v.fecha).split(' ').slice(1).join(' ')}</span></td>
           <td>${tienePermiso('imprimir')&&v.estado==='pagada'?`<button class="btn btn-sm" onclick="imprimirFactura('${v.id}')" title="Reimprimir">🖨️</button>`:''}</td>
         </tr>`).join('') : '<tr><td colspan="8" class="gris">Sin ventas.</td></tr>'}</tbody>
       </table></div>
