@@ -147,6 +147,17 @@ function _entraRegistro(clave, tabla, id, val){
   _soloLocal(clave,_ordenar(arr,tabla));
   return true;
 }
+// Cuando otro equipo toma un pedido, este se entera al instante
+function avisarPedidoNuevo(v){
+  try{
+    if(!v || !v.id) return;
+    if(Date.now()-_arranqueSync < 2500) return;          // no avisar la carga inicial
+    if(v.vendedor && STATE.user && v.vendedor===STATE.user.nombre) return;  // lo hice yo
+    const quien=v.vendedor?(' · '+v.vendedor):'';
+    toast('🔔 Nuevo '+pPedido()+' '+(v.factura||'')+quien+' · '+fmtMoney(v.total||0),'info');
+    try{ sonidoPedido(); }catch(e){}
+  }catch(e){}
+}
 function _saleRegistro(clave,id){
   const srv=REG_SRV[clave]; if(srv) delete srv[id];
   const antes=(CACHE[clave]||[]).length;
@@ -251,6 +262,8 @@ function mostrarConexion(estado){
 //  Así el equipo de un cliente nunca descarga los datos de otro.
 // ============================================================
 let _listenersNeg = [];     // refs de las tablas del negocio activo
+let _cajaAvisada=null;      // estado de caja ya avisado al usuario
+let _arranqueSync=Date.now();
 let _sincTodoOn = false;    // true si el súper admin escucha todo
 let _globalesOn = false;    // true si ya escuchamos las tablas globales
 
@@ -261,7 +274,25 @@ function _guardarLocal(k,v){
 function _aceptarDeNube(k,v){
   const nuevo=JSON.stringify(v===undefined?null:v);
   const viejo=JSON.stringify(CACHE[k]===undefined?null:CACHE[k]);
-  if(nuevo!==viejo){ _guardarLocal(k,v); refrescarSiSePuede(); }
+  if(nuevo===viejo) return;
+  _guardarLocal(k,v);
+  // Abrir o cerrar la caja cambia lo que todos pueden hacer: se muestra ya.
+  const esCaja = k.indexOf('_caja_actual')>-1;
+  if(esCaja) avisarCambioCaja(v);
+  refrescarSiSePuede(esCaja);
+}
+// Aviso visible cuando otro equipo abre o cierra la caja
+function avisarCambioCaja(v){
+  try{
+    const c=Array.isArray(v)?v[0]:v;
+    const estado=c?('abierta:'+c.id):'cerrada';
+    if(_cajaAvisada===estado) return;
+    const primera=_cajaAvisada===null;
+    _cajaAvisada=estado;
+    if(primera) return;
+    if(c){ toast('✅ '+(c.cajero?c.cajero+' abrió la caja':'Caja abierta')+' · ya puedes vender','success'); try{ sonidoVenta(); }catch(e){} }
+    else { toast('🔒 Se cerró la caja','info'); }
+  }catch(e){}
 }
 function _escucharClave(k){
   const ref=FB.ref('data/'+k);
@@ -296,6 +327,14 @@ function escucharGlobales(){
 function sincronizarNegocio(negId){
   if(!FB_READY || !FB || !negId) return;
   detenerSincNegocio();
+  // Punto de partida del aviso de caja: lo que haya ahora, para que el
+  // PRIMER cambio que llegue sí se le avise al usuario.
+  try{
+    const c0=DB.get(claveDe(negId,'caja_actual'));
+    const cc=Array.isArray(c0)?c0[0]:c0;
+    _cajaAvisada = cc?('abierta:'+cc.id):'cerrada';
+  }catch(e){ _cajaAvisada='cerrada'; }
+  _arranqueSync=Date.now();
   subirColaRegistros();
   TABLAS.forEach(t=>{
     const clave=claveDe(negId,t);
@@ -328,7 +367,13 @@ function sincronizarNegocio(negId){
       });
     }).then(()=>{
       refrescarSiSePuede();
-      const entra=snap=>{ if(_entraRegistro(clave,t,snap.key,snap.val())) refrescarSiSePuede(); };
+      const entra=snap=>{
+        const esNuevo = t==='ventas' && !(REG_SRV[clave]||{})[snap.key];
+        if(_entraRegistro(clave,t,snap.key,snap.val())){
+          if(esNuevo) avisarPedidoNuevo(snap.val());
+          refrescarSiSePuede();
+        }
+      };
       refReg.on('child_added',entra);
       refReg.on('child_changed',entra);
       refReg.on('child_removed',snap=>{ if(_saleRegistro(clave,snap.key)) refrescarSiSePuede(); });
@@ -439,23 +484,26 @@ function limpiarDatosAjenos(negId){
   }catch(e){}
 }
 // Refresca la pantalla salvo que el usuario esté ocupado
-function refrescarSiSePuede(){
+// ¿El campo que está enfocado perdería lo escrito si redibujamos?
+// Los buscadores no: su texto vive en una variable y render() los restaura.
+// Los formularios sí: ahí se espera a que el usuario termine.
+function campoDelicado(a){
+  if(!a) return false;
+  const tag=(a.tagName||'').toLowerCase();
+  if(tag!=='input' && tag!=='textarea' && tag!=='select' && !a.isContentEditable) return false;
+  if(a.classList && (a.classList.contains('busca')||a.classList.contains('busca-grande'))) return false;
+  return true;
+}
+// forzar = cambios que el usuario TIENE que ver de una (abrir o cerrar caja)
+function refrescarSiSePuede(forzar){
   if(!STATE.user) return;
-  // Si el usuario está escribiendo en CUALQUIER campo (texto, número, select
-  // abierto, textarea), NO refrescamos: redibujar destruiría el campo y se
-  // perdería el foco / el teclado en móvil. Esperamos a que termine.
-  const a=document.activeElement;
-  if(a){
-    const tag=(a.tagName||'').toLowerCase();
-    if(tag==='input'||tag==='textarea'||tag==='select'||a.isContentEditable){
-      _refrescoPendiente=true;   // recordamos que hay cambios sin pintar
-      return;
-    }
-  }
-  // Solo se evita refrescar mientras se ARMA una venta (pantalla 'ventas')
-  if(ESCRIBIENDO && STATE.pageNeg==='ventas') return;
   const modal=document.getElementById('modal-container');
-  if(modal && modal.classList.contains('activo')) return;   // modal abierto
+  if(modal && modal.classList.contains('activo')){ _refrescoPendiente=true; return; }  // ventana abierta
+  if(!forzar){
+    if(campoDelicado(document.activeElement)){ _refrescoPendiente=true; return; }
+    // Solo se frena si hay un pedido a medio armar en la pantalla de venta
+    if(ESCRIBIENDO && STATE.pageNeg==='ventas'){ _refrescoPendiente=true; return; }
+  }
   _refrescoPendiente=false;
   try{ render(); }catch(e){}
 }
@@ -464,13 +512,21 @@ let _refrescoPendiente=false;
 document.addEventListener('focusout', function(){
   setTimeout(function(){
     if(!_refrescoPendiente) return;
-    const a=document.activeElement;
-    const tag=a?(a.tagName||'').toLowerCase():'';
-    if(tag==='input'||tag==='textarea'||tag==='select'||(a&&a.isContentEditable)) return;
+    if(campoDelicado(document.activeElement)) return;
     _refrescoPendiente=false;
     refrescarSiSePuede();
   },150);
 }, true);
+// Red de seguridad: cada 20 segundos, si quedó algo sin pintar, se pinta
+setInterval(function(){
+  if(!_refrescoPendiente || !STATE.user) return;
+  if(campoDelicado(document.activeElement)) return;
+  if(ESCRIBIENDO && STATE.pageNeg==='ventas') return;
+  const m=document.getElementById('modal-container');
+  if(m && m.classList.contains('activo')) return;
+  _refrescoPendiente=false;
+  try{ render(); }catch(e){}
+},20000);
 
 // Botón "Actualizar": fuerza traer de la nube lo que corresponda
 function refrescarDeLaNube(){
@@ -545,6 +601,12 @@ function jornadaDe(v){
   return fechaLocal(v.fecha);
 }
 function mesDeJornada(v){ return (jornadaDe(v)||'').substring(0,7); }
+// Mes de una fecha suelta (acepta '2026-10-01' o fecha ISO completa)
+function mesDe(f){
+  if(!f) return '';
+  const t=String(f);
+  return (t.length>10 ? fechaLocal(t) : t).substring(0,7);
+}
 // Jornada de un cierre de caja: el día en que se abrió esa caja
 function jornadaCierre(c){ return (c&&c.jornada) ? c.jornada : fechaLocal(c&&(c.apertura||c.cierre)); }
 function fmtMoney(n){ return '$ '+(Math.round(n||0)).toLocaleString('es-CO'); }
@@ -1800,7 +1862,11 @@ let _guardando=false;   // bloquea doble clic
 
 function nuevaVenta(){
   const neg=STATE.negocio;
-  ESCRIBIENDO=true;   // proteger: no refrescar mientras arma el pedido
+  // Antes esto se ponía en true SIEMPRE al entrar a Nueva Venta, incluso en la
+  // pantalla de "caja cerrada". Resultado: el equipo se quedaba congelado y no
+  // se enteraba de que otro ya había abierto la caja. Ahora solo se protege
+  // cuando de verdad hay un pedido a medio armar.
+  ESCRIBIENDO = _carrito.length>0 || !!STATE.editandoVentaId || !!STATE.agregandoCuentaId;
   // Venta rápida: si usa cliente predeterminado y aún no hay datos, precargarlos
   if(neg.usaClienteFijo && !_vCli.nombre && !_vCli.tel && !STATE.editandoVentaId){
     _vCli.nombre=neg.clienteFijoNombre||'Consumidor Final';
@@ -3841,14 +3907,17 @@ function movimientoCaja(tipo){
     const valor=parseFloat(d.valor)||0;
     if(valor<=0){ toast('Valor inválido','error'); return; }
     c.movimientos=c.movimientos||[];
-    c.movimientos.unshift({id:uid(), tipo, concepto:d.concepto, valor, por:STATE.user.nombre, fecha:now()});
+    const mov={id:uid(), tipo, concepto:d.concepto, valor, por:STATE.user.nombre, fecha:now()};
+    c.movimientos.unshift(mov);
     guardarMisDatos('caja_actual',[c]);
     // Un GASTO de caja es un egreso del negocio: queda en Gastos del Negocio
     // y por tanto en el Reporte Contable (restando de ingresos).
     if(tipo==='gasto'){
       const g=misDatos('gastos_negocio');
-      g.unshift({id:uid(), concepto:d.concepto, valor, categoria:'Caja', origen:'caja',
-        por:STATE.user.nombre, fecha:now()});
+      // Se guarda el id del movimiento de caja para poder cruzarlos después
+      // sin contar el mismo gasto dos veces en el informe.
+      g.unshift({id:uid(), movId:mov.id, concepto:d.concepto, valor, categoria:'Caja', origen:'caja',
+        por:STATE.user.nombre, fecha:mov.fecha});
       guardarMisDatos('gastos_negocio',g);
     }
     logAudit(tipo==='gasto'?'Gasto de caja':tipo==='retiro'?'Retiro de caja':'Entrada a caja',
@@ -5511,11 +5580,12 @@ function contable(){
   const domis=delMes.reduce((a,v)=>a+(v.valorDom||0),0);
   const recargos=delMes.reduce((a,v)=>a+(v.recargo||0),0);
   // ---- EGRESOS ----
-  // Los gastos de caja se leen de los MOVIMIENTOS REALES del cajón (caja abierta
-  // y cierres del mes), no de una copia. Así el informe nunca se queda corto
-  // aunque la copia falle, y los del negocio se cuentan aparte para no duplicar.
-  const gastos=misDatos('gastos_negocio').filter(g=>(g.fecha||'').substring(0,7)===mes && g.origen!=='caja');
-  const totalGastos=gastos.reduce((a,g)=>a+g.valor,0);      // solo los del negocio
+  // Un gasto de caja queda en DOS lados: en los movimientos del cajón y en una
+  // copia dentro de Gastos del Negocio. Aquí se cruzan las dos fuentes para que
+  // no se pierda ninguno (aunque falte una) y para no contar el mismo dos veces.
+  const todosGastos=misDatos('gastos_negocio').filter(g=>mesDe(g.fecha)===mes);
+  const gastos=todosGastos.filter(g=>g.origen!=='caja');     // los que paga el dueño aparte
+  const totalGastos=gastos.reduce((a,g)=>a+g.valor,0);
   const cierres=misDatos('cierres').filter(c=>(jornadaCierre(c)||'').substring(0,7)===mes);
   const cajaArrC=misDatos('caja_actual');
   const cajaAbC=Array.isArray(cajaArrC)?cajaArrC[0]:cajaArrC;
@@ -5524,11 +5594,24 @@ function contable(){
   if(cajaAbC && fechaLocal(cajaAbC.apertura).substring(0,7)===mes) (cajaAbC.movimientos||[]).forEach(m=>movsMes.push(m));
   let retiros=0, gastosCaja=0;
   const gCaja={}, gNeg={};
+  const idsMov={}, firmas={};
+  const firma=x=>(normConcepto(x.concepto||'Otros').toLowerCase()+'|'+(x.valor||0)+'|'+String(x.fecha||'').slice(0,16));
   movsMes.forEach(m=>{
     if(m.tipo==='retiro'){ retiros+=m.valor||0; return; }
     if(m.tipo!=='gasto') return;
+    if(m.id) idsMov[m.id]=1;
+    firmas[firma(m)]=(firmas[firma(m)]||0)+1;
     gastosCaja+=m.valor||0;
     acumConcepto(gCaja, m.concepto||'Otros', m.valor||0);
+  });
+  // Copias de gastos de caja cuyo movimiento no aparece (cajas viejas o cierres
+  // sin el detalle guardado): se suman igual, para que el informe no quede corto.
+  todosGastos.filter(g=>g.origen==='caja').forEach(g=>{
+    if(g.movId && idsMov[g.movId]) return;                   // ya contado por su movimiento
+    const f=firma(g);
+    if(!g.movId && firmas[f]){ firmas[f]--; return; }         // datos viejos: cruce por concepto, valor y hora
+    gastosCaja+=g.valor||0;
+    acumConcepto(gCaja, g.concepto||'Otros', g.valor||0);
   });
   const egresos=totalGastos+gastosCaja;
   const utilidad=totalVentas-egresos;
@@ -5545,7 +5628,7 @@ function contable(){
   const topDias=Object.entries(porDia).sort((a,b)=>b[1]-a[1]).slice(0,5);
   const mesesSet={}; mesesSet[today().substring(0,7)]=1;
   vs.forEach(v=>{ const m2=mesDeJornada(v); if(m2) mesesSet[m2]=1; });
-  misDatos('gastos_negocio').forEach(g=>{ if(g.fecha) mesesSet[g.fecha.substring(0,7)]=1; });
+  misDatos('gastos_negocio').forEach(g=>{ const m2=mesDe(g.fecha); if(m2) mesesSet[m2]=1; });
   const meses=Object.keys(mesesSet).sort().reverse();
   const gastosNeg=totalGastos;
   window._contData={mes,nombreMes:nombreMes(mes),totalVentas,metodos,totalGastos,gastosCaja,gastosNeg,
@@ -5736,7 +5819,7 @@ function gastosneg(){
   ESCRIBIENDO=false;
   const gastos=misDatos('gastos_negocio');
   const mes=_mesGas||today().substring(0,7);
-  const delMes=gastos.filter(g=>(g.fecha||'').substring(0,7)===mes);
+  const delMes=gastos.filter(g=>mesDe(g.fecha)===mes);
   const total=delMes.reduce((a,g)=>a+g.valor,0);
   // Ventas del mes, para saber qué tanto pesa cada gasto
   const ventasMes=misDatos('ventas').filter(v=>v.estado==='pagada' && mesDeJornada(v)===mes)
@@ -5747,13 +5830,13 @@ function gastosneg(){
   const propios=delMes.filter(g=>g.origen!=='caja').reduce((a,g)=>a+g.valor,0);
   const deCaja=total-propios;
   const mesesSet={}; mesesSet[today().substring(0,7)]=1;
-  gastos.forEach(g=>{ if(g.fecha) mesesSet[g.fecha.substring(0,7)]=1; });
+  gastos.forEach(g=>{ const m2=mesDe(g.fecha); if(m2) mesesSet[m2]=1; });
   const meses=Object.keys(mesesSet).sort().reverse();
   // Mes anterior, para comparar
   const [a1,m1]=mes.split('-').map(Number);
   const dPrev=new Date(a1,m1-2,1);
   const mesPrev=dPrev.getFullYear()+'-'+String(dPrev.getMonth()+1).padStart(2,'0');
-  const totalPrev=gastos.filter(g=>(g.fecha||'').substring(0,7)===mesPrev).reduce((a,g)=>a+g.valor,0);
+  const totalPrev=gastos.filter(g=>mesDe(g.fecha)===mesPrev).reduce((a,g)=>a+g.valor,0);
   const dif=total-totalPrev;
 
   return `
@@ -6370,7 +6453,8 @@ function imprimirReporteNegocio(negId, mes){
   });
   // Gastos: de la caja (cierres del mes) + los del negocio
   const cierres=(datosDe(negId,'cierres')||[]).filter(c=>((c.jornada||fechaLocal(c.apertura||c.cierre))||'').substring(0,7)===mes);
-  const gastosNeg=(datosDe(negId,'gastos_negocio')||[]).filter(g=>(g.fecha||'').substring(0,7)===mes && g.origen!=='caja');
+  const mesG=f=>{ const t=String(f||''); return (t.length>10?fechaLocal(t):t).substring(0,7); };
+  const gastosNeg=(datosDe(negId,'gastos_negocio')||[]).filter(g=>mesG(g.fecha)===mes && g.origen!=='caja');
   let gastosCaja=0, retiros=0; const porConcepto={};
   cierres.forEach(c=>(c.movimientos||[]).forEach(m=>{
     if(m.tipo==='retiro') retiros+=m.valor||0;
