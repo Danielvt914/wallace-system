@@ -1,0 +1,29 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "data": {
+      ".read": true,
+      ".write": true
+    },
+
+    "login": {
+      ".read": "auth != null && root.child('perfiles').child(auth.uid).child('rol').val() === 'superadmin' && root.child('perfiles').child(auth.uid).child('activo').val() !== false",
+      "$usuario": {
+        ".read": true,
+        ".write": "auth != null && (!data.exists() || (root.child('perfiles').child(auth.uid).child('rol').val() === 'superadmin' && root.child('perfiles').child(auth.uid).child('activo').val() !== false))",
+        ".validate": "!newData.exists() || (newData.child('correo').isString() && newData.child('uid').isString())"
+      }
+    },
+
+    "perfiles": {
+      ".read": "auth != null && root.child('perfiles').child(auth.uid).child('rol').val() === 'superadmin' && root.child('perfiles').child(auth.uid).child('activo').val() !== false",
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && ((auth.uid === $uid && !data.exists()) || (root.child('perfiles').child(auth.uid).child('rol').val() === 'superadmin' && root.child('perfiles').child(auth.uid).child('activo').val() !== false))",
+        ".validate": "!newData.exists() || (newData.child('rol').isString() && newData.child('usuario').isString())"
+      }
+    }
+  }
+}

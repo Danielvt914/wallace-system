@@ -1,0 +1,17 @@
+# Datos reales de producción: NUNCA versionar (contraseñas, clientes, ventas)
+*-rtdb-export.json
+respaldo-wallace-*.json
+importar-pruebas*.json
+
+# Firebase CLI
+.firebase/
+firebase-debug.log
+database-debug.log
+ui-debug.log
+
+# Node
+node_modules/
+
+# Claude Code: preferencias locales de cada persona
+.claude/settings.local.json
+CLAUDE.local.md

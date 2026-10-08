@@ -1,0 +1,43 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "login": {
+      ".read": "auth != null && root.child('perfiles').child(auth.uid).child('rol').val() === 'superadmin' && root.child('perfiles').child(auth.uid).child('activo').val() !== false",
+      "$usuario": {
+        ".read": true,
+        ".write": "auth != null && root.child('perfiles').child(auth.uid).child('rol').val() === 'superadmin' && root.child('perfiles').child(auth.uid).child('activo').val() !== false",
+        ".validate": "!newData.exists() || (newData.child('correo').isString() && newData.child('uid').isString())"
+      }
+    },
+
+    "perfiles": {
+      ".read": "auth != null && root.child('perfiles').child(auth.uid).child('rol').val() === 'superadmin' && root.child('perfiles').child(auth.uid).child('activo').val() !== false",
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && root.child('perfiles').child(auth.uid).child('rol').val() === 'superadmin' && root.child('perfiles').child(auth.uid).child('activo').val() !== false",
+        ".validate": "!newData.exists() || (newData.child('rol').isString() && newData.child('usuario').isString())"
+      }
+    },
+
+    "data": {
+      ".read": "auth != null && root.child('perfiles').child(auth.uid).child('rol').val() === 'superadmin' && root.child('perfiles').child(auth.uid).child('activo').val() !== false",
+      ".write": "auth != null && root.child('perfiles').child(auth.uid).child('rol').val() === 'superadmin' && root.child('perfiles').child(auth.uid).child('activo').val() !== false",
+
+      "negocios_r": {
+        "$negId": {
+          ".read": "auth != null && root.child('perfiles').child(auth.uid).child('activo').val() !== false && root.child('perfiles').child(auth.uid).child('negocioId').val() === $negId",
+          "$campo": {
+            ".write": "auth != null && root.child('perfiles').child(auth.uid).child('activo').val() !== false && root.child('perfiles').child(auth.uid).child('negocioId').val() === $negId && root.child('perfiles').child(auth.uid).child('editaNegocio').val() === true && data.parent().child('activo').val() === true && $campo !== 'id' && $campo !== 'activo' && $campo !== 'plan' && $campo !== 'precioMes' && $campo !== 'diaPago' && $campo !== 'funciones' && $campo !== 'vendedorId' && $campo !== 'vendedorNombre' && $campo !== 'notasComerciales' && $campo !== 'esDemo' && $campo !== 'demoDe' && $campo !== 'creado' && $campo !== 'sucursales'"
+          }
+        }
+      },
+
+      "$clave": {
+        ".read": "auth != null && root.child('perfiles').child(auth.uid).child('activo').val() !== false && root.child('perfiles').child(auth.uid).child('negocioId').isString() && root.child('data').child('negocios_r').child(root.child('perfiles').child(auth.uid).child('negocioId').val()).child('activo').val() === true && $clave.beginsWith('data_' + root.child('perfiles').child(auth.uid).child('negocioId').val() + '_')",
+        ".write": "auth != null && root.child('perfiles').child(auth.uid).child('activo').val() !== false && root.child('perfiles').child(auth.uid).child('negocioId').isString() && root.child('data').child('negocios_r').child(root.child('perfiles').child(auth.uid).child('negocioId').val()).child('activo').val() === true && $clave.beginsWith('data_' + root.child('perfiles').child(auth.uid).child('negocioId').val() + '_') && !$clave.beginsWith('data_' + root.child('perfiles').child(auth.uid).child('negocioId').val() + '_usuarios')"
+      }
+    }
+  }
+}

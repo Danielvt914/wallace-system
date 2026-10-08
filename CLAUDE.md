@@ -1,0 +1,68 @@
+# Wallace System — reglas para el asistente de código
+
+Este archivo tiene las **reglas estáticas** (cambian poco). El **estado vivo** del proyecto (qué está hecho, qué falta, decisiones recientes) está en `.claude/contexto.md`, que se importa aquí abajo:
+
+@.claude/contexto.md
+
+## Protocolo de sesión
+1. Al empezar: leer `.claude/contexto.md` (ya viene importado) y, si la tarea toca un módulo, su documento en `Documentation/NN-*/`.
+2. Al terminar una tarea que cambie código, datos o decisiones: **actualizar `.claude/contexto.md`** (sección "Estado", "Pendientes" y una línea en "Bitácora" con la fecha). Mantenerlo corto: es un tablero, no un diario.
+3. Si una regla de este archivo resulta equivocada o falta una, proponer el cambio al usuario antes de editarla.
+
+## Qué es
+POS multi-negocio (SaaS) de WALLACE COMPANY SYSTEM. Sitio estático (`index.html` + `src/`) sobre Firebase Realtime Database + Firebase Authentication, desplegado en Render. Todo en **español**: código, comentarios, interfaz, documentación y mensajes al usuario.
+
+## Arquitectura (hexagonal, en migración por fases)
+- `src/dominio/` reglas puras (sin `window`, Firebase ni DOM) + pruebas en `tests/dominio/`.
+- `src/aplicacion/puertos/` contratos (`datos.js`, `cuentas.js`); `src/aplicacion/servicios/` casos de uso (`sesion.js`).
+- `src/adaptadores/salida/` Firebase (`firebase-datos.js`, `firebase-cuentas.js`), `localStorage`, cripto.
+- `src/adaptadores/entrada/ui/` interfaz: **45 scripts clásicos** por módulo (`nucleo/`, `usuarios/`, `ventas/`, `caja/`, `inventario/`…) que comparten el ámbito global (los `onclick` llaman funciones por nombre). Se cargan en el orden de `ui/manifiesto.js`. Para ubicar una función: `Documentation/-03-architecture/mapa-interfaz.md`.
+- `src/arranque.js` es el único que conecta todo; `puente-legado.js` publica en `window` los nombres que usa la interfaz (dominio, datos, cuentas).
+- Regla de dependencias y plan de fases: `Documentation/-03-architecture/-03-architecture.md`.
+- Operación nueva de datos o cuentas → agregarla al **puerto** y al **adaptador** (si no, la verificación del puerto falla al arrancar).
+- Regla pura nueva (cálculo, validación, constante del negocio) → `src/dominio/` con prueba, **no** en la interfaz. Si la interfaz la usa por nombre, publicarla en el puente con ese nombre.
+- Los casos de uso (cobrar, cerrar caja, mover inventario…) todavía viven en la interfaz y usan `misDatos`/`guardarMisDatos`; sacarlos a `src/aplicacion/` es el plan de las fases 2–7.
+
+## Reglas de código
+- Imitar el estilo existente: compacto, funciones cortas, comentarios en español que explican el porqué.
+- Interfaz = scripts clásicos con ámbito global compartido: **nunca** repetir un nombre global entre archivos ni tapar uno del puente (`Datos`, `Cuentas`, `Dominio`, `DB`, `misDatos`, `ROLES`, …); un archivo **no debe ejecutar al cargar** código de otro (solo declarar). `tests/ui/estructura.test.mjs` (en `npm test`) lo verifica, junto con identificadores sin declarar y `onclick` rotos.
+- Archivo nuevo de interfaz → agregarlo a `ui/manifiesto.js` y correr `node scripts/mapa-interfaz.mjs`. Al publicar, **cambiar `VERSION_UI`** en el manifiesto.
+- `usaCuentas()` en la interfaz significa **cuentas abiertas** (mesas). Para "¿hay cuentas de Firebase?" se usa `conCuentasFirebase()`.
+- Pregunta diferida tras una acción ("¿Imprimir?"): usar `preguntarDespues(...)`, nunca `setTimeout(()=>confirmarModal(...))` (taparía otro modal, F16).
+- `toast`, `confirmarModal` y el título de `abrirModal` **ya escapan** el texto: no pasarles `escapeHtml(...)` (doble escape). En HTML armado a mano, sí escapar.
+- Caja: entrar siempre por `cajaActual()` / `guardarCajaActual()` (respetan la sucursal, F1); nunca `misDatos('caja_actual')[0]`.
+- Stock: nunca fijarlo como valor; aplicar diferencias con `cambiarStock`/`moverInventario` y dejar movimiento y auditoría (D2, F11).
+- Errores atrapados: `reportarError(donde, e)`, nunca `catch(e){}` silencioso en pantallas (C2).
+- Agrupar ventas por id (`prodId`, `vendedorId`, `domiciliarioId`), no por nombre (F15); fechas con `fechaLocal`/`Dominio.fechas.diaDe`, nunca `toISOString().slice(0,10)` (F2).
+- Toda acción sensible valida permiso al inicio (`exigirPermiso`, `esAdminSistema`, `puedeVerPantalla`); esconder el botón no basta.
+- Imports ES con ruta relativa y extensión (`'./dominio/pagos.js'`). La app no funciona con `file://`.
+
+## Datos y seguridad (no negociable)
+- **Nunca** tocar la base de producción (`wallace-system`). No ejecutar `firebase` sin `-P pruebas`; no existe alias de producción y no se crea sin aprobación explícita del usuario.
+- Los exports/respaldos (`*-rtdb-export.json`, `respaldo-wallace-*.json`, `importar-pruebas*.json`) tienen contraseñas y datos de clientes: **nunca** subirlos a Git, mostrarlos en pantalla ni copiar valores sensibles a archivos versionados. Para analizarlos, resumir estructura y conteos (ver `scripts/preparar-pruebas.mjs`).
+- Nunca proponer reglas abiertas en la raíz (`".read": true` en `/`).
+- Invariantes de S1 que deben mantenerse:
+  - La lista de campos reservados del negocio está **duplicada a propósito** en `CAMPOS_NEGOCIO_RESERVADOS` (`src/dominio/cuentas.js`) y en `database.rules.json` (`negocios_r/$negId/$campo`). Cambiar una obliga a cambiar la otra.
+  - Los empleados leen pero **no escriben** `data_<neg>_usuarios*`; usuarios, perfiles e índice `login/` solo los escribe el super-admin (o cada uno al migrarse, con reglas de transición).
+  - `negocios` se escribe **por campo** en `data/negocios_r/<id>/<campo>`; nunca reescribir el registro entero desde un empleado.
+  - Nada de contraseñas fuera de Firebase Auth en datos nuevos; `passHash/passSal/passIter` solo existen en las tablas viejas hasta la fase 5.
+  - Datos nuevos que lean las reglas (p. ej. `editaNegocio`) se calculan en `src/dominio/cuentas.js`.
+
+## Pruebas (antes de dar algo por terminado)
+- `npm test` — dominio y servicios (segundos). Siempre.
+- `npm run test:firebase` — reglas + migración con adaptadores reales + interfaz en Chrome sin ventana, incluido el **recorrido de las 327 pantallas** de 18 negocios demo con venta, anulación y cierre de caja (Java 11+). Obligatorio si se toca la interfaz, reglas, login, usuarios, negocios, `firebase-datos.js`, `firebase-cuentas.js` o `firebase-config.js`.
+- La app atrapa los errores de pantalla y los oculta (C2): no confiar en "se ve bien"; el recorrido sí los detecta.
+- `npm run emulador` → `http://localhost:3000/?emulador` para probar a mano con datos (`importar-pruebas.json` si existe).
+- Reportar resultados tal cual (número de pruebas, fallos con su salida).
+
+## Entorno (Windows + Git Bash)
+- Los heredocs de bash con comillas simples dentro fallan en esta herramienta: para ediciones grandes, escribir un script en el scratchpad y ejecutarlo.
+- Node 23: `node --test` necesita rutas de archivo, no carpetas.
+- El emulador de la base (java) puede quedar vivo en el puerto 9000; `scripts/probar-firebase.mjs` lo cierra. Antes de matar un proceso, verificar que su línea de comando sea la del emulador.
+
+## Documentación
+- `Documentation/` describe el sistema **como está implementado**. Al corregir un hallazgo: actualizar su estado en `-01-to-review`, el detalle en `-02-corrections` y el documento del módulo afectado.
+- Rutas de la interfaz en la documentación: `ui/<carpeta>/<archivo>.js` (relativas a `src/adaptadores/entrada/`). Ya no existe `app.js`; las menciones que quedan son históricas.
+
+## Git
+- No hacer commit ni push salvo que el usuario lo pida. Mensajes descriptivos en español (el historial tiene mensajes genéricos que no ayudan, DOC1).
