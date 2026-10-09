@@ -17,8 +17,16 @@
     messagingSenderId: "430944532706",
     appId: "1:430944532706:web:a5d5f5b87678a25e7346bb"
   };
-  // PENDIENTE: pegar la salida de  npx firebase apps:sdkconfig WEB <id-app> -P pruebas
-  var PRUEBAS = null;
+  // Proyecto de pruebas (simula producción): wallacesys-dev-sandbox, alias "pruebas" en .firebaserc
+  var PRUEBAS = {
+    apiKey: "AIzaSyB1jluvqozw_4cXi2WInxMcEIYdsSo5LVU",
+    authDomain: "wallacesys-dev-sandbox.firebaseapp.com",
+    databaseURL: "https://wallacesys-dev-sandbox-default-rtdb.firebaseio.com",
+    projectId: "wallacesys-dev-sandbox",
+    storageBucket: "wallacesys-dev-sandbox.firebasestorage.app",
+    messagingSenderId: "988608924153",
+    appId: "1:988608924153:web:363afbf8d3f1c1cd96d528"
+  };
   // PENDIENTE: dominio(s) públicos de producción (p. ej. el de Render). Sin esto, ningún
   // dominio usa producción: llenarlo ANTES de unir este código al repositorio original.
   var HOSTS_PRODUCCION = [];

@@ -49,5 +49,6 @@ export const ERRORES_CUENTA={
   PASS_DEBIL:'pass_debil',         // menos de 6 caracteres
   REAUTENTICAR:'reautenticar',     // la sesión es vieja para un cambio sensible
   PERMISO:'permiso',               // las reglas lo negaron
+  AUTH_DESACTIVADO:'auth_desactivado',   // el proyecto no tiene activo el inicio con correo y contraseña
   OTRO:'otro'
 };

@@ -12,7 +12,25 @@ Cómo poner a correr Wallace System, configurarlo contra Firebase, desplegarlo, 
 | Firebase (opcional) | Proyecto con **Realtime Database** y **Authentication (correo y contraseña)**. Se usan `firebase-app-compat`, `firebase-database-compat` y `firebase-auth-compat` (no Firestore, no Storage). |
 | Ventanas emergentes | Deben estar permitidas: facturas, comandas, cierres e informes se imprimen abriendo una ventana nueva. |
 
-No hay paso de compilación, dependencias de npm en tiempo de ejecución ni variables de entorno (salvo `$PORT` para `serve`). Para las pruebas automáticas hace falta **Node 20 o superior** (`npm test`); para las de Firebase, además **Java 11+** y Chrome o Edge (`npm run test:firebase`). Las dependencias de desarrollo (`firebase-tools`, `@firebase/rules-unit-testing`, `firebase`, `puppeteer-core`) se instalan con `npm install` y no se publican.
+No hay paso de compilación, dependencias de npm en tiempo de ejecución ni variables de entorno (salvo `$PORT` para `serve`). Para las pruebas automáticas hace falta **Node 20 o superior** (`npm test`); para las de Firebase, además **Java 11+** y Chrome o Edge (`npm run test:firebase`). Las dependencias de desarrollo (`firebase-tools`, `@firebase/rules-unit-testing`, `firebase`, `puppeteer-core`, `acorn`) se instalan con `npm install` y no se publican.
+
+### 1.1 Windows: "la ejecución de scripts está deshabilitada"
+
+En Windows, la terminal de VS Code suele ser **PowerShell**, que por defecto no ejecuta scripts `.ps1`. Como `npm` y `npx` se lanzan con `npm.ps1` / `npx.ps1`, el primer `npm install` falla con:
+
+```
+npm : No se puede cargar el archivo C:\Program Files\nodejs\npm.ps1 porque la ejecución de scripts está deshabilitada en este sistema.
+```
+
+No es un error del proyecto. Cualquiera de estas opciones lo resuelve:
+
+| Opción | Cómo | Nota |
+|---|---|---|
+| Permitir scripts para tu usuario (**recomendada**, una sola vez) | `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`, responder `S` y abrir una terminal nueva | Es lo que recomienda Microsoft para desarrollo: permite los scripts locales (npm) y exige firma a los descargados. Solo afecta a tu usuario; no necesita administrador. |
+| Usar las versiones `.cmd` | `npm.cmd install`, `npm.cmd test`, `npx.cmd firebase login` | No cambia nada del sistema; hay que escribir `.cmd` siempre. |
+| Usar otra terminal | En VS Code: flecha junto al **+** de la terminal → **Command Prompt** o **Git Bash** | Ahí `npm` funciona tal cual. |
+
+Para ver la configuración actual: `Get-ExecutionPolicy -List`.
 
 ## 2. Ejecución local
 
@@ -89,6 +107,8 @@ npm run emulador                                   # reglas de transición; --re
 
 Abrir `http://localhost:3000/?emulador`. Todo corre en el equipo: cuentas, base y reglas. Al cerrar (Ctrl+C) no queda nada. Sirve para ensayar la migración con los datos reales sin crear todavía el proyecto de pruebas.
 
+Cuenta de desarrollo (solo existe en el emulador): **`dev` / `dev12345`**. Cómo funcionan los emuladores y el modo local, qué se instaló y qué credenciales usar: **[entornos-locales.md](entornos-locales.md)**.
+
 ### Modos de funcionamiento
 
 | Modo | Cuándo ocurre | Comportamiento |
@@ -110,6 +130,30 @@ Secuencia de arranque: `index.html` → `src/arranque.js` (crea los adaptadores 
    `firebase-config.js` elige la base según el dominio: producción solo en `HOSTS_PRODUCCION`, el resto usa `PRUEBAS` (o modo local si está vacío). Activar también *Authentication → Email/Password*.
 3. Publicar las **reglas de seguridad** (S1): `database.rules.transicion.json` mientras se migran las cuentas y `database.rules.json` al final (`npm run reglas:transicion` / `npm run reglas:cerradas`, o pegarlas en *Realtime Database → Reglas*). Orden y motivos en [-02-corrections → S1](../-02-corrections/-02-corrections.md#s1--base-de-datos-sin-autenticación-ni-reglas--implementado-falta-desplegar). Nunca publicar reglas abiertas en la raíz.
 4. Abrir `prueba.html` en el mismo host: dice si cargaron las librerías, el entorno elegido, si hay conexión, qué reglas están publicadas (transición o cerradas) y si la migración de tablas ya se hizo; permite probar un inicio de sesión. No escribe nada.
+
+### 3.1 Qué significa "cerrar la base"
+
+Publicar las reglas finales (`npm run reglas:cerradas`) **no bloquea la base ni la deja inutilizable**: cambia **quién puede entrar a los datos**.
+
+| | Reglas de transición (`database.rules.transicion.json`) | Reglas cerradas (`database.rules.json`) |
+|---|---|---|
+| La app | Funciona | Funciona igual: se inicia sesión, se vende, se abre caja… |
+| Acceso a `data` sin sesión | **Abierto**: cualquiera con la URL lee y escribe | **Negado** ("Permission denied") |
+| Un empleado | Técnicamente podría leer otros negocios | Solo ve su negocio; el super-admin ve todo |
+| `login/` y `perfiles/` | Cada cuenta crea solo los suyos; el super-admin administra | Solo el super-admin los escribe |
+| Migración automática de cuentas viejas | Sí (lee `data/usuarios` sin sesión) | **No**: quien no migró entra solo si el super-admin le crea la cuenta (🔐 Cuentas) |
+| Configuración inicial (base vacía, crear el dueño) | Sí | **No** aparece: la app no puede saber que la base está vacía |
+
+**Las reglas se cambian cuando se quiera**, en segundos y sin tocar los datos:
+- volver a las de transición: `npm run reglas:transicion`;
+- publicar las cerradas: `npm run reglas:cerradas`;
+- en una emergencia, editarlas en la consola (*Realtime Database → Reglas*) y llevar el cambio al repositorio enseguida: Git es la fuente; un despliegue posterior sobrescribe lo editado en la consola.
+
+**Orden con una base nueva (vacía):** reglas de transición → configuración inicial (crear el dueño) → reglas cerradas. Si se cerraron antes de crear el dueño: volver a las de transición, crearlo y cerrar otra vez. Con datos del esquema viejo, el orden es el del [Plan B](../-02-corrections/-02-corrections.md#b8-fases-de-despliegue-con-lista-de-chequeo): cerrar cuando 🔐 Cuentas muestre 0 pendientes y 0 por revisar.
+
+**La consola de Firebase no pasa por estas reglas.** Desde ella el dueño del proyecto siempre ve y edita los datos. Desde la app, en cambio, nadie (ni el dueño de la cuenta de Google) ve datos sin iniciar sesión.
+
+Para saber qué reglas están publicadas: `prueba.html` dice "de TRANSICIÓN" o "CERRADAS ✓"; o se abre `https://<proyecto>-default-rtdb.firebaseio.com/data.json`: con las cerradas responde `"Permission denied"`.
 
 ### Estructura en la nube
 
@@ -194,6 +238,8 @@ Ejecutar después de cada cambio en la interfaz (`src/adaptadores/entrada/ui/`);
 
 | Síntoma | Causa probable | Acción |
 |---|---|---|
+| "El inicio de sesión no está activado en Firebase…" (antes: "No se pudo iniciar sesión") al crear el dueño o entrar | Firebase responde `CONFIGURATION_NOT_FOUND` u `OPERATION_NOT_ALLOWED`: en ese proyecto no se pulsó **Authentication → Comenzar** o no está activo **Correo electrónico/contraseña** | Activarlo en la consola y reintentar; no queda nada escrito a medias |
+| `npm : No se puede cargar el archivo …\npm.ps1 porque la ejecución de scripts está deshabilitada` | PowerShell de Windows bloquea scripts `.ps1` por defecto | Ver [1.1](#11-windows-la-ejecución-de-scripts-está-deshabilitada): `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`, o usar `npm.cmd` |
 | Punto rojo "Sin conexión" | Sin internet o `databaseURL` vacío | Revisar `firebase-config.js` y `prueba.html` |
 | Punto naranja parpadeando "Error de nube" | Firebase rechazó una escritura (reglas) | Revisar reglas (`prueba.html`). Lo que la red no pudo subir queda en la cola local; lo que las reglas negaron se descarta (no bloquea la cola) |
 | "Usuario o contraseña incorrectos" para alguien que nunca entró a la versión nueva | Reglas cerradas antes de que migrara | Super-admin → 🔐 Cuentas → "Crear cuenta" con una contraseña nueva |
@@ -239,7 +285,7 @@ Realtime Database **no tiene tablas ni esquema**: es un único árbol JSON y cad
 
 Con la sesión del paso 5, desde la terminal del proyecto:
 
-1. **Registrar el proyecto solo como alias `pruebas`**: `.firebaserc` y `firebase.json` ya están en el repositorio; solo hay que reemplazar `wallace-system-pruebas-CAMBIAR` por el ID real. La CLI se instala con `npm install` (se usa con `npx firebase …`). Todos los comandos llevan `-P pruebas`. **Ningún comando se ejecuta contra `wallace-system`**, aunque la cuenta tenga acceso, y cada comando se muestra antes de ejecutarlo.
+1. **Registrar el proyecto solo como alias `pruebas`**: `.firebaserc` y `firebase.json` ya están en el repositorio; solo hay que reemplazar `wallace-system-pruebas-cambiar` por el ID real. La CLI se instala con `npm install` (se usa con `npx firebase …`). Todos los comandos llevan `-P pruebas`. **Ningún comando se ejecuta contra `wallace-system`**, aunque la cuenta tenga acceso, y cada comando se muestra antes de ejecutarlo.
 2. **Registrar la app web y obtener su configuración**:
    ```
    firebase apps:create WEB wallace-fork -P pruebas

@@ -52,12 +52,13 @@ POS multi-negocio (SaaS) de WALLACE COMPANY SYSTEM. Sitio estático (`index.html
 - `npm test` — dominio y servicios (segundos). Siempre.
 - `npm run test:firebase` — reglas + migración con adaptadores reales + interfaz en Chrome sin ventana, incluido el **recorrido de las 327 pantallas** de 18 negocios demo con venta, anulación y cierre de caja (Java 11+). Obligatorio si se toca la interfaz, reglas, login, usuarios, negocios, `firebase-datos.js`, `firebase-cuentas.js` o `firebase-config.js`.
 - La app atrapa los errores de pantalla y los oculta (C2): no confiar en "se ve bien"; el recorrido sí los detecta.
-- `npm run emulador` → `http://localhost:3000/?emulador` para probar a mano con datos (`importar-pruebas.json` si existe).
+- `npm run emulador` → `http://localhost:3000/?emulador` para probar a mano con datos (`importar-pruebas.json` si existe). Cuenta de desarrollo solo del emulador: `dev` / `dev12345`. Detalle: `Documentation/-00-execution-protocol/entornos-locales.md`.
 - Reportar resultados tal cual (número de pruebas, fallos con su salida).
 
 ## Entorno (Windows + Git Bash)
 - Los heredocs de bash con comillas simples dentro fallan en esta herramienta: para ediciones grandes, escribir un script en el scratchpad y ejecutarlo.
 - Node 23: `node --test` necesita rutas de archivo, no carpetas.
+- En la terminal PowerShell del usuario, `npm` puede fallar con "la ejecución de scripts está deshabilitada" (política de Windows). Solución: `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned` o usar `npm.cmd` (`Documentation/-00-execution-protocol`, 1.1).
 - El emulador de la base (java) puede quedar vivo en el puerto 9000; `scripts/probar-firebase.mjs` lo cierra. Antes de matar un proceso, verificar que su línea de comando sea la del emulador.
 
 ## Documentación

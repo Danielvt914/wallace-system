@@ -78,7 +78,9 @@ export const PERFILES = {
 // nombre viejo de la pantalla de configuración; los datos reales usan "Premium".
 export const PLANES = ['Básico','Profesional','Premium'];
 export function planDe(neg){ const p=(neg&&neg.plan)||''; return p==='Empresarial'?'Premium':(PLANES.indexOf(p)>-1?p:'Básico'); }
-// Ventanas que se marcan al elegir la plantilla de un plan (Configuración → Ventanas)
+// Ventanas que se marcan al elegir la plantilla de un plan (Configuración → Ventanas).
+// Profesional y Premium son iguales A PROPÓSITO (decisión F17, 2026-10-08): Premium se
+// diferencia por precio y soporte, fuera del sistema.
 export const VENTANAS_POR_PLAN={
   'Básico':['ventas','facturas','catalogo','inventario','caja','clientes'],
   'Profesional':['ventas','facturas','catalogo','inventario','caja','clientes','cocina','domicilios','reportes','contable','gastosneg','citas'],

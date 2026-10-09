@@ -71,7 +71,7 @@ No se probó contra un proyecto real de Firebase (no existe todavía el de prueb
 
 **Fase 0 — Proyecto de pruebas** (responsable del proyecto en la consola, ver [-00 → 9.2](../-00-execution-protocol/-00-execution-protocol.md#92-lo-que-hace-el-responsable-del-proyecto-requiere-su-cuenta-de-google)):
 1. Crear `wallace-system-pruebas`, Realtime Database (us-central1) y *Authentication → Email/Password*.
-2. Poner su ID en `.firebaserc` (reemplazar `wallace-system-pruebas-CAMBIAR`) y su configuración web en `PRUEBAS` de `firebase-config.js` (`npx firebase apps:sdkconfig WEB <id> -P pruebas`).
+2. Poner su ID en `.firebaserc` (reemplazar `wallace-system-pruebas-cambiar`) y su configuración web en `PRUEBAS` de `firebase-config.js` (`npx firebase apps:sdkconfig WEB <id> -P pruebas`).
 3. `node scripts/preparar-pruebas.mjs <export>.json` → `npx firebase database:import / importar-pruebas.json -P pruebas`.
 4. `npm run reglas:transicion` → probar en `http://localhost:3000` (`npm start` o `npx serve`) con el [protocolo de verificación](../-00-execution-protocol/-00-execution-protocol.md#7-protocolo-de-verificación-smoke-test) → entrar primero como dueño del sistema, luego un usuario de cada rol.
 5. `npm run reglas:cerradas` → repetir las pruebas 1–15 de B.9.

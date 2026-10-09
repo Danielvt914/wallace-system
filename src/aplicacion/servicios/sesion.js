@@ -131,6 +131,7 @@ export function mensajeDeFallo(motivo){
     demasiados:'Demasiados intentos. Espera unos minutos e intenta de nuevo.',
     cancelado:'Ingreso cancelado: hace falta una contraseña nueva de 6 o más caracteres.',
     pass_debil:'La contraseña nueva debe tener al menos 6 caracteres.',
-    permiso:'La base de datos negó el acceso. Habla con el administrador del sistema.'
+    permiso:'La base de datos negó el acceso. Habla con el administrador del sistema.',
+    auth_desactivado:'El inicio de sesión no está activado en Firebase: en la consola, Authentication → Método de acceso → activar "Correo electrónico/contraseña".'
   })[motivo] || 'No se pudo iniciar sesión. Intenta de nuevo.';
 }

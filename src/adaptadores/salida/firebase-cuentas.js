@@ -37,6 +37,9 @@ export function crearAdaptadorCuentas(opc){
     else if(c==='auth/too-many-requests') codigo=ERRORES_CUENTA.DEMASIADOS;
     else if(c==='auth/weak-password') codigo=ERRORES_CUENTA.PASS_DEBIL;
     else if(c==='auth/requires-recent-login') codigo=ERRORES_CUENTA.REAUTENTICAR;
+    // Authentication sin activar en la consola, o sin el método correo/contraseña
+    else if(c==='auth/configuration-not-found' || c==='auth/operation-not-allowed'
+      || m.indexOf('configuration_not_found')>-1 || m.indexOf('operation_not_allowed')>-1) codigo=ERRORES_CUENTA.AUTH_DESACTIVADO;
     else if(c==='PERMISSION_DENIED' || m.indexOf('permission_denied')>-1 || m.indexOf('permission denied')>-1) codigo=ERRORES_CUENTA.PERMISO;
     const err=new Error((e&&e.message)||codigo);
     err.codigo=codigo; err.original=e;

@@ -20,6 +20,7 @@ Esta carpeta documenta el sistema **por módulo**, tal como está implementado e
 | Carpeta | Módulo | Contenido principal |
 |---|---|---|
 | [-00-execution-protocol](-00-execution-protocol/-00-execution-protocol.md) | Protocolo de ejecución | Cómo correr, configurar, desplegar, respaldar y probar el sistema; entorno de pruebas en Firebase |
+| [-00 → entornos-locales](-00-execution-protocol/entornos-locales.md) | Entornos locales | Emuladores de Firebase y modo local: qué se instaló, cómo se conecta, credenciales (`dev` / `dev12345`) |
 | [-01-to-review](-01-to-review/-01-to-review.md) | Hallazgos para revisar | Bugs, riesgos de seguridad e inconsistencias encontradas al documentar, con su estado |
 | [-02-corrections](-02-corrections/-02-corrections.md) | Correcciones aplicadas | Qué se corrigió de seguridad y datos, dónde, cómo se probó y qué queda pendiente |
 | [-03-architecture](-03-architecture/-03-architecture.md) | Arquitectura | Estructura hexagonal (dominio, puertos, adaptadores), regla de dependencias, plan de fases de la migración y comparación Realtime Database vs. Cloud Firestore |

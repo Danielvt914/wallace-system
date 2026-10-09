@@ -6,11 +6,13 @@ Cada hallazgo corregido tiene debajo su **Solución aplicada** y lo que queda pe
 
 **Severidad**: 🔴 Alta (seguridad o pérdida/corrupción de datos) · 🟠 Media (resultado incorrecto visible) · 🟡 Baja (inconsistencia, deuda técnica).
 
+> **Estado al 2026-10-08:** **los 33 hallazgos están cerrados** (`npm test` 63/63 · `npm run test:firebase` 35/35). **S1** quedó desplegado y verificado en el proyecto de simulación `wallacesys-dev-sandbox` (base desde cero, dueño creado, reglas cerradas: sin sesión todo responde "Permission denied"); **F17** se cerró por decisión comercial (planes iguales en ventanas). **En la empresa no hay nada desplegado:** su producción sigue con la versión original, con las contraseñas en texto plano y la base abierta, hasta que se repitan las fases de S1 en su proyecto. Ver [Pendientes](#pendientes).
+
 ## Resumen
 
 | ID | Sev. | Área | Hallazgo | Estado |
 |---|---|---|---|---|
-| S1 | 🔴 | Seguridad | Base de datos sin autenticación ni reglas en el repositorio | 🟡 Implementado y probado en emuladores; falta desplegar (fases 0–5, ver -02) |
+| S1 | 🔴 | Seguridad | Base de datos sin autenticación ni reglas en el repositorio | ✅ Corregido y desplegado en el proyecto de simulación (`wallacesys-dev-sandbox`); falta repetir el despliegue en el proyecto real de la empresa |
 | S2 | 🔴 | Seguridad | Contraseñas en texto plano descargadas a todos los equipos | ✅ Corregido |
 | S3 | 🔴 | Seguridad | Contraseña inicial del super-admin escrita en `app.js` | ✅ Corregido |
 | S4 | 🟠 | Seguridad | Permisos validados solo en el cliente; varias funciones no revalidan | ✅ Corregido |
@@ -36,7 +38,7 @@ Cada hallazgo corregido tiene debajo su **Solución aplicada** y lo que queda pe
 | F14 | 🟡 | Funcional | Valor de inventario y conteo a precio de venta | ✅ Corregido |
 | F15 | 🟡 | Funcional | Domiciliario y estadísticas ligados por nombre | ✅ Corregido |
 | F16 | 🟡 | Funcional | La pregunta "¿imprimir?" aparece 400 ms después de cobrar y podía tapar otro modal | ✅ Corregido |
-| F17 | 🟡 | Funcional | Los planes Profesional y Premium habilitan exactamente las mismas ventanas | Abierto (decisión comercial) |
+| F17 | 🟡 | Funcional | Los planes Profesional y Premium habilitan exactamente las mismas ventanas | ✅ Cerrado por decisión (2026-10-08): se mantienen iguales |
 | F18 | 🟡 | Funcional | Alertas de vencimiento aunque el negocio apagó el inventario | ✅ Corregido |
 | R1 | 🟡 | Rendimiento | Super-admin escucha todo `data/`; logos en tabla global | ✅ Corregido (con S1) |
 | C1 | 🟡 | Código | Código y campos sin uso | ✅ Corregido |
@@ -52,7 +54,7 @@ Cada hallazgo corregido tiene debajo su **Solución aplicada** y lo que queda pe
 - **Dónde**: `firebase-config.js`, `adaptadores/salida/firebase-datos.js:222` (`initFirebase`), ausencia de reglas en el repositorio.
 - **Qué pasa**: la app no usa Firebase Auth; para funcionar, las reglas de Realtime Database deben permitir lectura/escritura sin autenticar. Cualquiera con la URL de la base (visible en `firebase-config.js`, que es público) puede leer y modificar todos los negocios.
 - **Impacto**: robo de datos de clientes y ventas de todos los negocios, alteración o borrado total. Anula el aislamiento entre tenants.
-- **Estado**: 🟡 El código (Plan B), las reglas y la configuración de la CLI están en el repositorio y probados en los emuladores de Firebase (`npm run test:firebase`: 27 pruebas, incluida la interfaz real en Chrome). Falta lo que exige la consola de Firebase y el despliegue por fases. Detalle de la implementación y los pasos: [-02-corrections → S1](../-02-corrections/-02-corrections.md#s1--base-de-datos-sin-autenticación-ni-reglas--implementado-falta-desplegar).
+- **Estado**: 🟡 El código (Plan B), las reglas y la configuración de la CLI están en el repositorio y probados en los emuladores de Firebase (`npm run test:firebase`: 35 pruebas, incluida la interfaz real en Chrome). Falta lo que exige la consola de Firebase y el despliegue por fases. Mientras tanto se puede ensayar todo en el equipo con `npm run emulador` (cuenta de desarrollo `dev` / `dev12345`, ver [entornos-locales](../-00-execution-protocol/entornos-locales.md)). Detalle de la implementación y los pasos: [-02-corrections → S1](../-02-corrections/-02-corrections.md#s1--base-de-datos-sin-autenticación-ni-reglas--implementado-falta-desplegar).
 - **Lo que mostró el export de producción** (`node scripts/preparar-pruebas.mjs <export>`): las 17 contraseñas siguen en texto plano (S2 aún no se desplegó), 3 usuarios tienen menos de 6 caracteres y se les pedirá una nueva al migrar, `negocios` es un array con 188 KB de logos, 15 tablas siguen en formato viejo, y hay dos nodos sin uso en la raíz (`posu`, `prueba_conexion`). Ningún bloqueo para las reglas: ningún id de negocio con `_` ni nombres de usuario repetidos.
 
 La guía de diseño original (antes de implementar) sigue abajo como referencia.
@@ -413,10 +415,11 @@ Hoy hay usuarios con contraseña guardada como hash; nadie conoce esas contrase�
 - **Impacto**: bajo (una persona rara vez actúa en menos de medio segundo), pero puede perderse lo escrito en el modal tapado.
 - **Solución aplicada**: `preguntarDespues(mensaje, alConfirmar, texto, ms)` (`ui/nucleo/componentes.js`) no abre la pregunta si ya hay otro modal activo; lo impreso se repite desde Reimpresiones. El ajuste de pago diferido (`ajustarPagoVenta`) no cambió: ese no se puede omitir.
 
-### F17 🟡 Premium igual a Profesional
+### F17 🟡 Premium igual a Profesional — ✅ Cerrado por decisión
 - **Dónde**: `VENTANAS_POR_PLAN` (`dominio/negocio.js`).
 - **Qué pasa**: la plantilla de ventanas de Premium es idéntica a la de Profesional; el precio distinto no habilita nada adicional (el super-admin puede marcar ventanas a mano).
 - **Propuesta**: decidir qué incluye cada plan (p. ej. sucursales, combos o cuentas abiertas solo en Premium).
+- **Decisión** (2026-10-08, responsable del proyecto): **se mantienen las mismas ventanas** en Profesional y Premium; Premium se diferencia por precio y soporte, fuera del sistema. Se revisó que Profesional ya incluye todas las ventanas existentes, así que Premium no podía sumar ventanas. Si más adelante se quiere diferenciar dentro del sistema, las opciones evaluadas fueron: limitar las sucursales a Premium, o reordenar los tres planes (Premium con cocina y sucursales). Sin cambios de código.
 
 ### F18 🟡 Alertas de vencimiento con el inventario apagado — ✅ Corregido
 - **Dónde estaba**: `avisarVencimientos` revisaba `funciones` en vez de `usaInventario`.
@@ -426,7 +429,7 @@ Hoy hay usuarios con contraseña guardada como hash; nadie conoce esas contrase�
 ## Rendimiento
 
 ### R1 🟡 Volumen de descarga — ✅ Corregido (con S1)
-- **Con S1**: `negocios` pasó a `data/negocios_r/<id>`; cada empleado descarga solo su negocio (con su logo), no los 188 KB de logos de todos. Sigue pendiente lo del super-admin.
+- **Con S1**: `negocios` pasó a `data/negocios_r/<id>`; cada empleado descarga solo su negocio (con su logo), no los 188 KB de logos de todos. Lo del super-admin se resolvió después con el resumen por negocio (ver "Solución aplicada").
 - `sincronizarTodo` (`adaptadores/salida/firebase-datos.js:339`) escucha `value` de todo `data/`: cada cambio en cualquier negocio reenvía y re-serializa todo al super-admin.
 - El logo en base64 vive dentro de `negocios`, que descargan todos los equipos.
 - **Solución aplicada** (con cuentas de Firebase): el panel del super-admin ya no escucha todo `data`. Escucha negocios, administradores, usuarios y un **resumen** por negocio (`data_<neg>_resumen`: ventas por día de los últimos 62 días, por mes, total y cantidad), que publican los equipos del propio negocio cada 20 s si cambió (`ui/reportes/resumen.js`, regla en `dominio/ventas.js`). Los datos completos de un negocio se leen bajo demanda: al supervisarlo (en vivo) y al sacar su informe mensual (`Datos.leerNegocioCompleto`). Botón "📊 Calcular cifras" para los negocios que aún no tienen resumen. Los logos siguen dentro del negocio: con `negocios_r` cada empleado ya baja solo el suyo.
@@ -461,3 +464,28 @@ Hoy hay usuarios con contraseña guardada como hash; nadie conoce esas contrase�
 - `README.md` raíz: credenciales demo (`superadmin/super123`, `admin/admin123`) que no coinciden con `seed()`; dice "Copia los 7 archivos" (son 8 con `prueba.html`); no menciona Logística, combos, cuentas abiertas, lotes ni conteos.
 - `prueba.html`: prueba la lectura sobre el nodo `posu` (no `data`) y deja escrito `prueba_conexion`.
 - Historial de commits con mensajes genéricos ("Add files via upload", "Update print statement…") que no describen los cambios.
+
+## Pendientes
+
+### Para llevar S1 a la producción de la empresa
+
+| ID | Qué falta | Quién | Cómo |
+|---|---|---|---|
+| S1 | ~~Crear el proyecto de pruebas~~ → hecho: `wallacesys-dev-sandbox` (cuenta personal del desarrollador; simula producción). Base desde cero, reglas de transición → dueño creado → **reglas cerradas** publicadas y verificadas (2026-10-08) | — | [-00 → 3.1](../-00-execution-protocol/-00-execution-protocol.md#31-qué-significa-cerrar-la-base) |
+| S1 | Ensayar la **migración de cuentas viejas** con datos reales (en el emulador: `npm run emulador`; o en un proyecto de la empresa con su permiso) | Desarrollo | [-02 → S1 → Despliegue paso a paso](../-02-corrections/-02-corrections.md#s1--base-de-datos-sin-autenticación-ni-reglas--implementado-falta-desplegar) |
+| S1 | Dar el dominio público de producción (`HOSTS_PRODUCCION` en `firebase-config.js`); sin él, producción arrancaría en modo local | Responsable del proyecto | Antes de unir el código al repositorio original |
+| S1 | Decidir qué ve el super-admin vendedor, el plazo de migración de cuentas y si el respaldo incluye `perfiles/` y `login/` | Responsable del proyecto | — |
+| S1 | Desplegar en producción por fases, con respaldo antes de cada una | Desarrollo + responsable | [-02 → B.8](../-02-corrections/-02-corrections.md#b8-fases-de-despliegue-con-lista-de-chequeo) |
+
+### Riesgos residuales (de hallazgos ya corregidos)
+
+| De | Residual | Qué hacer |
+|---|---|---|
+| S3 | La contraseña inicial vieja sigue en el historial de Git | Confirmar en producción que nadie la usa (al migrar a S1 todas las cuentas pasan a Firebase Authentication) |
+| S2 | Hasta cerrar las reglas de S1 los hashes de contraseñas viajan a los equipos | Se resuelve con la fase 4 de S1 (reglas cerradas) y la limpieza de la fase 5 |
+| D1 | Un equipo **sin conexión desde el inicio** puede repetir un número de factura | Aceptado; con conexión no hay repetidos |
+| D3 | Auditoría, movimientos y conteos crecen sin límite (a propósito, no se pierde historia) | Archivar por mes si el tamaño lo exige |
+| F15 | Las ventas anteriores a la corrección no tienen `prodId`/`vendedorId`/`domiciliarioId` y se siguen agrupando por nombre | Ninguna; las nuevas ya llevan id |
+| R1 | Los negocios donde nadie ha entrado con la versión nueva no tienen resumen | Botón "📊 Calcular cifras" del panel |
+| DOC1 | El historial de commits tiene mensajes genéricos | No se corrige sin reescribir el historial; los commits nuevos son descriptivos |
+| — | Una prueba de navegador ("empleado con contraseña corta") falló una vez de forma intermitente y no se reprodujo | Vigilar en próximas corridas de `npm run test:firebase` |

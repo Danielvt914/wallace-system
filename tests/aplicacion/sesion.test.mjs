@@ -138,4 +138,5 @@ test('restaurar sesión guardada y mensajes para la persona', async ()=>{
   assert.equal((await servicio(C).restaurar('NO')).motivo, 'sin_perfil');
   assert.match(mensajeDeFallo('credenciales'), /incorrectos/);
   assert.match(mensajeDeFallo('desconocido'), /No se pudo/);
+  assert.match(mensajeDeFallo('auth_desactivado'), /Correo electrónico\/contraseña/);
 });
