@@ -1,20 +1,26 @@
 // ============================================================
 //  INTERFAZ · Catálogo e inventario
 //  Productos, recetas, entradas, salidas y lotes.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/06-inventory-recipes/06-inventory-recipes.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/06-inventory-recipes/06-inventory-recipes.md
 // ============================================================
+import { STATE, escapeHtml, fijarEscribiendo, fmtDate, fmtMoney, now } from '../nucleo/estado.js';
+import { tienePermiso, usaInventario } from '../nucleo/permisos.js';
+import { abrirModal, cerrarModal, confirmarModal, ic, pPedidos, pProd, pProds, toast } from '../nucleo/componentes.js';
+import { render } from '../nucleo/navegacion.js';
+import { logAudit } from '../usuarios/auditoria.js';
+import { diasAvisoVence, fmtSoloFecha, lotesAlerta, moverInventario, registrarMovimientos } from './motor.js';
 
 
 // ============================================================
 //  INVENTARIO / CATÁLOGO
 // ============================================================
-let _iBusca='';
-let _iCat='Todas';
+export let _iBusca='';
+export let _iCat='Todas';
 
-function inventario(){
-  ESCRIBIENDO=false;
+export function inventario(){
+  fijarEscribiendo(false);
   const neg=STATE.negocio;
   const esResto=!!neg.usaRecetas;
   const todos=misDatos('productos').filter(p=>!esCombo(p));   // los combos van en Menú y Combos
@@ -39,12 +45,12 @@ function inventario(){
         <div class="t-cab">
           <span class="t-tit">${ic('chef')} ${neg.usaRecetas?'Menú':'Catálogo'} de ${pProds()}</span>
           <div class="t-acc">
-            <input type="text" class="busca" placeholder="🔍 Buscar ${pProd()}..." value="${escapeHtml(_iBusca)}" oninput="_iBusca=this.value;render()">
-            ${tienePermiso('editarprod')?`<button class="btn btn-gold" onclick="editarProducto(null)">+ Agregar ${pProd()}</button>`:''}
+            <input type="text" class="busca" placeholder="🔍 Buscar ${pProd()}..." value="${escapeHtml(_iBusca)}" data-input="buscarInventario(this.value)">
+            ${tienePermiso('editarprod')?`<button class="btn btn-gold" data-click="editarProducto(null)">+ Agregar ${pProd()}</button>`:''}
           </div>
         </div>
         <p class="nota">Estos ${pProds()} son los que aparecen en <strong>Nueva Venta</strong>.${neg.usaRecetas?' Cada '+pProd()+' puede tener una receta que descuenta insumos al venderse.':''}</p>
-        ${cats.length>1?`<div class="cats">${cats.map(c=>`<button class="cat ${_iCat===c?'on':''}" onclick="_iCat='${escapeHtml(c)}';render()">${escapeHtml(c)}${c!=='Todas'?' ('+todos.filter(p=>(p.categoria||'General')===c).length+')':''}</button>`).join('')}</div>`:''}
+        ${cats.length>1?`<div class="cats">${cats.map(c=>`<button class="cat ${_iCat===c?'on':''}" data-click="elegirCategoriaInventario(this.dataset.cat)" data-cat="${escapeHtml(c)}">${escapeHtml(c)}${c!=='Todas'?' ('+todos.filter(p=>(p.categoria||'General')===c).length+')':''}</button>`).join('')}</div>`:''}
         ${lista.length?`<div class="prods inv">
           ${lista.map(p=>{
             const nRec=(p.receta||[]).length;
@@ -55,8 +61,8 @@ function inventario(){
               <div class="prod-pre">${fmtMoney(p.precio)}</div>
               <div class="prod-stock ${nRec?'':'poco'}">${nRec?nRec+' insumo(s)':'Sin receta'}</div>
               <div class="prod-acc">
-                ${tienePermiso('editarprod')?`<button class="btn btn-sm btn-verde" onclick="editarProducto('${p.id}')">Receta</button>`:''}
-                ${tienePermiso('editarprod')?`<button class="btn btn-sm btn-rojo" onclick="eliminarProducto('${p.id}')">×</button>`:''}
+                ${tienePermiso('editarprod')?`<button class="btn btn-sm btn-verde" data-click="editarProducto('${p.id}')">Receta</button>`:''}
+                ${tienePermiso('editarprod')?`<button class="btn btn-sm btn-rojo" data-click="eliminarProducto('${p.id}')">×</button>`:''}
               </div>
             </div>`;
           }).join('')}
@@ -115,11 +121,11 @@ function inventario(){
       <div class="t-cab">
         <span class="t-tit">${ic('box')} Inventario de ${escapeHtml(pps)}</span>
         <div class="t-acc">
-          <input type="text" class="busca" placeholder="🔍 Buscar..." value="${escapeHtml(_iBusca)}" oninput="_iBusca=this.value;render()">
-          ${tienePermiso('editarprod')?`<button class="btn btn-gold" onclick="editarProducto(null)">+ Agregar ${escapeHtml(pp.toLowerCase())}</button>`:''}
+          <input type="text" class="busca" placeholder="🔍 Buscar..." value="${escapeHtml(_iBusca)}" data-input="buscarInventario(this.value)">
+          ${tienePermiso('editarprod')?`<button class="btn btn-gold" data-click="editarProducto(null)">+ Agregar ${escapeHtml(pp.toLowerCase())}</button>`:''}
         </div>
       </div>
-      ${cats.length>1?`<div class="cats">${cats.map(c=>`<button class="cat ${_iCat===c?'on':''}" onclick="_iCat='${escapeHtml(c)}';render()">${escapeHtml(c)}${c!=='Todas'?' ('+todos.filter(p=>(p.categoria||'General')===c).length+')':''}</button>`).join('')}</div>`:''}
+      ${cats.length>1?`<div class="cats">${cats.map(c=>`<button class="cat ${_iCat===c?'on':''}" data-click="elegirCategoriaInventario(this.dataset.cat)" data-cat="${escapeHtml(c)}">${escapeHtml(c)}${c!=='Todas'?' ('+todos.filter(p=>(p.categoria||'General')===c).length+')':''}</button>`).join('')}</div>`:''}
       ${lista.length?`<div class="prods inv">
         ${lista.map(p=>{
           const sin=p.stock!=null&&p.stock<=0;
@@ -132,7 +138,7 @@ function inventario(){
               const d=diasHasta(conFecha[0].vence);
               const clase = d<0?'pill-rojo':d<=diasAvisoVence()?'pill-gold':'pill-verde';
               const txt = d<0?('venció '+fmtSoloFecha(conFecha[0].vence)):d===0?'vence hoy':('vence en '+d+'d');
-              vencePill=`<div style="margin-top:4px;"><span class="pill ${clase} chico">📅 ${txt}</span></div>`;
+              vencePill=`<div class="mt-4"><span class="pill ${clase} chico">📅 ${txt}</span></div>`;
             }
           }
           return `<div class="prod ${p.agotado||sin?'off':''}">
@@ -144,11 +150,11 @@ function inventario(){
             ${p.stock!=null?`<div class="prod-stock ${sin?'sin':poco?'poco':''}">Stock: ${p.stock}</div>`:''}
             ${vencePill}
             <div class="prod-acc">
-              ${(p.stock!=null&&tienePermiso('editarstock'))?`<button class="btn btn-sm btn-verde" onclick="entradaStock('${p.id}')">+ Stock</button>`:''}
-              ${(p.stock!=null&&tienePermiso('editarstock'))?`<button class="btn btn-sm btn-naranja" onclick="salidaStock('${p.id}')" title="Sacar sin vender: daño, vencido, consumo interno">− Salida</button>`:''}
-              ${p.usaLotes?`<button class="btn btn-sm" onclick="verLotes('${p.id}')" title="Ver lotes">📦 Lotes</button>`:''}
-              ${tienePermiso('editarprod')?`<button class="btn btn-sm" onclick="editarProducto('${p.id}')">Editar</button>`:''}
-              ${tienePermiso('editarprod')?`<button class="btn btn-sm btn-rojo" onclick="eliminarProducto('${p.id}')">×</button>`:''}
+              ${(p.stock!=null&&tienePermiso('editarstock'))?`<button class="btn btn-sm btn-verde" data-click="entradaStock('${p.id}')">+ Stock</button>`:''}
+              ${(p.stock!=null&&tienePermiso('editarstock'))?`<button class="btn btn-sm btn-naranja" data-click="salidaStock('${p.id}')" title="Sacar sin vender: daño, vencido, consumo interno">− Salida</button>`:''}
+              ${p.usaLotes?`<button class="btn btn-sm" data-click="verLotes('${p.id}')" title="Ver lotes">📦 Lotes</button>`:''}
+              ${tienePermiso('editarprod')?`<button class="btn btn-sm" data-click="editarProducto('${p.id}')">Editar</button>`:''}
+              ${tienePermiso('editarprod')?`<button class="btn btn-sm btn-rojo" data-click="eliminarProducto('${p.id}')">×</button>`:''}
             </div>
           </div>`;
         }).join('')}
@@ -156,8 +162,8 @@ function inventario(){
     </div>`;
 }
 
-let _recetaTmp=[];   // receta que se está armando en el modal del plato
-function editarProducto(id){
+export let _recetaTmp=[];   // receta que se está armando en el modal del plato
+export function editarProducto(id){
   if(!tienePermiso('editarprod')){ toast('No tienes permiso para crear o editar productos','error'); return; }
   const productos=misDatos('productos');
   const p=id?productos.find(x=>x.id===id):null;
@@ -197,12 +203,12 @@ function editarProducto(id){
   let extraLotes = '';
   if(!esResto && llevaStock){
     if(esNuevo){
-      extraLotes = `<div class="cobro-caja" style="margin-top:14px;">
-        <p class="nota" style="margin:0;">📅 Si el producto se vence (comida, medicamentos, etc.), pon la <strong>fecha de vencimiento</strong> arriba. Se guardará como el primer lote y podrás ir agregando más lotes con el botón <strong>"+ Stock"</strong>. El sistema venderá primero lo que esté más próximo a vencer y te avisará antes de que se dañe.</p>
+      extraLotes = `<div class="cobro-caja mt-14">
+        <p class="nota m-0">📅 Si el producto se vence (comida, medicamentos, etc.), pon la <strong>fecha de vencimiento</strong> arriba. Se guardará como el primer lote y podrás ir agregando más lotes con el botón <strong>"+ Stock"</strong>. El sistema venderá primero lo que esté más próximo a vencer y te avisará antes de que se dañe.</p>
       </div>`;
     } else if(usaLotes){
-      extraLotes = `<div class="cobro-caja" style="margin-top:14px;">
-        <p class="nota" style="margin:0;">📦 Este producto se maneja <strong>por lotes con vencimiento</strong>. Para ingresar más mercancía con su fecha, usa el botón <strong>"+ Stock"</strong>. Para ver o retirar lotes, usa <strong>"📦 Lotes"</strong>.</p>
+      extraLotes = `<div class="cobro-caja mt-14">
+        <p class="nota m-0">📦 Este producto se maneja <strong>por lotes con vencimiento</strong>. Para ingresar más mercancía con su fecha, usa el botón <strong>"+ Stock"</strong>. Para ver o retirar lotes, usa <strong>"📦 Lotes"</strong>.</p>
       </div>`;
     }
   }
@@ -287,39 +293,39 @@ function editarProducto(id){
 }
 
 // --- Editor de receta (se muestra dentro del modal del plato) ---
-function recetaEditorHTML(){
+export function recetaEditorHTML(){
   const insumos=misDatos('insumos');
   if(!insumos.length){
-    return `<div class="cobro-caja" style="margin-top:14px;">
+    return `<div class="cobro-caja mt-14">
       <strong>Receta</strong>
-      <p class="nota" style="margin-top:8px;">Aún no tienes insumos. Ve a <strong>Insumos</strong> y agrega arroz, pollo, etc. Luego podrás armar la receta de este ${pProd()}. Sin receta, el ${pProd()} se vende sin descontar inventario.</p>
+      <p class="nota mt-8">Aún no tienes insumos. Ve a <strong>Insumos</strong> y agrega arroz, pollo, etc. Luego podrás armar la receta de este ${pProd()}. Sin receta, el ${pProd()} se vende sin descontar inventario.</p>
     </div>`;
   }
-  return `<div class="cobro-caja" style="margin-top:14px;">
+  return `<div class="cobro-caja mt-14">
     <strong>Receta <span class="gris chico">(opcional — qué insumos gasta este plato)</span></strong>
-    <div id="receta-lista" style="margin:10px 0;">${recetaFilasHTML()}</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-      <select id="rec-insumo" class="campo" style="flex:2;min-width:130px;margin:0;">
+    <div id="receta-lista" class="m-10-0">${recetaFilasHTML()}</div>
+    <div class="d-flex gap-8 flex-wrap items-centro">
+      <select id="rec-insumo" class="campo flex-2 minw-130 m-0">
         ${insumos.map(i=>`<option value="${i.id}">${escapeHtml(i.nombre)}${i.unidad?' ('+escapeHtml(i.unidad)+')':''}</option>`).join('')}
       </select>
-      <input id="rec-cant" type="number" class="campo" placeholder="Cant." style="flex:1;min-width:70px;margin:0;">
-      <button type="button" class="btn btn-verde btn-sm" onclick="agregarInsumoReceta()">+ Añadir</button>
+      <input id="rec-cant" type="number" class="campo flex-1 minw-70 m-0" placeholder="Cant.">
+      <button type="button" class="btn btn-verde btn-sm" data-click="agregarInsumoReceta()">+ Añadir</button>
     </div>
   </div>`;
 }
-function recetaFilasHTML(){
+export function recetaFilasHTML(){
   const insumos=misDatos('insumos');
   if(!_recetaTmp.length) return `<p class="nota">Sin insumos en la receta. Este ${escapeHtml(pProd())} se venderá sin descontar inventario.</p>`;
   return _recetaTmp.map((r,idx)=>{
     const ins=insumos.find(i=>i.id===r.insumoId);
-    return `<div class="c-row" style="padding:6px 0;">
+    return `<div class="c-row p-6-0">
       <span>${ins?escapeHtml(ins.nombre):'(insumo eliminado)'}</span>
       <span><strong>${r.cantidad}</strong> ${ins?escapeHtml(ins.unidad||''):''}
-        <button type="button" class="mini-x" onclick="quitarInsumoReceta(${idx})">×</button></span>
+        <button type="button" class="mini-x" data-click="quitarInsumoReceta(${idx})">×</button></span>
     </div>`;
   }).join('');
 }
-function agregarInsumoReceta(){
+export function agregarInsumoReceta(){
   const sel=document.getElementById('rec-insumo');
   const cant=parseFloat((document.getElementById('rec-cant')||{}).value)||0;
   if(!sel||!sel.value){ toast('Elige un insumo','error'); return; }
@@ -330,12 +336,12 @@ function agregarInsumoReceta(){
   if(cont) cont.innerHTML=recetaFilasHTML();
   const ci=document.getElementById('rec-cant'); if(ci) ci.value='';
 }
-function quitarInsumoReceta(idx){
+export function quitarInsumoReceta(idx){
   _recetaTmp.splice(idx,1);
   const cont=document.getElementById('receta-lista');
   if(cont) cont.innerHTML=recetaFilasHTML();
 }
-function eliminarProducto(id){
+export function eliminarProducto(id){
   if(!tienePermiso('editarprod')){ toast('No tienes permiso para borrar productos','error'); return; }
   const p=misDatos('productos').find(x=>x.id===id);
   confirmarModal('¿Eliminar "'+(p?p.nombre:'')+'"?',()=>{
@@ -345,7 +351,7 @@ function eliminarProducto(id){
 }
 // Sacar mercancía sin vender: daño, vencido, consumo interno, regalo.
 // Es la causa #1 de descuadres cuando no queda registrado.
-function salidaStock(id){
+export function salidaStock(id){
   if(!tienePermiso('editarstock')){ toast('No tienes permiso para modificar el stock','error'); return; }
   const productos=misDatos('productos');
   const p=productos.find(x=>x.id===id); if(!p) return;
@@ -370,7 +376,7 @@ function salidaStock(id){
     cerrarModal(); toast('Salida registrada','info'); render();
   }});
 }
-function entradaStock(id){
+export function entradaStock(id){
   if(!tienePermiso('editarstock')){ toast('No tienes permiso para modificar el stock','error'); return; }
   const productos=misDatos('productos');
   const p=productos.find(x=>x.id===id); if(!p) return;
@@ -413,17 +419,17 @@ function entradaStock(id){
   }});
 }
 // Muestra el detalle de lotes de un producto (dentro de un modal)
-function lotesDetalleHTML(p){
+export function lotesDetalleHTML(p){
   const lotes=ordenarLotes(p.lotes||[]).filter(l=>(l.cantidad||0)>0);
-  if(!lotes.length) return `<p class="nota" style="margin-top:8px;">Sin lotes registrados. La cantidad que ingreses creará el primer lote.</p>`;
-  return `<div class="cobro-caja" style="margin-top:12px;">
+  if(!lotes.length) return `<p class="nota mt-8">Sin lotes registrados. La cantidad que ingreses creará el primer lote.</p>`;
+  return `<div class="cobro-caja mt-12">
     <strong class="chico">Lotes actuales <span class="gris">(se vende primero el que vence antes)</span></strong>
-    <div style="margin-top:8px;">
+    <div class="mt-8">
       ${lotes.map(l=>{
         const d=l.vence?diasHasta(l.vence):null;
         const clase = d==null?'' : d<0?'pill-rojo' : d<=diasAvisoVence()?'pill-gold':'pill-verde';
         const txt = !l.vence?'sin fecha' : d<0?('venció hace '+Math.abs(d)+'d') : d===0?'vence hoy' : ('vence en '+d+'d');
-        return `<div class="c-row" style="padding:5px 0;">
+        return `<div class="c-row p-5-0">
           <span>${l.cantidad} und ${l.vence?'· '+fmtSoloFecha(l.vence):''}</span>
           <span><span class="pill ${clase}">${txt}</span></span>
         </div>`;
@@ -432,32 +438,32 @@ function lotesDetalleHTML(p){
   </div>`;
 }
 // Modal para ver y gestionar (retirar) los lotes de un producto
-function verLotes(id){
+export function verLotes(id){
   const p=misDatos('productos').find(x=>x.id===id); if(!p) return;
   const lotes=ordenarLotes(p.lotes||[]).filter(l=>(l.cantidad||0)>0);
   const cuerpo = lotes.length ? `
-    <div style="margin-top:6px;">
+    <div class="mt-6">
       ${lotes.map(l=>{
         const d=l.vence?diasHasta(l.vence):null;
         const clase = d==null?'' : d<0?'pill-rojo' : d<=diasAvisoVence()?'pill-gold':'pill-verde';
         const txt = !l.vence?'sin fecha' : d<0?('venció hace '+Math.abs(d)+'d') : d===0?'vence hoy' : ('vence en '+d+'d');
-        return `<div class="c-row" style="padding:8px 0;border-bottom:1px solid var(--linea2);">
+        return `<div class="c-row p-8-0 borde-abajo-1-solid-linea2">
           <span><strong>${l.cantidad} und</strong> ${l.vence?'· '+fmtSoloFecha(l.vence):''}<br><span class="gris chico">${escapeHtml(l.motivo||'')}</span></span>
-          <span style="text-align:right;">
+          <span class="txt-der">
             <span class="pill ${clase}">${txt}</span><br>
-            ${tienePermiso('editarstock')?`<button class="btn btn-sm btn-rojo" style="margin-top:5px;" onclick="retirarLote('${p.id}','${l.id}')">Retirar</button>`:''}
+            ${tienePermiso('editarstock')?`<button class="btn btn-sm btn-rojo mt-5" data-click="retirarLote('${p.id}','${l.id}')">Retirar</button>`:''}
           </span>
         </div>`;
       }).join('')}
     </div>
-    <p class="nota" style="margin-top:10px;">Usa <strong>Retirar</strong> para sacar del inventario un lote vencido o dañado. Al vender, el sistema descuenta primero el lote más próximo a vencer.</p>`
+    <p class="nota mt-10">Usa <strong>Retirar</strong> para sacar del inventario un lote vencido o dañado. Al vender, el sistema descuenta primero el lote más próximo a vencer.</p>`
     : `<p class="nota">Este producto no tiene lotes con existencias. Registra una entrada de stock para crear un lote.</p>`;
   abrirModal({titulo:'Lotes · '+p.nombre, textoBoton:'Cerrar', campos:[],
     extraHTML:`<p class="nota">Stock total: <strong>${p.stock||0}</strong></p>${cuerpo}`,
     onGuardar:()=>{ cerrarModal(); }});
 }
 // Retira (elimina) un lote y descuenta su cantidad del stock total
-function retirarLote(prodId, loteId){
+export function retirarLote(prodId, loteId){
   if(!tienePermiso('editarstock')){ toast('No tienes permiso para modificar el stock','error'); return; }
   const arr=misDatos('productos');
   const p=arr.find(x=>x.id===prodId); if(!p||!p.lotes) return;
@@ -475,3 +481,5 @@ function retirarLote(prodId, loteId){
     cerrarModal(); toast('Lote retirado','info'); render();
   },'Retirar');
 }
+export function buscarInventario(v){ _iBusca=v; render(); }
+export function elegirCategoriaInventario(c){ _iCat=c; render(); }

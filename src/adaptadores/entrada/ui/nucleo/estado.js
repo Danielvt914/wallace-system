@@ -1,15 +1,19 @@
 // ============================================================
 //  INTERFAZ · Estado de la sesión y formatos
 //  STATE, refresco de pantalla, indicador de conexión, fechas, dinero y escape de HTML.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/13-multitenant-isolation/13-multitenant-isolation.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/13-multitenant-isolation/13-multitenant-isolation.md
 // ============================================================
+import { cajaActual } from './permisos.js';
+import { reportarError, toast } from './componentes.js';
+import { render } from './navegacion.js';
 
-let ESCRIBIENDO = false;   // true mientras el usuario arma un pedido
+export let ESCRIBIENDO = false;   // true mientras el usuario arma un pedido
+export function fijarEscribiendo(v){ ESCRIBIENDO=v; }   // para los otros módulos (no pueden asignar lo que importan)
 
 // Indicador de conexión (punto verde/rojo/naranja). Lo llama el adaptador de datos.
-function mostrarConexion(estado){
+export function mostrarConexion(estado){
   const el=document.getElementById('fb-status');
   if(!el) return;
   if(estado==='ok'){ el.className='fb-dot ok'; el.title='Sincronizado'; }
@@ -18,7 +22,7 @@ function mostrarConexion(estado){
 }
 
 // Refresca la pantalla salvo que el usuario esté ocupado
-function refrescarSiSePuede(){
+export function refrescarSiSePuede(){
   if(!STATE.user) return;
   // Si el usuario está escribiendo en CUALQUIER campo (texto, número, select
   // abierto, textarea), NO refrescamos: redibujar destruiría el campo y se
@@ -38,7 +42,7 @@ function refrescarSiSePuede(){
   _refrescoPendiente=false;
   try{ render(); }catch(e){ reportarError('el refresco de pantalla', e); }
 }
-let _refrescoPendiente=false;
+export let _refrescoPendiente=false;
 // Cuando el usuario deja de escribir (quita el foco), pintamos lo que llegó
 document.addEventListener('focusout', function(){
   setTimeout(function(){
@@ -52,7 +56,7 @@ document.addEventListener('focusout', function(){
 }, true);
 
 // Botón "Actualizar": fuerza traer de la nube lo que corresponda
-function refrescarDeLaNube(){
+export function refrescarDeLaNube(){
   if(!FB_READY){ toast('Sin conexión a la nube','error'); return; }
   toast('Actualizando...','info');
   Datos.recargar({superAdmin:!!STATE.esSuperAdmin, negId:STATE.negocio?STATE.negocio.id:null})
@@ -64,33 +68,33 @@ function refrescarDeLaNube(){
 // ============================================================
 //  ESTADO Y CONFIGURACIÓN
 // ============================================================
-const STATE = {
+export const STATE = {
   user:null, negocio:null, esSuperAdmin:false, modoSupervision:false,
   page:'', pageNeg:'inicio', sucursal:null, buscaNegocio:''
 };
 
-function now(){ return new Date().toISOString(); }
+export function now(){ return new Date().toISOString(); }
 // ---------- JORNADA DE TRABAJO ----------
 // Hay negocios que abren de noche y cierran en la madrugada. Para ellos el
 // "día" NO es el del calendario: todo lo que se venda hasta que se cierre la
 // caja pertenece al día en que esa caja se ABRIÓ. Así una jornada no queda
 // partida en dos días y los informes cuadran.
-function jornadaActual(){
+export function jornadaActual(){
   try{ return Dominio.fechas.jornadaDeCaja(cajaActual()); }catch(e){ return today(); }
 }
-function fmtMoney(n){ return '$ '+(Math.round(n||0)).toLocaleString('es-CO'); }
+export function fmtMoney(n){ return '$ '+(Math.round(n||0)).toLocaleString('es-CO'); }
 // Formato corto para etiquetas de gráficas: 1.2M, 950k, 500
-function fmtCorto(n){
+export function fmtCorto(n){
   n=Math.round(n||0);
   if(n>=1000000) return (n/1000000).toFixed(n>=10000000?0:1).replace('.0','')+'M';
   if(n>=1000) return (n/1000).toFixed(0)+'k';
   return String(n);
 }
-function fmtDate(f){
+export function fmtDate(f){
   if(!f) return '—';
   const d=new Date(f);
   return d.toLocaleDateString('es-CO')+' '+d.toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'});
 }
-function escapeHtml(s){
+export function escapeHtml(s){
   return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }

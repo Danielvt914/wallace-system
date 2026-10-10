@@ -1,16 +1,19 @@
 // ============================================================
 //  INTERFAZ · Auditoría
 //  Registro de acciones importantes (logAudit) y su pantalla.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/10-users-roles/10-users-roles.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/10-users-roles/10-users-roles.md
 // ============================================================
+import { STATE, escapeHtml, fijarEscribiendo, fmtDate, now } from '../nucleo/estado.js';
+import { ic } from '../nucleo/componentes.js';
+import { render } from '../nucleo/navegacion.js';
 
 
 // ============================================================
 //  AUDITORÍA (registro de acciones importantes)
 // ============================================================
-function logAudit(accion, detalle){
+export function logAudit(accion, detalle){
   try{
     if(!STATE.negocio || !STATE.user) return;
     // Se conserva TODO el registro: un recorte aquí no borraba nada en la nube
@@ -24,9 +27,9 @@ function logAudit(accion, detalle){
 // ============================================================
 //  AUDITORÍA (solo admin/supervisor)
 // ============================================================
-let _aFiltro='';
-function auditoria(){
-  ESCRIBIENDO=false;
+export let _aFiltro='';
+export function auditoria(){
+  fijarEscribiendo(false);
   const u=STATE.user;
   if(!(u.rol==='admin'||u.esSupervisor)){
     return `<div class="tarjeta"><p class="gris">🔒 Solo el administrador puede ver la auditoría.</p></div>`;
@@ -39,7 +42,7 @@ function auditoria(){
       <div class="t-cab">
         <span class="t-tit">${ic('history')} Registro de auditoría</span>
         <div class="t-acc">
-          <select class="busca" onchange="_aFiltro=this.value;render()">
+          <select class="busca" data-change="filtrarAuditoria(this.value)">
             <option value="">Todos los usuarios</option>
             ${usuarios.map(us=>`<option value="${escapeHtml(us)}" ${us===_aFiltro?'selected':''}>${escapeHtml(us)}</option>`).join('')}
           </select>
@@ -58,3 +61,4 @@ function auditoria(){
       </table></div>
     </div>`;
 }
+export function filtrarAuditoria(v){ _aFiltro=v; render(); }

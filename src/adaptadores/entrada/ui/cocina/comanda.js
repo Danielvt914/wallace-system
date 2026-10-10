@@ -1,16 +1,18 @@
 // ============================================================
 //  INTERFAZ · Comanda
 //  Tiquete de preparación para cocina.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/04-kitchen-kds/04-kitchen-kds.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/04-kitchen-kds/04-kitchen-kds.md
 // ============================================================
+import { STATE, escapeHtml, fmtDate } from '../nucleo/estado.js';
+import { toast } from '../nucleo/componentes.js';
 
 
 // ============================================================
 //  COMANDA DE COCINA (tiquete de preparación)
 // ============================================================
-function comandaHTML(v){
+export function comandaHTML(v){
   const neg=STATE.negocio||{};
   const tipo=(v.tipo==='mesa')?('MESA '+(v.mesa||'').toUpperCase())
     :(v.tipo==='domicilio')?'DOMICILIO':(v.tipo==='envio')?'ENVÍO':'PARA LLEVAR';
@@ -34,7 +36,7 @@ function comandaHTML(v){
   </div>
   <div style="text-align:center;font-size:16px;margin-top:10px;">--- &#9986; ---</div>`;
 }
-function imprimirComanda(v){
+export function imprimirComanda(v){
   if(!v){ return; }
   const w=window.open('','_blank','width=400,height=680');
   if(!w){ toast('Permite las ventanas emergentes para imprimir','error'); return; }
@@ -45,3 +47,4 @@ function imprimirComanda(v){
   w.document.close();
   setTimeout(()=>w.print(),400);
 }
+export function imprimirComandaDe(id){ imprimirComanda(misDatos('ventas').find(x=>x.id===id)); }

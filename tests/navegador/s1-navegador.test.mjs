@@ -45,7 +45,7 @@ async function entrar(usuario, pass){
   await pagina.click('.login-btn');
 }
 async function salir(){
-  await pagina.evaluate(()=>logout());
+  await pagina.evaluate(()=>WS.logout());
   await pagina.waitForSelector('#l-user', {visible:true, timeout:15000});
 }
 
@@ -87,14 +87,14 @@ test('empleado con contraseña corta: elige una nueva y entra a su negocio', {sk
   await pagina.type('#m-n1', 'marce2026'); await pagina.type('#m-n2', 'marce2026');
   await pagina.click('#modal-ok');
   await esperarTexto('Mi Negocio');
-  const yo=await pagina.evaluate(()=>({user:STATE.user, neg:STATE.negocio&&STATE.negocio.id, otros:Object.keys(Datos.cache).filter(k=>k.startsWith('data_n2'))}));
+  const yo=await pagina.evaluate(()=>({user:WS.STATE.user, neg:WS.STATE.negocio&&WS.STATE.negocio.id, otros:Object.keys(Datos.cache).filter(k=>k.startsWith('data_n2'))}));
   assert.equal(yo.neg, 'n1'); assert.equal(yo.user.rol, 'admin'); assert.ok(yo.user.uid);
   assert.deepEqual(yo.otros, [], 'sin datos de otros negocios en el equipo');
 });
 test('Mi Negocio guarda por campo en negocios_r', {skip:omitir}, async ()=>{
-  await pagina.evaluate(()=>{ irA('minegocio'); });
+  await pagina.evaluate(()=>{ WS.irA('minegocio'); });
   await escribir('#n-nombre', 'Licorera La M');
-  await pagina.evaluate(()=>guardarMiNegocio());
+  await pagina.evaluate(()=>WS.guardarMiNegocio());
   await espera(800);
   assert.equal((await rest('data/negocios_r/n1/nombre')), 'Licorera La M');
   assert.equal((await rest('data/negocios_r/n1/plan')), 'Básico');
@@ -114,7 +114,7 @@ test('reglas cerradas: al recargar la sesión sigue y no se ve otro negocio', {s
 test('super-admin con reglas cerradas: panel y pantalla de migración', {skip:omitir}, async ()=>{
   await entrar('admin', 'clavedueno');
   await esperarTexto('Licorera La M');
-  await pagina.evaluate(()=>abrirMigracion());
+  await pagina.evaluate(()=>WS.abrirMigracion());
   await esperarTexto('cuentas migradas');
   const t=await textoApp();
   assert.match(t, /2 de 3 cuentas migradas · 1 pendientes · 0 por revisar/);
@@ -127,27 +127,27 @@ test('modo local (sin nube): configuración inicial, crear negocio, F12 de inven
   const txt=()=>p.$eval('#app', e=>e.innerText);
   const hasta=async t=>{ const fin=Date.now()+15000; while(Date.now()<fin){ if((await txt()).includes(t)) return; await espera(200); } throw new Error('No apareció "'+t+'": '+(await txt()).slice(0,400)); };
   const poner=async (sel,v)=>{ await p.waitForSelector(sel,{visible:true}); await p.$eval(sel,e=>{ e.value=''; }); await p.type(sel,v); };
-  await p.goto('http://localhost:'+PUERTO+'/', {waitUntil:'networkidle2'});
+  await p.goto('http://localhost:'+PUERTO+'/?local', {waitUntil:'networkidle2'});
   await hasta('Modo local');
   await hasta('Configuración inicial');
   await poner('#ci-nombre','Dueño'); await poner('#ci-user','dueno'); await poner('#ci-pass','clave1234'); await poner('#ci-pass2','clave1234');
-  await p.evaluate(()=>crearDuenoInicial());
+  await p.evaluate(()=>WS.crearDuenoInicial());
   await p.waitForSelector('#l-user',{visible:true});
   await poner('#l-user','dueno'); await poner('#l-pass','clave1234'); await p.click('.login-btn');
-  await p.evaluate(()=>nuevoNegocio());
+  await p.evaluate(()=>WS.nuevoNegocio());
   await poner('#m-nombre','Local Uno'); await poner('#m-usuario','jefe');
   const planes=await p.$$eval('#m-plan option', os=>os.map(o=>o.value));
   assert.deepEqual(planes, ['Básico','Profesional','Premium']);                 // F6
   await p.click('#modal-ok');
   await hasta('Local Uno');
-  await p.evaluate(()=>logout());
+  await p.evaluate(()=>WS.logout());
   await poner('#l-user','jefe'); await poner('#l-pass','admin123'); await p.click('.login-btn');
   await hasta('Mi Negocio');
-  await p.evaluate(()=>irA('minegocio'));
+  await p.evaluate(()=>WS.irA('minegocio'));
   await p.waitForSelector('#n-inventario');
   await p.$eval('#n-inventario', e=>{ e.checked=false; });
-  await p.evaluate(()=>guardarMiNegocio());
-  const n=await p.evaluate(()=>({usa:usaInventario(STATE.negocio), fun:STATE.negocio.funciones.indexOf('inventario')>-1, apagado:STATE.negocio.inventarioApagado}));
+  await p.evaluate(()=>WS.guardarMiNegocio());
+  const n=await p.evaluate(()=>({usa:WS.usaInventario(WS.STATE.negocio), fun:WS.STATE.negocio.funciones.indexOf('inventario')>-1, apagado:WS.STATE.negocio.inventarioApagado}));
   assert.deepEqual(n, {usa:false, fun:true, apagado:true});                     // F12: no toca funciones
   await ctx.close();
 });
@@ -160,9 +160,9 @@ test('R1: el panel no descarga ventas; usa el resumen y supervisar carga el nego
   await espera(800);
   const antes=await pagina.evaluate(()=>Object.keys(Datos.cache).filter(k=>/_ventas$/.test(k) && (Datos.cache[k]||[]).length));
   assert.deepEqual(antes, [], 'el panel no tiene ventas de ningún negocio');
-  await pagina.evaluate(()=>entrarComoNegocio('n2'));
+  await pagina.evaluate(()=>WS.entrarComoNegocio('n2'));
   await pagina.waitForFunction(()=>datosDe('n2','ventas').length===1, {timeout:15000});
-  await pagina.evaluate(()=>volverSuperAdmin());
+  await pagina.evaluate(()=>WS.volverSuperAdmin());
   await salir();
 });
 test('sin errores de JavaScript en la página', {skip:omitir}, ()=>{

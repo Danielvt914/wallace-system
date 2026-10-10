@@ -1,16 +1,22 @@
 // ============================================================
 //  INTERFAZ · Panel del super-admin
 //  Métricas, lista de negocios, panel del vendedor y respaldo.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/01-super-admin-panel/01-super-admin-panel.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/01-super-admin-panel/01-super-admin-panel.md
 // ============================================================
+import { STATE, escapeHtml, fmtMoney } from '../nucleo/estado.js';
+import { esAdminSistema } from '../nucleo/permisos.js';
+import { ic, toast } from '../nucleo/componentes.js';
+import { render } from '../nucleo/navegacion.js';
+import { conCuentasFirebase } from '../usuarios/sesion.js';
+import { resumenDe } from '../reportes/resumen.js';
 
 
 // ============================================================
 //  PANEL DE SUPER-ADMIN
 // ============================================================
-function panelSuperAdmin(){
+export function panelSuperAdmin(){
   const negocios=DB.get('negocios')||[];
   // Los negocios DEMO son de práctica (dinero ficticio): NO cuentan en las métricas reales
   const reales=negocios.filter(n=>!n.esDemo);
@@ -56,14 +62,14 @@ function panelSuperAdmin(){
       <div class="tb-der">
         <span class="fb-dot off" id="fb-status" title="Conexión"></span>
         <span class="reloj" id="reloj"></span>
-        <button class="btn btn-sm" onclick="cambiarMiPassSuper()">🔑 Mi contraseña</button>
-        <button class="btn btn-ghost btn-sm" onclick="logout()">${ic('logout')} Salir</button>
+        <button class="btn btn-sm" data-click="cambiarMiPassSuper()">🔑 Mi contraseña</button>
+        <button class="btn btn-ghost btn-sm" data-click="logout()">${ic('logout')} Salir</button>
       </div>
     </div>
     <div class="contenido">
-      <div class="tarjeta" style="background:linear-gradient(135deg,rgba(var(--acc-rgb),.12),transparent);">
+      <div class="tarjeta fondo-linear-gradient-135deg-acc-rgb-12-transparent">
         <span class="t-tit">👋 Hola, ${escapeHtml(STATE.user.nombre)}</span>
-        <p class="gris" style="margin-top:6px;">Aquí puedes crear negocios de demostración para mostrarle el sistema a tus clientes. Crea uno, entra y muéstralo funcionando. Estos demos son solo de práctica y no afectan a los clientes reales.</p>
+        <p class="gris mt-6">Aquí puedes crear negocios de demostración para mostrarle el sistema a tus clientes. Crea uno, entra y muéstralo funcionando. Estos demos son solo de práctica y no afectan a los clientes reales.</p>
       </div>
       <div class="stats">
         <div class="stat azul"><div class="stat-ico azul">${ic('box')}</div><div class="stat-lbl">Tus demos</div><div class="stat-val">${misDemos.length}</div><div class="stat-sub">para mostrar</div></div>
@@ -88,20 +94,20 @@ function panelSuperAdmin(){
         <div class="t-cab">
           <span class="t-tit">${ic('building')} Mis demostraciones</span>
           <div class="t-acc">
-            <button class="btn btn-ghost" onclick="crearNegocioDemo()">✨ Crear demo</button>
+            <button class="btn btn-ghost" data-click="crearNegocioDemo()">✨ Crear demo</button>
           </div>
         </div>
         <div class="tabla-wrap"><table class="tabla tabla-cards">
           <thead><tr><th>Negocio demo</th><th>Tipo</th><th>Estado</th><th>Acciones</th></tr></thead>
           <tbody>
           ${misDemos.length? misDemos.map(n=>`<tr>
-            <td data-label="Negocio"><strong>${escapeHtml(n.nombre)}</strong> <span class="pill pill-azul" style="font-size:9px;">DEMO</span>${n.ciudad?`<br><span class="gris">${escapeHtml(n.ciudad)}</span>`:''}</td>
+            <td data-label="Negocio"><strong>${escapeHtml(n.nombre)}</strong> <span class="pill pill-azul fs-9">DEMO</span>${n.ciudad?`<br><span class="gris">${escapeHtml(n.ciudad)}</span>`:''}</td>
             <td data-label="Tipo">${escapeHtml(n.tipo)}</td>
             <td data-label="Estado">${n.activo?'<span class="pill pill-verde">Activo</span>':'<span class="pill pill-rojo">Pausado</span>'}</td>
             <td class="acciones" data-label="Acciones">
-              <button class="btn btn-sm btn-verde" onclick="entrarComoNegocio('${n.id}')">Entrar</button>
-              <button class="btn btn-sm ${n.activo?'btn-naranja':'btn-verde'}" onclick="toggleNegocio('${n.id}')">${n.activo?'Pausar':'Activar'}</button>
-              <button class="btn btn-sm btn-rojo" onclick="eliminarDemoVendedor('${n.id}')" title="Borrar este demo">🗑️</button>
+              <button class="btn btn-sm btn-verde" data-click="entrarComoNegocio('${n.id}')">Entrar</button>
+              <button class="btn btn-sm ${n.activo?'btn-naranja':'btn-verde'}" data-click="toggleNegocio('${n.id}')">${n.activo?'Pausar':'Activar'}</button>
+              <button class="btn btn-sm btn-rojo" data-click="eliminarDemoVendedor('${n.id}')" title="Borrar este demo">🗑️</button>
             </td>
           </tr>`).join('') : '<tr><td colspan="4" class="gris">Aún no tienes demos. Crea el primero con "✨ Crear demo".</td></tr>'}
           </tbody>
@@ -118,12 +124,12 @@ function panelSuperAdmin(){
     <div class="tb-der">
       <span class="fb-dot off" id="fb-status" title="Conexión"></span>
       <span class="reloj" id="reloj"></span>
-      <button class="btn btn-sm" onclick="descargarRespaldo()">💾 Respaldo</button>
-      ${sinCifras?`<button class="btn btn-sm btn-naranja" onclick="calcularResumenes()" title="Negocios sin cifras publicadas todavía">📊 Calcular cifras (${sinCifras})</button>`:''}
-      ${(STATE.user.rolSuper==='dueno')?`<button class="btn btn-sm" onclick="STATE.page='superadmins';render()">👥 Administradores</button>`:''}
-      ${(conCuentasFirebase() && esAdminSistema())?`<button class="btn btn-sm" onclick="abrirMigracion()">🔐 Cuentas</button>`:''}
-      <button class="btn btn-sm" onclick="cambiarMiPassSuper()">🔑 Mi contraseña</button>
-      <button class="btn btn-ghost btn-sm" onclick="logout()">${ic('logout')} Salir</button>
+      <button class="btn btn-sm" data-click="descargarRespaldo()">💾 Respaldo</button>
+      ${sinCifras?`<button class="btn btn-sm btn-naranja" data-click="calcularResumenes()" title="Negocios sin cifras publicadas todavía">📊 Calcular cifras (${sinCifras})</button>`:''}
+      ${(STATE.user.rolSuper==='dueno')?`<button class="btn btn-sm" data-click="irAdministradores()">👥 Administradores</button>`:''}
+      ${(conCuentasFirebase() && esAdminSistema())?`<button class="btn btn-sm" data-click="abrirMigracion()">🔐 Cuentas</button>`:''}
+      <button class="btn btn-sm" data-click="cambiarMiPassSuper()">🔑 Mi contraseña</button>
+      <button class="btn btn-ghost btn-sm" data-click="logout()">${ic('logout')} Salir</button>
     </div>
   </div>
   <div class="contenido">
@@ -136,7 +142,7 @@ function panelSuperAdmin(){
     <div class="stats">
       <div class="stat gold"><div class="stat-ico gold">${ic('report')}</div><div class="stat-lbl">Ventas hoy (todos)</div><div class="stat-val">${fmtMoney(ventasHoy)}</div><div class="stat-sub">movimiento del sistema</div></div>
       <div class="stat verde"><div class="stat-ico verde">${ic('cash')}</div><div class="stat-lbl">Ventas históricas</div><div class="stat-val">${fmtMoney(ventasTot)}</div><div class="stat-sub">todos los negocios</div></div>
-      <div class="stat gold"><div class="stat-ico gold">${ic('building')}</div><div class="stat-lbl">Negocio con más ventas</div><div class="stat-val" style="font-size:19px;">${escapeHtml(top.nombre)}</div><div class="stat-sub">${fmtMoney(top.total)}</div></div>
+      <div class="stat gold"><div class="stat-ico gold">${ic('building')}</div><div class="stat-lbl">Negocio con más ventas</div><div class="stat-val fs-19">${escapeHtml(top.nombre)}</div><div class="stat-sub">${fmtMoney(top.total)}</div></div>
     </div>
     ${(()=>{ const sas2=DB.get('superadmins')||[];
       const porVend={};
@@ -163,21 +169,21 @@ function panelSuperAdmin(){
       <div class="t-cab">
         <span class="t-tit">${ic('building')} Negocios</span>
         <div class="t-acc">
-          <input type="text" class="busca" placeholder="🔍 Buscar negocio, ciudad o vendedor..." value="${escapeHtml(STATE.buscaNegocio||'')}" oninput="STATE.buscaNegocio=this.value;render()">
-          <select class="busca" onchange="STATE.filtroVendedor=this.value;render()">
+          <input type="text" class="busca" placeholder="🔍 Buscar negocio, ciudad o vendedor..." value="${escapeHtml(STATE.buscaNegocio||'')}" data-input="buscarNegocios(this.value)">
+          <select class="busca" data-change="filtrarVendedor(this.value)">
             <option value="">Todos los vendedores</option>
             <option value="sin" ${STATE.filtroVendedor==='sin'?'selected':''}>Sin asignar</option>
             ${sas.map(v=>`<option value="${v.id}" ${STATE.filtroVendedor===v.id?'selected':''}>${escapeHtml(v.nombre)}</option>`).join('')}
           </select>
-          <button class="btn btn-ghost" onclick="crearNegocioDemo()" title="Crea un negocio de ejemplo ya lleno para mostrar">✨ Crear demo</button>
-          <button class="btn btn-gold" onclick="nuevoNegocio()">${ic('plus')} Crear negocio</button>
+          <button class="btn btn-ghost" data-click="crearNegocioDemo()" title="Crea un negocio de ejemplo ya lleno para mostrar">✨ Crear demo</button>
+          <button class="btn btn-gold" data-click="nuevoNegocio()">${ic('plus')} Crear negocio</button>
         </div>
       </div>
       <div class="tabla-wrap"><table class="tabla tabla-cards">
         <thead><tr><th>Negocio</th><th>Tipo</th><th>Vendedor</th><th>Desde</th><th>Plan</th><th>Precio/mes</th><th>Usuarios</th><th>Estado</th><th>Acciones</th></tr></thead>
         <tbody>
         ${lista.length? lista.map(n=>`<tr>
-          <td data-label="Negocio"><strong>${escapeHtml(n.nombre)}</strong>${n.esDemo?' <span class="pill pill-azul" style="font-size:9px;">DEMO</span>':''}${n.ciudad?`<br><span class="gris">${escapeHtml(n.ciudad)}</span>`:''}${(n.sucursales&&n.sucursales.length>1)?`<br><span class="gris">📍 ${n.sucursales.length} sedes</span>`:''}</td>
+          <td data-label="Negocio"><strong>${escapeHtml(n.nombre)}</strong>${n.esDemo?' <span class="pill pill-azul fs-9">DEMO</span>':''}${n.ciudad?`<br><span class="gris">${escapeHtml(n.ciudad)}</span>`:''}${(n.sucursales&&n.sucursales.length>1)?`<br><span class="gris">📍 ${n.sucursales.length} sedes</span>`:''}</td>
           <td data-label="Tipo">${escapeHtml(n.tipo)}</td>
           <td data-label="Vendedor">${n.vendedorId?escapeHtml(nombreVend(n.vendedorId)||n.vendedorNombre||'—'):'<span class="pill pill-rojo chico">Sin asignar</span>'}</td>
           <td data-label="Desde" class="gris chico">${n.creado?(n.creado||'').split('T')[0]:'—'}<br>${antig(n)}</td>
@@ -186,13 +192,13 @@ function panelSuperAdmin(){
           <td data-label="Usuarios">${(DB.get('usuarios')||[]).filter(u=>u.negocioId===n.id).length}</td>
           <td data-label="Estado">${n.activo?'<span class="pill pill-verde">Activo</span>':'<span class="pill pill-rojo">Suspendido</span>'}</td>
           <td class="acciones" data-label="Acciones">
-            <button class="btn btn-sm btn-verde" onclick="entrarComoNegocio('${n.id}')">Entrar</button>
-            <button class="btn btn-sm" onclick="configNegocio('${n.id}')">Configurar</button>
-            <button class="btn btn-sm" onclick="usuariosNegocio('${n.id}')">Usuarios</button>
-            <button class="btn btn-sm" onclick="reporteMensualNegocio('${n.id}')" title="Informe mensual en PDF">📄 Informe</button>
-            <button class="btn btn-sm" onclick="asignarVendedor('${n.id}')" title="Asignar vendedor a cargo">👤 Vendedor</button>
-            <button class="btn btn-sm ${n.activo?'btn-naranja':'btn-verde'}" onclick="toggleNegocio('${n.id}')">${n.activo?'Suspender':'Activar'}</button>
-            ${STATE.user.rolSuper==='dueno'?`<button class="btn btn-sm btn-rojo" onclick="eliminarNegocio('${n.id}')" title="Eliminar empresa">🗑️</button>`:''}
+            <button class="btn btn-sm btn-verde" data-click="entrarComoNegocio('${n.id}')">Entrar</button>
+            <button class="btn btn-sm" data-click="configNegocio('${n.id}')">Configurar</button>
+            <button class="btn btn-sm" data-click="usuariosNegocio('${n.id}')">Usuarios</button>
+            <button class="btn btn-sm" data-click="reporteMensualNegocio('${n.id}')" title="Informe mensual en PDF">📄 Informe</button>
+            <button class="btn btn-sm" data-click="asignarVendedor('${n.id}')" title="Asignar vendedor a cargo">👤 Vendedor</button>
+            <button class="btn btn-sm ${n.activo?'btn-naranja':'btn-verde'}" data-click="toggleNegocio('${n.id}')">${n.activo?'Suspender':'Activar'}</button>
+            ${STATE.user.rolSuper==='dueno'?`<button class="btn btn-sm btn-rojo" data-click="eliminarNegocio('${n.id}')" title="Eliminar empresa">🗑️</button>`:''}
           </td>
         </tr>`).join('') : '<tr><td colspan="8" class="gris">No hay negocios. Crea el primero.</td></tr>'}
         </tbody>
@@ -202,7 +208,7 @@ function panelSuperAdmin(){
 }
 
 // ---------- Respaldo (copia de seguridad de TODO el sistema) ----------
-function descargarRespaldo(){
+export function descargarRespaldo(){
   if(!esAdminSistema()){ toast('No tienes permiso para descargar el respaldo','error'); return; }
   toast('Preparando respaldo...','info');
   const bajar=(data)=>{
@@ -230,3 +236,6 @@ function descargarRespaldo(){
     bajar(r.datos);
   });
 }
+export function irPanel(){ STATE.page=''; render(); }
+export function buscarNegocios(v){ STATE.buscaNegocio=v; render(); }
+export function filtrarVendedor(v){ STATE.filtroVendedor=v; render(); }

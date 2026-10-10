@@ -1,14 +1,47 @@
 // ============================================================
 //  INTERFAZ · Navegación y render
 //  irA, menú por rol (armarMenu), vista del negocio y render() principal.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/13-multitenant-isolation/13-multitenant-isolation.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/13-multitenant-isolation/13-multitenant-isolation.md
 // ============================================================
+import { STATE, escapeHtml, fijarEscribiendo } from './estado.js';
+import { esAdminSistema, pantallaValida, puedeVerSucursal, sucursalActual, usaInventario } from './permisos.js';
+import { ic, pPedido, pPedidos, reportarError } from './componentes.js';
+import { aplicarTema, quitarTema } from './tema.js';
+import { necesitaConfigInicial, vistaConfigInicial, vistaLogin } from '../usuarios/sesion.js';
+import { auditoria } from '../usuarios/auditoria.js';
+import { pantallaUsuarios } from '../usuarios/usuarios-admin.js';
+import { usuariosNeg } from '../usuarios/usuarios-negocio.js';
+import { pantallaMigracion } from '../usuarios/migracion-cuentas.js';
+import { panelSuperAdmin } from '../super-admin/panel.js';
+import { pantallaSuperAdmins } from '../super-admin/administradores.js';
+import { nuevaVenta } from '../ventas/nueva-venta.js';
+import { cuentas, usaCuentas } from '../ventas/cuentas-abiertas.js';
+import { pedidos } from '../ventas/pedidos.js';
+import { caja } from '../caja/caja.js';
+import { cocina } from '../cocina/cocina.js';
+import { tiempos } from '../cocina/tiempos.js';
+import { citas } from '../citas/citas.js';
+import { avisarVencimientos } from '../inventario/motor.js';
+import { inventario } from '../inventario/catalogo.js';
+import { combos } from '../inventario/combos.js';
+import { pantallaInsumos } from '../inventario/insumos.js';
+import { conteo } from '../inventario/conteo.js';
+import { clientes } from '../clientes/clientes.js';
+import { cuadreDomi, domicilios } from '../clientes/domicilios.js';
+import { inicio } from '../reportes/dashboard.js';
+import { reportes } from '../reportes/reportes.js';
+import { historial } from '../reportes/historial.js';
+import { contable } from '../gastos/contable.js';
+import { gastosneg } from '../gastos/gastos.js';
+import { pantallaConfig } from '../configuracion/config-negocio.js';
+import { minegocio } from '../configuracion/mi-negocio.js';
+import { reimpresiones } from '../impresion/reimpresiones.js';
 
 
-function irA(pg){
-  if(pg!=='ventas') ESCRIBIENDO=false;
+export function irA(pg){
+  if(pg!=='ventas') fijarEscribiendo(false);
   STATE.pageNeg=pg;
   const sb=document.getElementById('sidebar'); if(sb) sb.classList.remove('abierto');
   // Navegación suave: si ya estamos dentro del negocio, solo cambiamos el
@@ -24,7 +57,7 @@ function irA(pg){
 
 // Redibuja SOLO el área de contenido, el título y el resaltado del menú.
 // El sidebar y la topbar permanecen intactos, así la navegación es instantánea y sin saltos.
-function renderContenido(){
+export function renderContenido(){
   const cont=document.querySelector('.main .contenido');
   if(!cont){ render(); return; }   // por si el layout aún no existe, redibujar completo
   const neg=STATE.negocio;
@@ -43,10 +76,10 @@ function renderContenido(){
     contenido='<div class="tarjeta centro-msg"><div class="msg-ico">🚧</div>'
       +'<div class="t-tit centrado">Pantalla no disponible</div>'
       +'<p class="gris">Esta sección todavía no está habilitada para tu negocio.</p>'
-      +'<button class="btn btn-gold" onclick="irA(\'inicio\')">Volver al inicio</button></div>';
+      +'<button class="btn btn-gold" data-click="irA(\'inicio\')">Volver al inicio</button></div>';
   } else {
     try{ contenido=fn(); }catch(e){ reportarError('la pantalla '+STATE.pageNeg, e);
-      contenido='<div class="tarjeta"><p class="rojo">Ocurrió un error al mostrar esta pantalla.</p><button class="btn" onclick="irA(\'inicio\')">Volver al inicio</button></div>'; }
+      contenido='<div class="tarjeta"><p class="rojo">Ocurrió un error al mostrar esta pantalla.</p><button class="btn" data-click="irA(\'inicio\')">Volver al inicio</button></div>'; }
   }
   cont.innerHTML=contenido;
   cont.scrollTop=0;                         // subir al inicio de la nueva sección
@@ -58,12 +91,12 @@ function renderContenido(){
   }
   // Actualizar cuál ítem del menú queda resaltado
   document.querySelectorAll('.side-nav .nav-item').forEach(el=>{
-    const oc=el.getAttribute('onclick')||'';
+    const oc=el.getAttribute('data-click')||'';
     const m=oc.match(/irA\('([^']+)'\)/);
     if(m) el.classList.toggle('on', m[1]===STATE.pageNeg);
   });
 }
-function armarMenu(){
+export function armarMenu(){
   const neg=STATE.negocio, u=STATE.user;
   const F=neg.funciones||[];
   const items=[];
@@ -130,7 +163,7 @@ function armarMenu(){
   return salida;
 }
 
-function vistaNegocio(){
+export function vistaNegocio(){
   const neg=STATE.negocio, u=STATE.user;
   const menu=armarMenu();
   const titulos={inicio:'Dashboard', ventas:'+ '+pPedido(true), pedidos:pPedidos(true),
@@ -149,10 +182,10 @@ function vistaNegocio(){
     contenido='<div class="tarjeta centro-msg"><div class="msg-ico">🚧</div>'
       +'<div class="t-tit centrado">Pantalla no disponible</div>'
       +'<p class="gris">Esta sección todavía no está habilitada para tu negocio.</p>'
-      +'<button class="btn btn-gold" onclick="irA(\'inicio\')">Volver al inicio</button></div>';
+      +'<button class="btn btn-gold" data-click="irA(\'inicio\')">Volver al inicio</button></div>';
   } else {
     try{ contenido=fn(); }catch(e){ reportarError('la pantalla '+STATE.pageNeg, e);
-      contenido='<div class="tarjeta"><p class="rojo">Ocurrió un error al mostrar esta pantalla.</p><button class="btn" onclick="irA(\'inicio\')">Volver al inicio</button></div>'; }
+      contenido='<div class="tarjeta"><p class="rojo">Ocurrió un error al mostrar esta pantalla.</p><button class="btn" data-click="irA(\'inicio\')">Volver al inicio</button></div>'; }
   }
   const ini=(u.nombre||'?').charAt(0).toUpperCase();
 
@@ -166,7 +199,7 @@ function vistaNegocio(){
       </div>
       <nav class="side-nav">
         ${menu.map(m=>m.g?`<div class="nav-grupo">${m.g}</div>`
-          :`<div class="nav-item ${STATE.pageNeg===m.id?'on':''}" onclick="irA('${m.id}')">${ic(m.ic)}<span>${m.txt}</span></div>`).join('')}
+          :`<div class="nav-item ${STATE.pageNeg===m.id?'on':''}" data-click="irA('${m.id}')">${ic(m.ic)}<span>${m.txt}</span></div>`).join('')}
       </nav>
       <div class="side-pie">
         <div class="user-box">
@@ -175,7 +208,7 @@ function vistaNegocio(){
             <div class="u-nom">${escapeHtml(u.nombre)}</div>
             <div class="u-est"><span class="fb-dot off" id="fb-status"></span> <span id="fb-txt">Conectando</span></div>
           </div>
-          <button class="btn btn-ghost btn-sm" onclick="logout()" title="Salir">${ic('logout')}</button>
+          <button class="btn btn-ghost btn-sm" data-click="logout()" title="Salir">${ic('logout')}</button>
         </div>
         <div class="credito"><span class="c-marca">Wallace<span>System</span></span><span class="c-sub">Software administrativo</span></div>
       </div>
@@ -183,13 +216,13 @@ function vistaNegocio(){
     <div class="main">
       ${STATE.modoSupervision?`<div class="banner-sup">
         <span>👁️ Modo supervisión — viendo como Super-Admin</span>
-        <button class="btn btn-sm btn-gold" onclick="volverSuperAdmin()">← Volver al panel</button>
+        <button class="btn btn-sm btn-gold" data-click="volverSuperAdmin()">← Volver al panel</button>
       </div>`:''}
       <div class="topbar">
-        <h1><button class="menu-btn" onclick="document.getElementById('sidebar').classList.toggle('abierto')">☰</button>
+        <h1><button class="menu-btn" data-click="alternarMenu()">☰</button>
           ${escapeHtml(titulos[STATE.pageNeg]||'')}</h1>
         <div class="tb-der">
-          ${usaSucursales(neg)?`<select class="suc-sel" onchange="cambiarSucursal(this.value)">
+          ${usaSucursales(neg)?`<select class="suc-sel" data-change="cambiarSucursal(this.value)">
             ${sucursalesDe(neg).filter(s=>puedeVerSucursal(s.id)).map(s=>`<option value="${escapeHtml(s.id)}" ${s.id===sucursalActual()?'selected':''}>📍 ${escapeHtml(s.nombre)}</option>`).join('')}
           </select>`:''}
           <span class="reloj" id="reloj"></span>
@@ -200,7 +233,7 @@ function vistaNegocio(){
   </div>`;
 }
 
-function render(){
+export function render(){
   const app=document.getElementById('app');
   if(!app) return;
   // Guardar el campo enfocado (buscadores) para restaurarlo tras redibujar,
@@ -244,3 +277,4 @@ function render(){
     else { dot.className='fb-dot off'; txt.textContent='Sin conexión'; }
   }
 }
+export function alternarMenu(){ const s=document.getElementById('sidebar'); if(s) s.classList.toggle('abierto'); }

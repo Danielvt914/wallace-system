@@ -1,24 +1,30 @@
 // ============================================================
 //  INTERFAZ · Usuarios (dentro del negocio)
 //  Lista de empleados para el jefe y cambio de contraseña.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/10-users-roles/10-users-roles.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/10-users-roles/10-users-roles.md
 // ============================================================
+import { STATE, escapeHtml, fijarEscribiendo } from '../nucleo/estado.js';
+import { abrirModal, cerrarModal, ic, toast } from '../nucleo/componentes.js';
+import { render } from '../nucleo/navegacion.js';
+import { conCuentasFirebase, ponerPass } from './sesion.js';
+import { cambiarMiPassCuenta } from './cuentas.js';
+import { logAudit } from './auditoria.js';
 
 
 // ============================================================
 //  USUARIOS DEL NEGOCIO (los administra el propio jefe, sin super-admin)
 // ============================================================
-function puedeGestionarUsuarios(){
+export function puedeGestionarUsuarios(){
   const u=STATE.user;
   if(!u) return false;
   if(u.esSupervisor || u.rol==='admin') return true;
   const permitidas=(u.pantallas&&u.pantallas.length)?u.pantallas:(PANTALLAS_POR_ROL[u.rol]||[]);
   return permitidas.indexOf('usuarios')>-1;
 }
-function usuariosNeg(){
-  ESCRIBIENDO=false;
+export function usuariosNeg(){
+  fijarEscribiendo(false);
   if(!puedeGestionarUsuarios()){
     return `<div class="tarjeta centro-msg"><div class="msg-ico">🔒</div>
       <div class="t-tit centrado">Acceso restringido</div>
@@ -40,15 +46,15 @@ function usuariosNeg(){
           <td>${escapeHtml((ROLES.find(r=>r[0]===u.rol)||['',u.rol])[1])}</td>
           <td>${u.activo!==false?'<span class="pill pill-verde">Activo</span>':'<span class="pill pill-rojo">Inactivo</span>'}</td>
           <td class="acciones">${!conCuentasFirebase()
-            ? `<button class="btn btn-sm btn-gold" onclick="cambiarPassNeg('${u.id}')" title="Cambiar contraseña">🔑 Cambiar contraseña</button>`
-            : (u.id===STATE.user.id ? `<button class="btn btn-sm btn-gold" onclick="cambiarMiPassCuenta()">🔑 Cambiar mi contraseña</button>` : '<span class="gris chico">Pídelo al proveedor</span>')}</td>
+            ? `<button class="btn btn-sm btn-gold" data-click="cambiarPassNeg('${u.id}')" title="Cambiar contraseña">🔑 Cambiar contraseña</button>`
+            : (u.id===STATE.user.id ? `<button class="btn btn-sm btn-gold" data-click="cambiarMiPassCuenta()">🔑 Cambiar mi contraseña</button>` : '<span class="gris chico">Pídelo al proveedor</span>')}</td>
         </tr>`).join(''):'<tr><td colspan="5" class="gris">Sin usuarios.</td></tr>'}</tbody>
       </table></div>
-      <p class="nota" style="margin-top:12px;">Cambia la contraseña cuando alguien la comparta de más o cuando salga un empleado. Cada cambio queda registrado en la auditoría con tu nombre.</p>
+      <p class="nota mt-12">Cambia la contraseña cuando alguien la comparta de más o cuando salga un empleado. Cada cambio queda registrado en la auditoría con tu nombre.</p>
     </div>`;
 }
 // Único cambio permitido desde el negocio: la contraseña
-function cambiarPassNeg(id){
+export function cambiarPassNeg(id){
   if(!puedeGestionarUsuarios()){ toast('No tienes permiso','error'); return; }
   // Con cuentas de Firebase el navegador solo puede cambiar la contraseña propia (Plan B, B.12)
   if(conCuentasFirebase()){

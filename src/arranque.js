@@ -5,7 +5,7 @@
 //   2. verifica que los adaptadores cumplan sus puertos
 //   3. crea los servicios de aplicación (inicio de sesión)
 //   4. publica todo para la interfaz (puente de migración)
-//   5. carga la interfaz (adaptador de entrada, ui/manifiesto.js) y la inicia
+//   5. importa la interfaz (adaptador de entrada, módulos de ui/manifiesto.js) y la inicia
 //  Es el equivalente al "endpoint" del documento de arquitectura hexagonal.
 // ============================================================
 import * as fechas from './dominio/fechas.js';
@@ -27,22 +27,20 @@ import { crearAdaptadorFirebase } from './adaptadores/salida/firebase-datos.js';
 import { crearAdaptadorCuentas } from './adaptadores/salida/firebase-cuentas.js';
 import * as cripto from './adaptadores/salida/cripto-navegador.js';
 import { instalarPuente } from './adaptadores/entrada/ui/puente-legado.js';
-import { ARCHIVOS_UI, VERSION_UI } from './adaptadores/entrada/ui/manifiesto.js';
-
-const RAIZ_UI='src/adaptadores/entrada/ui/';
+// La interfaz se importa DESPUÉS de instalar el puente (usa sus nombres): ver el final
+let ui=null;   // espacio de nombres de la interfaz (ui/manifiesto.js → cargarInterfaz)
 
 // Los "ganchos" son cómo el adaptador de datos avisa a la interfaz sin conocerla.
-// Se resuelven en el momento de usarse porque la interfaz se carga después.
+// Hasta que la interfaz cargue no hacen nada (los datos pueden llegar antes).
 const ganchos={
-  // STATE es un const del script clásico: no está en window, pero sí se ve por su nombre
-  negocioActual: ()=> (typeof STATE!=='undefined' && STATE.negocio) || null,
-  alCambiar: ()=> { if(typeof window.refrescarSiSePuede==='function') window.refrescarSiSePuede(); },
-  alCambiarNegocio: n=> { if(typeof window.negocioCambiado==='function') window.negocioCambiado(n); },
-  alEstadoConexion: e=> { if(typeof window.mostrarConexion==='function') window.mostrarConexion(e); },
+  negocioActual: ()=> (ui && ui.STATE.negocio) || null,
+  alCambiar: ()=> { if(ui) ui.refrescarSiSePuede(); },
+  alCambiarNegocio: n=> { if(ui) ui.negocioCambiado(n); },
+  alEstadoConexion: e=> { if(ui) ui.mostrarConexion(e); },
   alCargarTabla: t=> {
-    if(t!=='ventas') return;
-    if(typeof window.reservarFactura==='function') window.reservarFactura();
-    if(typeof window.ventasCargadas==='function') window.ventasCargadas();
+    if(t!=='ventas' || !ui) return;
+    ui.reservarFactura();
+    ui.ventasCargadas();
   }
 };
 
@@ -89,26 +87,13 @@ instalarPuente(window, {
   cripto
 });
 
-// La interfaz son scripts clásicos (sus onclick usan nombres globales). Se
-// insertan con async=false: el navegador los descarga en paralelo pero los
-// EJECUTA en el orden del manifiesto. Cuando carga el último, arranca.
-function cargarEnOrden(rutas){
-  return new Promise((listo, fallo)=>{
-    let faltan=rutas.length;
-    rutas.forEach(ruta=>{
-      const s=document.createElement('script');
-      s.src=ruta+'?v='+VERSION_UI;
-      s.async=false;
-      s.onload=()=>{ if(--faltan===0) listo(); };
-      s.onerror=()=>fallo(new Error(ruta));
-      document.body.appendChild(s);
-    });
-  });
-}
-cargarEnOrden(ARCHIVOS_UI.map(a=>RAIZ_UI+a))
-  .then(()=>window.iniciarInterfaz())
+// La interfaz son módulos ES (ui/manifiesto.js los importa todos). Se importa
+// aquí, ya con el puente instalado. window.WS = sus nombres, para la consola y las pruebas.
+import('./adaptadores/entrada/ui/manifiesto.js')
+  .then(m=>m.cargarInterfaz())
+  .then(espacio=>{ ui=espacio; window.WS=espacio; return ui.iniciarInterfaz(); })
   .catch(e=>{
-    console.error('No cargó la interfaz:', e && e.message);
+    console.error('No cargó la interfaz:', e && (e.stack || e.message));
     const app=document.getElementById('app');
     if(app) app.innerHTML='<div style="padding:40px;text-align:center;color:#fff;">No se pudo cargar la aplicación. Recarga con Ctrl+Shift+R.</div>';
   });

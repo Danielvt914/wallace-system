@@ -14,6 +14,7 @@ Registro de las correcciones aplicadas a `app.js` para los hallazgos de **seguri
 | S3 | Contraseña inicial del super-admin escrita en `app.js` | ✅ Corregido | `seed` (`ui/nucleo/arranque.js`), configuración inicial (`ui/usuarios/sesion.js`) |
 | S4 | Permisos validados solo ocultando botones | ✅ Corregido | `exigirPermiso`, `esAdminSistema`, `puedeVerPantalla` (768–799) y más de 25 funciones |
 | S5 | Todos los roles aterrizaban en el Dashboard | ✅ Corregido | `pantallaValida` (794), `login` |
+| S6 | El nombre de una categoría ejecutaba código dentro de un `onclick` (XSS almacenado) | ✅ Corregido (fase 8, 2026-10-09) | `ui/ventas/nueva-venta.js`, `ui/inventario/catalogo.js`, `ui/nucleo/eventos.js` |
 | D1 | Consecutivo de factura repetible entre equipos | ✅ Corregido | `reservarFactura` / `siguienteFactura` (2256–2290) |
 | D2 | Stock "última escritura gana" | ✅ Corregido | `cambiarStock` (3581) y todos los que mueven stock |
 | D3 | Recortes de historial que no recortaban | ✅ Corregido | `logAudit`, `moverInventario`, `guardarConteo` |
@@ -555,6 +556,21 @@ Validación agregada **al inicio** de cada función:
 - `pantallaValida()` (`ui/nucleo/permisos.js`) se ejecuta antes de dibujar en `vistaNegocio` y `renderContenido`: si la pantalla pedida no está entre las permitidas, cambia a la primera permitida del menú.
 
 **Probado**: cocina entra a su primera pantalla permitida (no al Dashboard); el cajero que pide `contable` se queda en su pantalla.
+
+---
+
+## S6 — Código inyectable por el nombre de una categoría ✅
+
+**Error**: los botones de categoría armaban `onclick="_vCat='${escapeHtml(c)}';render()"` (Nueva Venta) y `onclick="_iCat='${escapeHtml(c)}';render()"` (Inventario, dos veces). El navegador decodifica las entidades del atributo antes de ejecutarlo: `&#39;` vuelve a ser `'` y cierra la cadena. Un nombre de categoría armado a propósito (`x';alert(1);'`) se ejecutaba en la sesión de cualquiera que abriera esas pantallas en cualquier equipo del negocio, incluido el super-admin. Uno inocente con apóstrofo (`Niño's`) solo rompía el botón.
+
+**Corrección** (fase 8, eventos delegados)
+- `data-click="elegirCategoriaVenta(this.dataset.cat)" data-cat="${escapeHtml(c)}"` (y `elegirCategoriaInventario`): el dato viaja como texto en un atributo `data-`, nunca dentro del código.
+- Todos los `onclick`/`oninput`/… (250) pasaron a `data-*`. `ui/nucleo/eventos.js` interpreta cada uno como una sola llamada con argumentos simples, sin `eval`, y solo a funciones exportadas por los módulos de la interfaz.
+- Se revisaron los 94 manejadores viejos que interpolaban `${…}`: solo estos 3 usaban datos escritos por usuarios; los demás, ids generados o constantes.
+
+**Probado**: `tests/navegador/recorrido.test.mjs` pone la categoría `Niño's` a un producto, hace clic real en su botón y comprueba que filtra. `tests/ui/estructura.test.mjs` falla ante cualquier `on…="…"` en una plantilla. El recorrido revisa además que el HTML ya dibujado de las 327 pantallas no tenga atributos `on…`.
+
+**Pendiente**: activar una Content-Security-Policy que bloquee código en línea, por si en otro lugar faltara `escapeHtml` ([csp.md](../-03-architecture/csp.md): política propuesta, probada en local con `node scripts/probar-csp.mjs` y pasos para activarla en Render).
 
 ---
 

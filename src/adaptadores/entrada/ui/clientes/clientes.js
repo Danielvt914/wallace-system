@@ -1,13 +1,17 @@
 // ============================================================
 //  INTERFAZ · Clientes
 //  Clientes automáticos y su pantalla.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/07-customers-delivery/07-customers-delivery.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/07-customers-delivery/07-customers-delivery.md
 // ============================================================
+import { escapeHtml, fijarEscribiendo, fmtDate, fmtMoney, now } from '../nucleo/estado.js';
+import { puedeVerPantalla } from '../nucleo/permisos.js';
+import { abrirModal, cerrarModal, confirmarModal, ic, toast } from '../nucleo/componentes.js';
+import { render } from '../nucleo/navegacion.js';
 
 // ---------- CLIENTES AUTOMÁTICOS ----------
-function guardarClienteAuto(venta){
+export function guardarClienteAuto(venta){
   const nombre=(venta.cliNombre||'').trim();
   const tel=(venta.cliTel||'').trim();
   if(!nombre && !tel) return;
@@ -35,9 +39,9 @@ function guardarClienteAuto(venta){
 // ============================================================
 //  CLIENTES
 // ============================================================
-let _cBusca='';
-function clientes(){
-  ESCRIBIENDO=false;
+export let _cBusca='';
+export function clientes(){
+  fijarEscribiendo(false);
   let cls=misDatos('clientes');
   if(_cBusca){ const q=_cBusca.toLowerCase();
     cls=cls.filter(c=>(c.nombre||'').toLowerCase().includes(q)||(c.tel||'').includes(q)||(c.barrio||'').toLowerCase().includes(q)); }
@@ -49,14 +53,14 @@ function clientes(){
     <div class="stats">
       <div class="stat verde"><div class="stat-lbl">Clientes registrados</div><div class="stat-val">${todos.length}</div><div class="stat-sub">${todos.filter(c=>(c.pedidos||0)>0).length} con compras</div></div>
       <div class="stat gold"><div class="stat-lbl">Total comprado</div><div class="stat-val">${fmtMoney(totalComprado)}</div><div class="stat-sub">por todos</div></div>
-      <div class="stat azul"><div class="stat-lbl">Cliente top</div><div class="stat-val" style="font-size:17px;">${cls.length?escapeHtml(cls[0].nombre||'—'):'—'}</div><div class="stat-sub">${cls.length?(cls[0].pedidos||0)+' pedido(s)':''}</div></div>
+      <div class="stat azul"><div class="stat-lbl">Cliente top</div><div class="stat-val fs-17">${cls.length?escapeHtml(cls[0].nombre||'—'):'—'}</div><div class="stat-sub">${cls.length?(cls[0].pedidos||0)+' pedido(s)':''}</div></div>
     </div>
     <div class="tarjeta">
       <div class="t-cab">
         <span class="t-tit">${ic('users')} Clientes</span>
         <div class="t-acc">
-          <input type="text" class="busca" placeholder="🔍 Nombre, teléfono, barrio..." value="${escapeHtml(_cBusca)}" oninput="_cBusca=this.value;render()">
-          <button class="btn btn-gold" onclick="editarCliente(null)">+ Agregar</button>
+          <input type="text" class="busca" placeholder="🔍 Nombre, teléfono, barrio..." value="${escapeHtml(_cBusca)}" data-input="buscarClientes(this.value)">
+          <button class="btn btn-gold" data-click="editarCliente(null)">+ Agregar</button>
         </div>
       </div>
       <p class="gris">Se guardan solos cuando cobras un domicilio o envío con datos del cliente.</p>
@@ -71,15 +75,15 @@ function clientes(){
           <td class="oro negrita">${fmtMoney(c.totalComprado||0)}</td>
           <td class="gris chico">${c.ultimoPedido?fmtDate(c.ultimoPedido):'—'}</td>
           <td class="acciones">
-            <button class="btn btn-sm" onclick="editarCliente('${c.id}')">Editar</button>
-            <button class="btn btn-sm btn-rojo" onclick="eliminarCliente('${c.id}')">×</button>
+            <button class="btn btn-sm" data-click="editarCliente('${c.id}')">Editar</button>
+            <button class="btn btn-sm btn-rojo" data-click="eliminarCliente('${c.id}')">×</button>
           </td>
         </tr>`).join('') : `<tr><td colspan="7" class="gris">${_cBusca?'No se encontraron.':'Sin clientes aún.'}</td></tr>`}
         </tbody>
       </table></div>
     </div>`;
 }
-function editarCliente(id){
+export function editarCliente(id){
   if(!puedeVerPantalla('clientes')){ toast('No tienes acceso a Clientes','error'); return; }
   const cls=misDatos('clientes');
   const c=id?cls.find(x=>x.id===id):null;
@@ -97,9 +101,10 @@ function editarCliente(id){
     cerrarModal(); toast('Guardado','success'); render();
   }});
 }
-function eliminarCliente(id){
+export function eliminarCliente(id){
   if(!puedeVerPantalla('clientes')){ toast('No tienes acceso a Clientes','error'); return; }
   confirmarModal('¿Eliminar este cliente?',()=>{
     eliminarMisDatos('clientes',id); toast('Eliminado','info'); render();
   },'Eliminar');
 }
+export function buscarClientes(v){ _cBusca=v; render(); }

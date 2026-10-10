@@ -1,9 +1,9 @@
 // ============================================================
 //  INTERFAZ · Tablas en celular
 //  Convierte las filas de las tablas en tarjetas en pantallas angostas.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/README.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/README.md
 // ============================================================
 
 
@@ -15,9 +15,9 @@
 //  En el celular cada fila se vuelve una tarjeta: sin deslizar de lado,
 //  solo lo importante y los botones a la vista. En PC no cambia nada.
 // ============================================================
-const TC_ACCIONES=['Acciones','',' ','Reimprimir','Corregir'];
+export const TC_ACCIONES=['Acciones','',' ','Reimprimir','Corregir'];
 // Columnas secundarias que se esconden en celular, según la primera columna
-const TC_OCULTAR={
+export const TC_OCULTAR={
   'Negocio':['Flujo','Plan','Precio/mes','Usuarios'],
   'Factura':['Tipo','Método'],
   'Pedido':['Método'],
@@ -29,7 +29,7 @@ const TC_OCULTAR={
   'Producto':[],
   'Tipo':['Quién']
 };
-function prepararTablasMovil(raiz){
+export function prepararTablasMovil(raiz){
   (raiz||document).querySelectorAll('table.tabla:not([data-tc])').forEach(t=>{
     t.setAttribute('data-tc','1');
     const ths=[...t.querySelectorAll('thead th')].map(th=>th.textContent.trim());

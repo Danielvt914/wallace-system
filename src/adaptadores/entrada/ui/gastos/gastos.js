@@ -1,39 +1,45 @@
 // ============================================================
 //  INTERFAZ · Gastos del negocio
 //  Gastos y conceptos (reglas en dominio/gastos.js).
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/09-expenses-accounting/09-expenses-accounting.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/09-expenses-accounting/09-expenses-accounting.md
 // ============================================================
+import { STATE, escapeHtml, fijarEscribiendo, fmtMoney, now } from '../nucleo/estado.js';
+import { puedeVerPantalla } from '../nucleo/permisos.js';
+import { abrirModal, cerrarModal, confirmarModal, ic, toast } from '../nucleo/componentes.js';
+import { render } from '../nucleo/navegacion.js';
+import { logAudit } from '../usuarios/auditoria.js';
+import { nombreMes } from './contable.js';
 
 
 // ============================================================
 //  GASTOS DEL NEGOCIO
 // ============================================================
-let _mesGas=null;
+export let _mesGas=null;
 // ---------- Conceptos de gasto ----------
 // Se agregan UNA vez y después solo se seleccionan. Antes cada quien los
 // escribía distinto ("arriendo", "Arriendo local") y el informe se llenaba
 // de líneas repetidas.
 // CONCEPTOS_BASE, normConcepto, claveConcepto: src/dominio/gastos.js (los publica el puente)
-function getConceptosGasto(){
+export function getConceptosGasto(){
   let base=DB.get(claveDe(STATE.negocio.id,'conceptos_gasto'));
   if(!Array.isArray(base)) base=CONCEPTOS_BASE.concat(misDatos('gastos_negocio').map(g=>g.concepto));
   return Dominio.gastos.conceptosUnicos(base);
 }
-function guardarConceptos(lista){ DB.set(claveDe(STATE.negocio.id,'conceptos_gasto'), lista); }
+export function guardarConceptos(lista){ DB.set(claveDe(STATE.negocio.id,'conceptos_gasto'), lista); }
 // Catálogo de conceptos para sumar: armarlo UNA vez por pantalla (R2)
-function catalogoConceptos(){ try{ return getConceptosGasto(); }catch(e){ return []; } }
+export function catalogoConceptos(){ try{ return getConceptosGasto(); }catch(e){ return []; } }
 // Suma sin duplicar por mayúsculas, tildes o espacios
-function acumConcepto(obj, nombre, monto, oficiales){
+export function acumConcepto(obj, nombre, monto, oficiales){
   Dominio.gastos.acumularConcepto(obj, nombre, monto, oficiales||catalogoConceptos());
 }
 // Lista compacta con barra y porcentaje (como en Portal Imperial)
 window._ccOpen=window._ccOpen||{};
-function conceptosCompactoHTML(obj, opts){
+export function conceptosCompactoHTML(obj, opts){
   opts=opts||{};
   const arr=Object.entries(obj||{}).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
-  if(!arr.length) return `<p class="gris chico" style="margin:4px 0 10px;">${opts.vacio||'Sin gastos.'}</p>`;
+  if(!arr.length) return `<p class="gris chico m-4-0-10">${opts.vacio||'Sin gastos.'}</p>`;
   const base=opts.base||arr.reduce((a,[,v])=>a+v,0);
   const fila=([k,v])=>{
     const pct=base>0?Math.round(v/base*1000)/10:0;
@@ -45,17 +51,17 @@ function conceptosCompactoHTML(obj, opts){
   let html=`<div class="cc-list">${vis.map(fila).join('')}`;
   if(resto.length){
     const suma=resto.reduce((a,[,v])=>a+v,0); const id=opts.id||'cc';
-    html+=`<details class="cc-more" ${window._ccOpen[id]?'open':''} ontoggle="window._ccOpen['${id}']=this.open">
+    html+=`<details class="cc-more" ${window._ccOpen[id]?'open':''} data-toggle="recordarDesplegado('${id}',this.open)">
       <summary>Ver ${resto.length} concepto(s) más · ${fmtMoney(suma)}</summary>
       <div class="cc-scroll">${resto.map(fila).join('')}</div></details>`;
   }
   return html+'</div>';
 }
-function opcionesConcepto(lista, sel){
+export function opcionesConcepto(lista, sel){
   return `<option value="">Seleccione un concepto...</option>`+
     lista.map(c=>`<option value="${escapeHtml(c)}" ${claveConcepto(c)===claveConcepto(sel||'')?'selected':''}>${escapeHtml(c)}</option>`).join('');
 }
-function agregarConceptoGasto(){
+export function agregarConceptoGasto(){
   const inp=document.getElementById('g-nuevoconcepto');
   const n=normConcepto(inp&&inp.value);
   if(!n){ toast('Escribe el nombre del concepto','error'); return; }
@@ -68,23 +74,23 @@ function agregarConceptoGasto(){
   if(inp) inp.value='';
   const w=document.getElementById('g-boxconcepto'); if(w) w.style.display='none';
 }
-function toggleNuevoConcepto(){
+export function toggleNuevoConcepto(){
   const w=document.getElementById('g-boxconcepto'); if(!w) return;
   const abrir=w.style.display==='none';
   w.style.display=abrir?'block':'none';
   if(abrir) setTimeout(()=>{ const i=document.getElementById('g-nuevoconcepto'); if(i) i.focus(); },40);
 }
-function administrarConceptos(){
+export function administrarConceptos(){
   const lista=getConceptosGasto();
   abrirModal({titulo:'Conceptos de gasto', textoBoton:'Listo', campos:[],
     extraHTML:`<p class="nota">Estos son los conceptos que aparecen al registrar un gasto. Quitar uno no borra los gastos ya registrados con él.</p>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">
-        ${lista.map(c=>`<span class="pill pill-gold" style="padding:5px 6px 5px 11px;">${escapeHtml(c)}
-          <button type="button" onclick="quitarConcepto(this.dataset.c)" data-c="${escapeHtml(c)}" style="background:none;border:none;color:var(--rojo);cursor:pointer;font-size:15px;padding:0 2px;">×</button></span>`).join('')}
+      <div class="d-flex flex-wrap gap-6 mt-10">
+        ${lista.map(c=>`<span class="pill pill-gold p-5-6-5-11">${escapeHtml(c)}
+          <button type="button" data-click="quitarConcepto(this.dataset.c)" data-c="${escapeHtml(c)}" class="fondo-ninguno borde-ninguno color-rojo cursor-mano fs-15 p-0-2">×</button></span>`).join('')}
       </div>`,
     onGuardar:()=>{ cerrarModal(); render(); }});
 }
-function quitarConcepto(nombre){
+export function quitarConcepto(nombre){
   if(!nombre) return;
   const lista=getConceptosGasto().filter(x=>claveConcepto(x)!==claveConcepto(nombre));
   guardarConceptos(lista);
@@ -92,8 +98,8 @@ function quitarConcepto(nombre){
   cerrarModal(); toast('Concepto quitado','info'); administrarConceptos();
 }
 
-function gastosneg(){
-  ESCRIBIENDO=false;
+export function gastosneg(){
+  fijarEscribiendo(false);
   const gastos=misDatos('gastos_negocio');
   const mes=_mesGas||today().substring(0,7);
   const delMes=gastos.filter(g=>Dominio.fechas.mesDe(g.fecha)===mes);
@@ -123,11 +129,11 @@ function gastosneg(){
         <div><span class="t-tit">${ic('cash')} Gastos del Negocio</span>
           <p class="gris">Todo lo que sale de plata: lo que paga el dueño aparte y lo que sale de la caja diaria.</p></div>
         <div class="t-acc">
-          <select class="busca" onchange="_mesGas=this.value;render()">
+          <select class="busca" data-change="elegirMesGastos(this.value)">
             ${meses.map(m=>`<option value="${m}" ${m===mes?'selected':''}>${nombreMes(m)}</option>`).join('')}
           </select>
-          <button class="btn btn-sm btn-ghost" onclick="administrarConceptos()">Conceptos</button>
-          <button class="btn btn-gold" onclick="nuevoGasto()">+ Registrar gasto</button>
+          <button class="btn btn-sm btn-ghost" data-click="administrarConceptos()">Conceptos</button>
+          <button class="btn btn-gold" data-click="nuevoGasto()">+ Registrar gasto</button>
         </div>
       </div>
     </div>
@@ -147,7 +153,7 @@ function gastosneg(){
       <div class="tarjeta">
         <div class="cc-sec"><span>En qué se fue la plata</span><span>${Object.keys(porConcepto).length} concepto(s)</span></div>
         ${conceptosCompactoHTML(porConcepto,{id:'gn-mes',max:7,vacio:'Sin gastos este mes.'})}
-        ${ventasMes>0?`<p class="nota" style="margin-top:12px;">El porcentaje es sobre el total de gastos. De cada ${fmtMoney(100000)} vendidos, se van <strong class="rojo">${fmtMoney(Math.round(total/ventasMes*100000))}</strong> en gastos.</p>`:''}
+        ${ventasMes>0?`<p class="nota mt-12">El porcentaje es sobre el total de gastos. De cada ${fmtMoney(100000)} vendidos, se van <strong class="rojo">${fmtMoney(Math.round(total/ventasMes*100000))}</strong> en gastos.</p>`:''}
       </div>
       <div class="tarjeta"><span class="t-tit">Detalle de ${nombreMes(mes)}</span>
         <div class="tabla-wrap"><table class="tabla">
@@ -157,13 +163,13 @@ function gastosneg(){
             <td><strong>${escapeHtml(g.concepto)}</strong>${g.origen==='caja'?' <span class="pill pill-azul chico">de caja</span>':''}${g.nota?`<br><span class="gris chico">${escapeHtml(g.nota)}</span>`:''}${g.por?`<br><span class="gris chico">${escapeHtml(g.por)}</span>`:''}</td>
             <td class="gris">${escapeHtml(g.metodo||'—')}</td>
             <td class="negrita rojo">${fmtMoney(g.valor)}</td>
-            <td>${g.origen==='caja'?'<span class="gris chico" title="Se corrige desde la caja">🔒 Caja</span>':`<button class="btn btn-sm btn-rojo" onclick="eliminarGasto('${g.id}')">×</button>`}</td>
+            <td>${g.origen==='caja'?'<span class="gris chico" title="Se corrige desde la caja">🔒 Caja</span>':`<button class="btn btn-sm btn-rojo" data-click="eliminarGasto('${g.id}')">×</button>`}</td>
           </tr>`).join(''):'<tr><td colspan="5" class="gris">Sin gastos este mes.</td></tr>'}</tbody>
         </table></div>
       </div>
     </div>`;
 }
-function nuevoGasto(){
+export function nuevoGasto(){
   if(!puedeVerPantalla('gastosneg')){ toast('No tienes acceso a Gastos','error'); return; }
   const lista=getConceptosGasto();
   abrirModal({titulo:'Registrar gasto', textoBoton:'Guardar', campos:[
@@ -173,14 +179,14 @@ function nuevoGasto(){
     {id:'metodo', label:'Pagado con', tipo:'select', opciones:[
       {valor:'Efectivo',label:'Efectivo'},{valor:'Banco',label:'Banco'},{valor:'Tarjeta',label:'Tarjeta'}]},
     {id:'nota', label:'Nota (opcional)'}
-  ], extraHTML:`<div style="margin-top:-6px;">
-      <button type="button" class="btn btn-sm btn-ghost" onclick="toggleNuevoConcepto()">+ Agregar concepto nuevo</button>
+  ], extraHTML:`<div class="mt-n6">
+      <button type="button" class="btn btn-sm btn-ghost" data-click="toggleNuevoConcepto()">+ Agregar concepto nuevo</button>
       <div id="g-boxconcepto" style="display:none;margin-top:8px;padding:10px;border:1px dashed var(--linea);border-radius:10px;">
-        <p class="nota" style="margin:0 0 6px;">Escríbelo una sola vez. Después solo lo seleccionas.</p>
-        <div style="display:flex;gap:6px;">
-          <input type="text" id="g-nuevoconcepto" class="campo" style="margin:0;" placeholder="Ej: Gas, Desechables, Aseo"
-            onkeydown="if(event.key==='Enter'){event.preventDefault();agregarConceptoGasto();}">
-          <button type="button" class="btn btn-verde btn-sm" onclick="agregarConceptoGasto()">Guardar</button>
+        <p class="nota m-0-0-6">Escríbelo una sola vez. Después solo lo seleccionas.</p>
+        <div class="d-flex gap-6">
+          <input type="text" id="g-nuevoconcepto" class="campo m-0" placeholder="Ej: Gas, Desechables, Aseo"
+            data-enter="agregarConceptoGasto()">
+          <button type="button" class="btn btn-verde btn-sm" data-click="agregarConceptoGasto()">Guardar</button>
         </div>
       </div>
     </div>`,
@@ -194,7 +200,7 @@ function nuevoGasto(){
     cerrarModal(); toast('Gasto registrado','success'); render();
   }});
 }
-function eliminarGasto(id){
+export function eliminarGasto(id){
   if(!puedeVerPantalla('gastosneg')){ toast('No tienes acceso a Gastos','error'); return; }
   const g=misDatos('gastos_negocio').find(x=>x.id===id);
   if(!g){ return; }
@@ -212,3 +218,6 @@ function eliminarGasto(id){
     toast('Gasto eliminado','info'); render();
   },'Eliminar');
 }
+export function elegirMesGastos(v){ _mesGas=v; render(); }
+// Recuerda qué listas de conceptos quedaron desplegadas (<details>) entre redibujos
+export function recordarDesplegado(id, abierto){ window._ccOpen[id]=abierto; }

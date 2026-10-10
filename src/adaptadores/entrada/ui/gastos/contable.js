@@ -1,18 +1,23 @@
 // ============================================================
 //  INTERFAZ · Registro contable
 //  Resumen contable mensual y reimpresión de cierres.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/09-expenses-accounting/09-expenses-accounting.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/09-expenses-accounting/09-expenses-accounting.md
 // ============================================================
+import { STATE, escapeHtml, fijarEscribiendo, fmtMoney } from '../nucleo/estado.js';
+import { ic, pProd, pProds, toast } from '../nucleo/componentes.js';
+import { render } from '../nucleo/navegacion.js';
+import { imprimirCierre } from '../caja/caja.js';
+import { acumConcepto, catalogoConceptos, conceptosCompactoHTML } from './gastos.js';
 
 
 // ============================================================
 //  CONTABLE
 // ============================================================
-let _mesCont=null;
-function contable(){
-  ESCRIBIENDO=false;
+export let _mesCont=null;
+export function contable(){
+  fijarEscribiendo(false);
   const neg=STATE.negocio;
   const mes=_mesCont||today().substring(0,7);
   // Mes anterior para el comparativo
@@ -76,10 +81,10 @@ function contable(){
         <div><span class="t-tit">${ic('report')} Registro Contable Mensual</span>
           <p class="gris">Informe interno de gestión para el dueño. No es tributario ni tiene relación con la DIAN.</p></div>
         <div class="t-acc">
-          <select class="busca" onchange="_mesCont=this.value;render()">
+          <select class="busca" data-change="elegirMesContable(this.value)">
             ${meses.map(m=>`<option value="${m}" ${m===mes?'selected':''}>${nombreMes(m)}</option>`).join('')}
           </select>
-          <button class="btn btn-gold btn-sm" onclick="imprimirContable()">🖨️ PDF / Imprimir</button>
+          <button class="btn btn-gold btn-sm" data-click="imprimirContable()">🖨️ PDF / Imprimir</button>
         </div>
       </div>
     </div>
@@ -99,11 +104,11 @@ function contable(){
       <div class="tarjeta"><span class="t-tit">${ic('cash')} Egresos por concepto (lo que se gastó)</span>
         ${concCaja.length?`<div class="cc-sec"><span>De la caja diaria</span><span>${fmtMoney(gastosCaja)}</span></div>
           ${conceptosCompactoHTML(gCaja,{id:'ct-caja',max:5,base:egresos})}`:''}
-        ${concNeg.length?`<div class="cc-sec" style="margin-top:14px;"><span>Gastos del negocio</span><span>${fmtMoney(totalGastos)}</span></div>
+        ${concNeg.length?`<div class="cc-sec mt-14"><span>Gastos del negocio</span><span>${fmtMoney(totalGastos)}</span></div>
           ${conceptosCompactoHTML(gNeg,{id:'ct-neg',max:6,base:egresos})}`:''}
         ${(!concCaja.length&&!concNeg.length)?'<p class="gris">Sin gastos este mes.</p>':`
           <div class="linea total-linea"><span>TOTAL EGRESOS</span><strong class="rojo">${fmtMoney(egresos)}</strong></div>
-          ${totalVentas>0?`<p class="nota" style="margin-top:8px;">Los gastos se llevan el <strong class="rojo">${Math.round(egresos/totalVentas*1000)/10}%</strong> de lo vendido. Queda el <strong class="verde">${Math.round(utilidad/totalVentas*1000)/10}%</strong> de utilidad.</p>`:''}`}
+          ${totalVentas>0?`<p class="nota mt-8">Los gastos se llevan el <strong class="rojo">${Math.round(egresos/totalVentas*1000)/10}%</strong> de lo vendido. Queda el <strong class="verde">${Math.round(utilidad/totalVentas*1000)/10}%</strong> de utilidad.</p>`:''}`}
       </div>
     </div>
     ${(propinas+domis+recargos+retiros)>0?`<div class="tarjeta">
@@ -138,18 +143,19 @@ function contable(){
           <td class="oro">${c.baseManana!==undefined?fmtMoney(c.baseManana):'—'}</td>
           <td class="negrita">${c.retiroJefe?fmtMoney(c.retiroJefe):'—'}</td>
           <td>${(c.diferencia||0)===0?'<span class="pill pill-verde">Cuadró</span>':(c.diferencia>0?'<span class="pill pill-azul">Sobró '+fmtMoney(c.diferencia)+'</span>':'<span class="pill pill-rojo">Faltó '+fmtMoney(Math.abs(c.diferencia))+'</span>')}</td>
-          <td><button class="btn btn-sm" onclick="reimprimirCierre('${c.id}')" title="Reimprimir cuadre">🖨️</button></td>
+          <td><button class="btn btn-sm" data-click="reimprimirCierre('${c.id}')" title="Reimprimir cuadre">🖨️</button></td>
         </tr>`).join('')}</tbody>
       </table></div></div>`:''}`;
 }
-function reimprimirCierre(id){
+export function reimprimirCierre(id){
   const c=misDatos('cierres').find(x=>x.id===id);
   if(!c){ toast('Cierre no encontrado','error'); return; }
   imprimirCierre(c);
 }
-function nombreMes(m){
+export function nombreMes(m){
   if(!m) return '';
   const p=m.split('-');
   const n=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
   return (n[parseInt(p[1])-1]||'')+' de '+p[0];
 }
+export function elegirMesContable(v){ _mesCont=v; render(); }

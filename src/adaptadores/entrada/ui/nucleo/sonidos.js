@@ -1,17 +1,18 @@
 // ============================================================
 //  INTERFAZ · Sonidos
 //  Pitidos de venta, pedido, alerta y error (AudioContext).
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/README.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/README.md
 // ============================================================
+import { STATE } from './estado.js';
 
 
 // ============================================================
 //  SONIDOS (iguales a Portal Imperial)
 // ============================================================
-let _audioCtx=null;
-function beep(freq,dur,vol){
+export let _audioCtx=null;
+export function beep(freq,dur,vol){
   try{
     const ctx=new (window.AudioContext||window.webkitAudioContext)();
     const o=ctx.createOscillator(), g=ctx.createGain();
@@ -23,7 +24,7 @@ function beep(freq,dur,vol){
     o.stop(ctx.currentTime+(dur||200)/1000);
   }catch(e){}
 }
-function campana(freq,t0,dur,vol){
+export function campana(freq,t0,dur,vol){
   try{
     _audioCtx = _audioCtx || new (window.AudioContext||window.webkitAudioContext)();
     const ctx=_audioCtx, t=ctx.currentTime+t0;
@@ -43,8 +44,8 @@ function campana(freq,t0,dur,vol){
     o2.start(t); o2.stop(t+dur*0.7+0.02);
   }catch(e){}
 }
-function sonidosOn(){ const n=STATE.negocio; return !n || n.sonidos!==false; }
-function sonidoVenta(){ if(sonidosOn()){ campana(1047,0,0.15,0.6); campana(1568,0.09,0.2,0.6); } }
-function sonidoPedido(){ if(sonidosOn()){ campana(1047,0,0.18,0.9); campana(1319,0.10,0.18,0.9); campana(1568,0.20,0.30,0.9); } }
-function sonidoAlerta(){ if(sonidosOn()){ beep(600,150,0.4); setTimeout(()=>beep(600,150,0.4),200); } }
-function sonidoError(){ if(sonidosOn()) beep(250,300,0.5); }
+export function sonidosOn(){ const n=STATE.negocio; return !n || n.sonidos!==false; }
+export function sonidoVenta(){ if(sonidosOn()){ campana(1047,0,0.15,0.6); campana(1568,0.09,0.2,0.6); } }
+export function sonidoPedido(){ if(sonidosOn()){ campana(1047,0,0.18,0.9); campana(1319,0.10,0.18,0.9); campana(1568,0.20,0.30,0.9); } }
+export function sonidoAlerta(){ if(sonidosOn()){ beep(600,150,0.4); setTimeout(()=>beep(600,150,0.4),200); } }
+export function sonidoError(){ if(sonidosOn()) beep(250,300,0.5); }

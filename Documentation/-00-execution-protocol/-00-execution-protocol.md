@@ -64,8 +64,8 @@ El código está organizado en arquitectura hexagonal dentro de `src/` (detalle 
 #### Opción 1 (en uso): qué tener en cuenta
 - Servir siempre por HTTP (local o Render). Los tipos MIME deben ser correctos (`text/javascript` para `.js`); `serve`, `python -m http.server` y Render ya lo hacen.
 - Rutas de `import` **relativas y con extensión** (`'./dominio/pagos.js'`, nunca `'./dominio/pagos'`).
-- El orden de carga lo maneja `src/arranque.js`: los scripts clásicos de `index.html` (Firebase, `logo.js`, `firebase-config.js`) cargan primero; luego los módulos (dominio, adaptadores, puente); al final `arranque.js` carga los 46 archivos de la interfaz en el orden de `src/adaptadores/entrada/ui/manifiesto.js` y llama `iniciarInterfaz()`.
-- Caché: tras publicar, los navegadores pueden mezclar archivos viejos y nuevos. Pedir recarga forzada (Ctrl+Shift+R). Si se vuelve un problema, agregar una versión a las rutas (`arranque.js?v=2`).
+- El orden de carga lo maneja `src/arranque.js`: los scripts clásicos de `index.html` (Firebase, `logo.js`, `firebase-config.js`) cargan primero; luego los módulos (dominio, adaptadores, puente); al final `arranque.js` importa `src/adaptadores/entrada/ui/manifiesto.js`, cuya `cargarInterfaz()` importa los 47 módulos de la interfaz, y llama `iniciarInterfaz()` (`-03-architecture`, sección 11.3).
+- Caché: `render.yaml` sirve `/src/*` con `Cache-Control: no-cache` (el navegador revalida cada módulo y recibe 304 si no cambió), así no se mezclan módulos viejos y nuevos tras publicar. Los módulos **no** llevan `?v=` (un módulo con dos URL serían dos copias). Los estilos sí: `?v=VERSION_UI` en `index.html`.
 
 #### Opción 2 (documentada, no activa): cómo migrar si se decide
 1. Instalar: `npm install --save-dev vite`.
@@ -80,7 +80,7 @@ El código está organizado en arquitectura hexagonal dentro de `src/` (detalle 
    }
    ```
 3. `index.html` no cambia: Vite entiende `<script type="module" src="src/arranque.js">`. Los scripts clásicos (`logo.js`, `firebase-config.js`) se mueven a `public/` para que se copien tal cual.
-4. La interfaz se carga desde `arranque.js` según `ui/manifiesto.js` (scripts clásicos); con Vite hay que copiar `src/adaptadores/entrada/ui/` a `public/` o convertir esos archivos en módulos importados (fase 8).
+4. La interfaz ya son módulos ES, pero `cargarInterfaz()` los importa con `import('./'+archivo)` (rutas calculadas): con Vite hay que cambiarlo por `import.meta.glob('./**/*.js')` o importaciones fijas.
 5. En `render.yaml`: `buildCommand: npm install && npm run build` y `staticPublishPath: dist`.
 6. Desarrollo local: `npm run dev` (recarga automática). Verificar el resultado final con `npm run build && npm run preview`.
 

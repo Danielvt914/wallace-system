@@ -45,10 +45,10 @@ Si una regla del negocio necesita un dato externo (la fecha de hoy, un id nuevo,
 ## 3. Estructura
 
 ```
-index.html                          Página única + estilos. Carga src/arranque.js
+index.html                          Página única: enlaza los estilos de ui/estilos/ y carga src/arranque.js
 firebase-config.js, logo.js         Configuración y logo (scripts clásicos)
 src/
-  arranque.js                       RAÍZ DE COMPOSICIÓN: crea adaptadores, verifica puertos, publica el puente, carga la UI
+  arranque.js                       RAÍZ DE COMPOSICIÓN: crea adaptadores, verifica puertos, publica el puente, importa la UI
   dominio/                          NÚCLEO: reglas puras, probadas con npm test
     fechas.js                       fecha local, jornada, días hasta / desde
     pagos.js                        pago dividido, reparto, método, liquidación del cobro (cambio)
@@ -72,11 +72,12 @@ src/
       firebase-cuentas.js           Implementa el puerto de cuentas: Firebase Authentication + login/ + perfiles/
       almacen-local.js              localStorage con prefijo ws_
       cripto-navegador.js           ids y sales aleatorias
-    entrada/ui/                     INTERFAZ (scripts clásicos, globales para los onclick)
-      manifiesto.js                 Lista y ORDEN de carga de los archivos de abajo + VERSION_UI
+    entrada/ui/                     INTERFAZ (módulos ES; el HTML generado llama acciones con data-click)
+      manifiesto.js                 Lista de los módulos + cargarInterfaz() (los importa y arma window.WS) + VERSION_UI
       puente-legado.js              PUENTE TEMPORAL: publica dominio, datos y cuentas con los nombres de siempre
-      nucleo/                       estado, permisos, componentes (modales, avisos, iconos), sonidos, tema,
-                                    tablas en celular, navegación/render, arranque de la interfaz
+      estilos/                      CSS en 15 archivos (01-base … 14-responsive + 15-utilidades), en ese orden
+      nucleo/                       estado, permisos, componentes (modales, avisos, iconos), eventos delegados,
+                                    sonidos, tema, tablas en celular, navegación/render, arranque de la interfaz
       usuarios/                     sesión (login), cuentas S1, auditoría, usuarios (super-admin y negocio), migración de cuentas
       super-admin/                  panel, administradores, negocios, demos, informe mensual
       ventas/                       nueva venta, cuentas abiertas, pedidos, cobro (pago dividido, anular, editar)
@@ -87,11 +88,11 @@ src/
 tests/
   dominio/                          Pruebas del núcleo (npm test)
   aplicacion/sesion.test.mjs        Servicio de sesión con dobles de los puertos (npm test)
-  ui/estructura.test.mjs            Interfaz partida: nombres repetidos, identificadores sin declarar, onclick rotos (npm test)
+  ui/estructura.test.mjs            Interfaz: imports/exports, nombres repetidos o sin declarar, data-click rotos, estilos (npm test)
   reglas/                           Reglas de la base en el emulador (npm run test:firebase)
   integracion/                      Migración S1 con los adaptadores reales en los emuladores (npm run test:firebase)
   navegador/                        La interfaz real en Chrome sin ventana: S1 y recorrido de TODAS las pantallas (npm run test:firebase)
-scripts/                            emulador.mjs, probar-firebase.mjs, preparar-pruebas.mjs (ver -00), mapa-interfaz.mjs
+scripts/                            emulador.mjs, probar-firebase.mjs, preparar-pruebas.mjs (ver -00), mapa-interfaz.mjs, capturas.mjs, probar-csp.mjs
 database.rules.json                 Reglas finales (cerradas) · database.rules.transicion.json: durante la migración
 firebase.json, firebase.transicion.json, .firebaserc   Configuración de la CLI (solo alias "pruebas")
 ```
@@ -108,11 +109,11 @@ El arranque (`arranque.js`) es el que crea `firebase-datos.js`, verifica que cum
 
 ## 5. El puente de migración (temporal)
 
-La interfaz (`src/adaptadores/entrada/ui/`, antes `app.js`) sigue siendo un conjunto de scripts clásicos con cientos de `onclick="cobrarPedido('…')"` que llaman funciones por nombre global. Para no reescribir todo de una vez:
+La interfaz (`src/adaptadores/entrada/ui/`, antes `app.js`) ya son módulos ES (fase 8, sección 11), pero su código sigue usando el dominio y los datos con los nombres globales de siempre (`misDatos`, `pagosDe`, `ROLES`…). Para no reescribir todo de una vez:
 
 - `puente-legado.js` publica en `window` el dominio y el adaptador **con los nombres que la interfaz ya usa** (`misDatos`, `guardarMisDatos`, `pagosDe`, `cajaDe`…). También publica los espacios de nombres explícitos `Datos`, `Dominio` y `Cripto`, que es lo que debe usar el código nuevo.
 - La interfaz **no debe declarar** funciones con esos nombres: las taparía y volvería a usar código viejo. `tests/ui/estructura.test.mjs` lo verifica en cada `npm test`.
-- Cada fase saca los casos de uso de un grupo de pantallas a `src/aplicacion/` y convierte esos archivos en módulos; los nombres que ya no se necesiten se borran del puente. En la última fase el puente y los scripts clásicos desaparecen.
+- Cada fase saca los casos de uso de un grupo de pantallas a `src/aplicacion/`; esos módulos importan lo que usan (del dominio o del servicio) en vez de leerlo de `window`, y los nombres que ya no se necesiten se borran del puente. Cuando nadie lo use, el puente desaparece.
 
 Equivalencias de los nombres de siempre:
 
@@ -150,7 +151,7 @@ Cada fase deja la app funcionando, pasa `npm test` y las pruebas de navegador, y
 | 5 | **Operación**: clientes, domicilios y cuadre, citas, cocina, tiempos. | Pendiente |
 | 6 | **Gestión**: dashboard, reportes, historial, contable, gastos, impresión (adaptador de impresión). | Pendiente |
 | 7 | **Administración**: login, usuarios, permisos, super-admin, configuración, Mi Negocio. **S1 (Plan B) ya se adelantó**: puerto y adaptador de cuentas + servicio de sesión. Falta mover las pantallas de usuarios y super-admin a módulos. | Parcial (S1 ✅) |
-| 8 | **Cierre**: estilos de `index.html` a `src/adaptadores/entrada/ui/estilos.css`; eliminar los scripts clásicos y el puente; cambiar los `onclick` por eventos delegados (`data-accion`). | Pendiente |
+| **8** | **Cierre**: estilos de `index.html` a `ui/estilos/`; `style="…"` de las plantillas a clases; `onclick` → eventos delegados (`data-click`); scripts clásicos → módulos ES (sección 11). Falta solo **retirar el puente**, que depende de las fases 2–7. | ✅ Hecha (2026-10-09), salvo el puente |
 
 ## 7. Cómo agregar o cambiar algo
 
@@ -160,7 +161,9 @@ Cada fase deja la app funcionando, pasa `npm test` y las pruebas de navegador, y
 | Agregar una operación de la app (un "caso de uso") | `src/aplicacion/…` (desde la fase 2) |
 | Necesito algo nuevo de la base de datos | Agregarlo al puerto `aplicacion/puertos/datos.js` **y** a `adaptadores/salida/firebase-datos.js` (si falta, `verificarPuertoDatos` avisa al arrancar) |
 | Una pantalla o botón | El archivo de su módulo en `src/adaptadores/entrada/ui/<módulo>/` (buscar la función en [mapa-interfaz.md](mapa-interfaz.md)) |
-| Un archivo nuevo de interfaz | Crearlo en su carpeta y **agregarlo a `ui/manifiesto.js`**; solo declarar funciones y variables (no ejecutar código de otros archivos al cargar). `npm test` revisa la estructura; luego `node scripts/mapa-interfaz.mjs` |
+| Un archivo nuevo de interfaz | Crearlo en su carpeta como módulo (`export function …`, `import { … } from '../nucleo/estado.js'`) y **agregarlo a `ui/manifiesto.js`**; al cargar solo declarar (no ejecutar código importado). `npm test` revisa la estructura; luego `node scripts/mapa-interfaz.mjs` |
+| Un botón o campo que llama una acción | `data-click="accion('texto', 3, this.value)"` (también `data-input`, `data-change`, `data-keydown`, `data-enter`, `data-focus`, `data-blur`, `data-mousedown`, `data-toggle`). La acción debe estar **exportada**. Textos del usuario: `data-x="${escapeHtml(v)}"` y `this.dataset.x`. Nunca `onclick="…"` ni `style="…"` fijo (usar las clases de `estilos/15-utilidades.css`) |
+| Cambiar una variable de otro módulo | No se puede asignar lo importado: el módulo dueño exporta `fijarX(v)` (p. ej. `fijarEscribiendo`) |
 | Una regla que hoy está en la interfaz | Moverla a `src/dominio/`, publicarla en el puente con el mismo nombre si la interfaz la usa por nombre, y dejar en la interfaz solo la envoltura que le pasa `STATE` |
 | Conectar una pieza nueva | `src/arranque.js` |
 
@@ -228,9 +231,9 @@ El `app.js` de 7.700 líneas se partió en **46 archivos** (45 al partirlo + `re
 
 ### 10.1 Cómo se hizo sin romper nada
 
-- **Siguen siendo scripts clásicos.** Los scripts clásicos de una página comparten el mismo ámbito global, así que una función declarada en `ventas/cobro.js` se llama igual desde `ventas/pedidos.js` o desde un `onclick`. Convertir la interfaz a módulos ES exige cambiar los ~900 `onclick` por eventos delegados: es la fase 8.
+- **Al partirla quedaron scripts clásicos** (ámbito global compartido: una función de `ventas/cobro.js` se llamaba igual desde `ventas/pedidos.js` o desde un `onclick`). La fase 8 (sección 11) los volvió módulos ES.
 - **El corte lo hizo un analizador (acorn), no a mano.** Cada sentencia de primer nivel, con sus comentarios, fue al archivo de su sección; la suma de los fragmentos tiene exactamente los mismos caracteres que el original. Antes se verificó que **ninguna sentencia que se ejecuta al cargar usa algo de otra parte del archivo** (solo hay declaraciones, dos `setInterval`, un `addEventListener` y un observador de tablas), así que el orden de carga no puede romper nada.
-- **Carga:** `src/arranque.js` inserta los archivos de `ui/manifiesto.js` con `async=false` (se descargan en paralelo y se ejecutan en orden) y al terminar llama `iniciarInterfaz()`. Las rutas llevan `?v=VERSION_UI` para que tras publicar no se mezclen archivos viejos y nuevos: **cambiar `VERSION_UI` en cada publicación**.
+- **Carga (hasta la fase 8):** `src/arranque.js` insertaba los archivos de `ui/manifiesto.js` con `async=false` y `?v=VERSION_UI`. Hoy los importa como módulos (sección 11.3).
 
 ### 10.2 Qué pasó al dominio
 
@@ -247,12 +250,65 @@ El puente publica las constantes y funciones puras con su nombre de siempre, as�
 
 | Prueba | Qué detecta |
 |---|---|
-| `tests/ui/estructura.test.mjs` (`npm test`) | Archivo fuera del manifiesto; nombre global repetido entre archivos o que tapa uno del puente; código que al cargar usa otro archivo; identificador sin declarar (sería `ReferenceError`); `onclick` que llama una función inexistente; funciones que `arranque.js` llama por `window`. Se comprobó metiendo errores a propósito. |
+| `tests/ui/estructura.test.mjs` (`npm test`) | Archivo fuera del manifiesto; nombre repetido entre módulos o que tapa uno del puente; `import` de un nombre que ese módulo no exporta, de más o renombrado; asignación a algo importado; código que al cargar usa algo importado; identificador sin declarar ni importar (sería `ReferenceError`); `data-click`/`data-input`/… que llama una acción no exportada o con argumentos no permitidos; `onclick="…"` en una plantilla; nombres que `arranque.js` usa de la interfaz; estilos de `index.html` (sección 11). Se comprobó metiendo errores a propósito. |
 | `tests/navegador/recorrido.test.mjs` (`npm run test:firebase`) | Modo local en Chrome sin ventana: crea los 18 demos, dibuja las pantallas del super-admin (incluidas las 5 pestañas de configuración de cada negocio) y **todas** las pantallas del menú de cada negocio (más de 300), y en cada negocio con caja hace una venta con pago dividido, la anula (el stock vuelve, queda en auditoría) y cierra la caja. Falla también con los errores que la app atrapa y oculta ("Error en pantalla"). |
 | `tests/dominio/negocio.test.mjs` | Las reglas movidas al dominio. |
 
 ### 10.4 Lo que falta para que la interfaz sea "hexagonal" del todo
 
 - **Los casos de uso siguen en la interfaz** (cobrar, anular, abrir y cerrar caja, mover inventario…): leen y escriben datos con `misDatos`/`guardarMisDatos` directamente. Sacarlos a `src/aplicacion/` es el contenido de las fases 2 a 7; ahora cada uno está en un archivo chico y con su prueba de recorrido, lo que hace ese trabajo mucho más seguro.
-- **363 nombres globales.** Bajarán a medida que cada módulo pase a ser módulo ES (fase 8).
+- **El puente sigue publicando en `window`** el dominio y los datos con sus nombres de siempre; los módulos de la interfaz los usan sin importarlos. Se retira cuando las fases 2–7 los cambien por imports.
 - Mapa función → archivo: [mapa-interfaz.md](mapa-interfaz.md) (generado con `node scripts/mapa-interfaz.mjs`).
+
+## 11. Fase 8: estilos, eventos delegados y módulos ES (2026-10-09)
+
+Se hizo en tres pasos, cada uno verificado con `npm test`, `npm run test:firebase` y **121 capturas de pantalla idénticas píxel a píxel** a las de antes (`scripts/capturas.mjs`, sección 11.5). El rediseño visual quedó para después, a pedido del usuario.
+
+### 11.1 Estilos fuera de `index.html`
+
+- El bloque `<style>` de `index.html` pasó, en el mismo orden, a `src/adaptadores/entrada/ui/estilos/01-base.css` … `14-responsive.css`. **El orden importa** (reglas posteriores ganan): los números lo fijan e `index.html` los enlaza en ese orden con `?v=VERSION_UI`.
+- 221 `style="…"` fijos de las plantillas pasaron a 101 clases de utilidad en `15-utilidades.css` (`.mt-8`, `.d-flex`, `.fw-800`, `.oculto`…). Llevan `!important` para conservar la prioridad que tenía el estilo en línea.
+- Quedaron en línea, a propósito: los estilos calculados (alto de barras, anchos), los de elementos que el código muestra u oculta por `style.display` (`r-prop`, `r-rec`, `g-boxconcepto`, `c-nota`: con una clase `!important` el código ya no podría cambiarlos) y las plantillas de **impresión**, que se abren en otra ventana sin estos CSS.
+
+### 11.2 Eventos delegados
+
+- El HTML generado ya no lleva `onclick="…"`: lleva `data-click="accion(args)"` (y `data-input`, `data-change`, `data-keydown`, `data-enter`, `data-focus`, `data-blur`, `data-mousedown`, `data-toggle`). Eran 250 manejadores; los 64 que tenían varias sentencias se volvieron funciones con nombre (`buscarEnVenta`, `elegirCategoriaVenta`, `datoCliente`, `irPanel`…).
+- `ui/nucleo/eventos.js` pone **un escuchador por tipo de evento** en el documento. Busca el atributo en el elemento (y en sus ancestros para clic, teclado y cambios), y llama la acción. `stopPropagation()` sigue cortando la búsqueda.
+- **Sin `eval`**: el texto se interpreta como una sola llamada con argumentos simples (`'texto'`, números, `true/false/null`, `this`, `this.value`, `this.checked`, `this.dataset.x`, `event`). Otra cosa es un error que se reporta con `reportarError`.
+- Las acciones salen **solo** de lo que exportan los módulos de la interfaz (no de `window`).
+- De paso se corrigió un fallo de seguridad (**S6**): el nombre de una categoría quedaba dentro de un `onclick` y podía ejecutar código; uno inocente con apóstrofo (`Niño's`) solo rompía el botón. Ahora el nombre va en `data-cat` escapado y la acción lo lee de `this.dataset.cat`. Ataques posibles con código en línea y riesgo que queda: [seguridad-interfaz](seguridad-interfaz.md); la CSP que ahora se puede activar: [csp.md](csp.md).
+
+### 11.3 Módulos ES
+
+- Los 47 archivos de `ui/` son módulos: cada uno **exporta** sus declaraciones de nivel superior e **importa** lo que usa de los otros (588 nombres importados). La conversión la hizo un script con acorn, con análisis de ámbitos (un nombre local que tapa uno de otro archivo no se importa).
+- **Un módulo no puede asignar lo que importa.** Las 12 variables que otro archivo cambiaba se resolvieron así:
+  - el pedido que se carga en Nueva Venta (`_carrito`, `_vTipo`, `_vCli`… desde cobro y cuentas abiertas, código repetido) → `cargarPedidoEnVenta(v, conItems)` en `ventas/nueva-venta.js`;
+  - el resto → una función `fijarX(v)` en el módulo dueño: `fijarEscribiendo`, `fijarGuardando`, `fijarFacturaReservada`, `fijarResumenNeg`, `fijarConfigInicial`.
+- **Carga**: `src/arranque.js` instala el puente y luego hace `import()` de `ui/manifiesto.js`, cuya `cargarInterfaz()` importa todos los módulos de la lista, arma su **espacio de nombres** (nombre exportado → valor vivo), instala los eventos delegados y lo devuelve. El arranque lo usa para los ganchos del adaptador de datos (`ui.refrescarSiSePuede()`…) y llama `ui.iniciarInterfaz()`.
+- **Importaciones circulares**: hay muchas (navegación ↔ pantallas). Son seguras porque al cargar ningún módulo ejecuta código importado (solo declara). La prueba estructural lo vigila.
+- **`window.WS`**: el espacio de nombres queda en `window.WS` para la consola y las pruebas (`WS.STATE`, `WS.render()`, `WS._carrito`). Es de solo lectura: para cambiar una variable se usa su función.
+- **Caché**: los módulos **no llevan `?v=`**, porque un mismo módulo con dos URL serían dos copias con estado distinto. En su lugar `render.yaml` pone `Cache-Control: no-cache` en `/src/*`: el navegador pregunta cada vez si cambió (respuesta 304 si no) y nunca mezcla versiones. Esto cubre también los módulos de `src/dominio/`, que ya estaban así. `VERSION_UI` sigue en el `?v=` de los estilos: **cambiarla en cada publicación**.
+
+### 11.4 Lo que no cambió
+
+- Las pantallas, textos, datos y reglas. Las capturas antes y después son idénticas.
+- El puente (`puente-legado.js`): los módulos siguen usando `misDatos`, `Dominio`, `DB`… desde `window` (sección 5).
+
+### 11.5 Cómo se verificó
+
+| Herramienta | Qué hace |
+|---|---|
+| `node scripts/capturas.mjs tomar <carpeta>` y `comparar <A> <B>` | Toma 121 capturas deterministas en modo local (azar con semilla, fecha fija, sin reloj ni avisos): pantallas del super-admin y de cada negocio, celular, pestañas de configuración y modales. `comparar` dice cuáles cambiaron y dónde. Con `CAPTURAS_RAIZ` sirve otra copia del proyecto (p. ej. un `git worktree` del commit anterior). Las capturas van en `capturas/` (en `.gitignore`). |
+| `tests/ui/estructura.test.mjs` | Ver 10.3. |
+| `tests/navegador/recorrido.test.mjs` | Además de lo de 10.3, revisa en el HTML ya dibujado de las 327 pantallas que no quede ningún `on…=` y que cada `data-*` (unas 10.500) llame una acción existente con argumentos válidos. También hace clics y escritura **reales** (menú, categoría con apóstrofo, producto, quitar del carrito, búsqueda). |
+
+### 11.6 Reglas para trabajar en la interfaz (en `CLAUDE.md` desde el 2026-10-09)
+
+Al cerrar la fase 8 se actualizaron las reglas estáticas de `CLAUDE.md`:
+
+- **Arquitectura**: la interfaz son **47 módulos ES** (antes "45 scripts clásicos"). `ui/manifiesto.js` los lista y su `cargarInterfaz()` los importa, instala los eventos delegados (`data-click`) y arma `window.WS`. Los estilos están en `ui/estilos/`, en orden numérico. Retirar el puente es lo único que falta de la fase 8.
+- **Módulos**: importar lo que se usa, sin renombrar (`import { x } from '../nucleo/estado.js'`). No repetir nombres entre módulos ni tapar uno del puente. Al cargar, solo declarar, porque hay importaciones circulares. Para cambiar una variable de otro archivo, usar su `fijarX(v)`.
+- **HTML generado**: acciones con `data-click` (y `data-input`, `data-change`…), siempre **exportadas**. Los textos del usuario van en `data-x` + `this.dataset.x`. Nada de `onclick` ni `style` fijos: se usan las clases de `estilos/15-utilidades.css`. El porqué está en [seguridad-interfaz](seguridad-interfaz.md).
+- **Archivo nuevo de interfaz**: agregarlo a `ui/manifiesto.js` y correr `node scripts/mapa-interfaz.mjs`.
+- **Publicar**: subir `VERSION_UI` junto con el `?v=` de los estilos en `index.html` (la prueba exige que coincidan).
+- **Consola y pruebas**: usar `WS.<nombre>` (`WS.STATE`, `WS.render()`). Las pruebas y capturas abren con `?local`. Los cambios visuales se comprueban con `node scripts/capturas.mjs tomar <dir>` antes y después, y `comparar <A> <B>`.

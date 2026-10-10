@@ -1,16 +1,18 @@
 // ============================================================
 //  INTERFAZ · Componentes comunes
 //  Iconos, vocabulario del negocio (pProd, pPedido…), avisos (toast) y modales.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/README.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/README.md
 // ============================================================
+import { STATE, escapeHtml } from './estado.js';
+import { logAudit } from '../usuarios/auditoria.js';
 
 
 // ============================================================
 //  ICONOS
 // ============================================================
-const ICONS = {
+export const ICONS = {
   dashboard:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
   cart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg>',
   report:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
@@ -26,27 +28,27 @@ const ICONS = {
   plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
   history:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><polyline points="12 7 12 12 15 15"/></svg>'
 };
-function ic(n){ return ICONS[n]||ICONS.dashboard; }
+export function ic(n){ return ICONS[n]||ICONS.dashboard; }
 
 // ---- Vocabulario dinámico por negocio ----
 // Cada empresa define cómo llama a sus productos (Plato, Producto, Artículo,
 // Servicio…). Estos helpers devuelven esa palabra para usarla en TODO el sistema.
-function pProd(cap){ const n=STATE.negocio; let p=(n&&n.palabraProducto)?n.palabraProducto:'Producto'; return cap?p:p.toLowerCase(); }
-function pProds(cap){ const n=STATE.negocio; let p=(n&&n.palabraProductos)?n.palabraProductos:'Productos'; return cap?p:p.toLowerCase(); }
-function pPedido(cap){ const n=STATE.negocio; let p=(n&&n.palabraPedido)?n.palabraPedido:'Pedido'; return cap?p:p.toLowerCase(); }
+export function pProd(cap){ const n=STATE.negocio; let p=(n&&n.palabraProducto)?n.palabraProducto:'Producto'; return cap?p:p.toLowerCase(); }
+export function pProds(cap){ const n=STATE.negocio; let p=(n&&n.palabraProductos)?n.palabraProductos:'Productos'; return cap?p:p.toLowerCase(); }
+export function pPedido(cap){ const n=STATE.negocio; let p=(n&&n.palabraPedido)?n.palabraPedido:'Pedido'; return cap?p:p.toLowerCase(); }
 // Plural del pedido/venta según su terminación (vocal → +s, consonante → +es)
-function pPedidos(cap){
+export function pPedidos(cap){
   const base=pPedido(true);
   const ult=base.slice(-1).toLowerCase();
   const plural='aeiou'.indexOf(ult)>-1 ? base+'s' : base+'es';
   return cap?plural:plural.toLowerCase();
 }
-function pPersonal(cap){ const n=STATE.negocio; let p=(n&&n.palabraPersonal)?n.palabraPersonal:'Personal'; return cap?p:p.toLowerCase(); }
+export function pPersonal(cap){ const n=STATE.negocio; let p=(n&&n.palabraPersonal)?n.palabraPersonal:'Personal'; return cap?p:p.toLowerCase(); }
 
 // ============================================================
 //  AVISOS Y MODALES
 // ============================================================
-function toast(msg, tipo){
+export function toast(msg, tipo){
   const cont=document.getElementById('toasts');
   if(!cont){ console.log(msg); return; }
   const t=document.createElement('div');
@@ -56,7 +58,7 @@ function toast(msg, tipo){
   setTimeout(()=>{ t.classList.add('salir'); setTimeout(()=>t.remove(),300); }, 3200);
 }
 
-function abrirModal(cfg){
+export function abrirModal(cfg){
   const cont=document.getElementById('modal-container');
   if(!cont) return;
   const campos=(cfg.campos||[]).map(c=>{
@@ -71,13 +73,13 @@ function abrirModal(cfg){
     return `<div class="m-row"><label>${escapeHtml(c.label)}</label>
       <input id="m-${c.id}" type="${c.tipo||'text'}" value="${escapeHtml(c.valor||'')}" placeholder="${escapeHtml(c.placeholder||'')}"></div>`;
   }).join('');
-  cont.innerHTML=`<div class="modal-fondo" onclick="cerrarModal()"></div>
+  cont.innerHTML=`<div class="modal-fondo" data-click="cerrarModal()"></div>
     <div class="modal">
       <div class="modal-cab"><h3>${escapeHtml(cfg.titulo||'')}</h3>
-        <button class="modal-x" onclick="cerrarModal()">×</button></div>
+        <button class="modal-x" data-click="cerrarModal()">×</button></div>
       <div class="modal-cuerpo">${campos}${cfg.extraHTML||''}</div>
       <div class="modal-pie">
-        <button class="btn btn-ghost" onclick="cerrarModal()">Cancelar</button>
+        <button class="btn btn-ghost" data-click="cerrarModal()">Cancelar</button>
         <button class="btn btn-gold" id="modal-ok">${escapeHtml(cfg.textoBoton||'Guardar')}</button>
       </div>
     </div>`;
@@ -98,8 +100,8 @@ function abrirModal(cfg){
     if(typeof cfg.onAbrir==='function') cfg.onAbrir();
   },50);
 }
-let _modalCancelar=null;   // se llama una vez al cerrar el modal (cancelar, ×, fondo o guardar)
-function cerrarModal(){
+export let _modalCancelar=null;   // se llama una vez al cerrar el modal (cancelar, ×, fondo o guardar)
+export function cerrarModal(){
   const cont=document.getElementById('modal-container');
   if(cont){ cont.classList.remove('activo'); cont.innerHTML=''; }
   const f=_modalCancelar; _modalCancelar=null;
@@ -108,7 +110,7 @@ function cerrarModal(){
 // Pregunta que se hace un momento después de otra acción (p. ej. "¿Imprimir factura?" tras
 // cobrar). Si para entonces ya hay otro modal abierto, NO lo tapa (F16): lo impreso se
 // puede repetir desde Reimpresiones, lo que se estaba escribiendo en el otro modal no.
-function preguntarDespues(mensaje, alConfirmar, textoBoton, ms){
+export function preguntarDespues(mensaje, alConfirmar, textoBoton, ms){
   setTimeout(()=>{
     const cont=document.getElementById('modal-container');
     if(cont && cont.classList.contains('activo')) return;
@@ -118,8 +120,8 @@ function preguntarDespues(mensaje, alConfirmar, textoBoton, ms){
 // C2: un error que la app atrapa (para no dejar la pantalla en blanco) no debe quedar
 // invisible. Va a la consola, se avisa a la persona y queda en la Auditoría del negocio.
 // Cada error distinto se reporta una sola vez por sesión.
-const _erroresReportados=new Set();
-function reportarError(donde, e){
+export const _erroresReportados=new Set();
+export function reportarError(donde, e){
   console.error('Error en '+donde, e);
   const msg=String((e && e.message) || e || 'desconocido');
   const clave=donde+'|'+msg;
@@ -128,8 +130,8 @@ function reportarError(donde, e){
   try{ logAudit('Error del sistema', (donde+': '+msg).slice(0,300)); }catch(x){}
   toast('Ocurrió un error en '+donde+'. Quedó registrado en la auditoría.','error');
 }
-function confirmarModal(mensaje, alConfirmar, textoBoton){
+export function confirmarModal(mensaje, alConfirmar, textoBoton){
   abrirModal({titulo:'Confirmar', textoBoton:textoBoton||'Sí, continuar', campos:[],
-    extraHTML:`<p style="font-size:15px;line-height:1.6;white-space:pre-line;">${escapeHtml(mensaje)}</p>`,
+    extraHTML:`<p class="fs-15 lh-1_6 ws-pre-line">${escapeHtml(mensaje)}</p>`,
     onGuardar:()=>{ cerrarModal(); if(alConfirmar) alConfirmar(); }});
 }

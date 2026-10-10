@@ -1,18 +1,24 @@
 // ============================================================
 //  INTERFAZ · Cocina (KDS)
 //  Pantalla de preparación de pedidos.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/04-kitchen-kds/04-kitchen-kds.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/04-kitchen-kds/04-kitchen-kds.md
 // ============================================================
+import { STATE, escapeHtml, fijarEscribiendo, now } from '../nucleo/estado.js';
+import { puedeVerPantalla } from '../nucleo/permisos.js';
+import { ic, toast } from '../nucleo/componentes.js';
+import { sonidoPedido } from '../nucleo/sonidos.js';
+import { render } from '../nucleo/navegacion.js';
+import { ventasJornada } from '../ventas/pedidos.js';
 
 
 // ============================================================
 //  COCINA (pantalla para preparar los pedidos)
 // ============================================================
-let _ultimoCountCocina=-1;
-function cocina(){
-  ESCRIBIENDO=false;
+export let _ultimoCountCocina=-1;
+export function cocina(){
+  fijarEscribiendo(false);
   const vs=ventasJornada(false).filter(v=>v.estado!=='anulada' && v.estadoCocina
       && v.estadoCocina!=='entregado')
     .sort((a,b)=>new Date(a.fecha||0)-new Date(b.fecha||0));
@@ -35,15 +41,15 @@ function cocina(){
         <span class="kds-krono">${min} min</span>
       </div>
       <div class="kds-tipo">${etiq[v.tipo]||''}${v.mesa?' · '+escapeHtml(v.mesa):''}${v.cliNombre?' · '+escapeHtml(v.cliNombre):''}</div>
-      ${v.tipo==='domicilio'?`<div class="gris chico" style="margin-bottom:6px;">📍 ${escapeHtml(v.cliDir||'')}${v.cliTel?' · ☎ '+escapeHtml(v.cliTel):''}</div>`:''}
+      ${v.tipo==='domicilio'?`<div class="gris chico mb-6">📍 ${escapeHtml(v.cliDir||'')}${v.cliTel?' · ☎ '+escapeHtml(v.cliTel):''}</div>`:''}
       <div class="kds-items">
         ${(v.items||[]).map(i=>`<div class="kds-item"><strong>${i.qty}×</strong> ${escapeHtml(i.nombre)}${i.obs?`<div class="rojo chico">⚠ ${escapeHtml(i.obs)}</div>`:''}</div>`).join('')}
       </div>
       ${v.obs?`<div class="kds-nota">${escapeHtml(v.obs)}</div>`:''}
       <div class="kds-acc">
-        ${!prep&&v.estadoCocina!=='listo'?`<button class="btn btn-sm btn-verde" onclick="marcarCocina('${v.id}','preparando')">👨‍🍳 Preparando</button>`:''}
-        ${v.estadoCocina!=='listo'?`<button class="btn btn-sm btn-gold" onclick="marcarCocina('${v.id}','listo')">✓ Listo</button>`:'<span class="pill pill-verde">✓ Listo</span>'}
-        ${usaComanda?`<button class="btn btn-sm btn-ghost" onclick="imprimirComanda(misDatos('ventas').find(x=>x.id==='${v.id}'))" title="Comanda">🖨️</button>`:''}
+        ${!prep&&v.estadoCocina!=='listo'?`<button class="btn btn-sm btn-verde" data-click="marcarCocina('${v.id}','preparando')">👨‍🍳 Preparando</button>`:''}
+        ${v.estadoCocina!=='listo'?`<button class="btn btn-sm btn-gold" data-click="marcarCocina('${v.id}','listo')">✓ Listo</button>`:'<span class="pill pill-verde">✓ Listo</span>'}
+        ${usaComanda?`<button class="btn btn-sm btn-ghost" data-click="imprimirComandaDe('${v.id}')" title="Comanda">🖨️</button>`:''}
       </div>
     </div>`;
   };
@@ -62,13 +68,13 @@ function cocina(){
         <div class="kds-top"><span class="kds-ref">${escapeHtml(v.factura||'')}</span><span class="pill pill-verde">Listo</span></div>
         <div class="kds-tipo">${etiq[v.tipo]||''}${v.mesa?' · '+escapeHtml(v.mesa):''}${v.cliNombre?' · '+escapeHtml(v.cliNombre):''}</div>
         <div class="kds-acc">
-          <button class="btn btn-sm btn-verde" onclick="marcarCocina('${v.id}','entregado')">✓ Entregado</button>
-          <button class="btn btn-sm btn-ghost" onclick="marcarCocina('${v.id}','pendiente')">← Volver</button>
+          <button class="btn btn-sm btn-verde" data-click="marcarCocina('${v.id}','entregado')">✓ Entregado</button>
+          <button class="btn btn-sm btn-ghost" data-click="marcarCocina('${v.id}','pendiente')">← Volver</button>
         </div>
       </div>`).join('')}</div>
     </div>`:''}`;
 }
-function marcarCocina(id,estado){
+export function marcarCocina(id,estado){
   if(!puedeVerPantalla('cocina')){ toast('No tienes acceso a Cocina','error'); return; }
   const arr=misDatos('ventas');
   const v=arr.find(x=>x.id===id); if(!v) return;

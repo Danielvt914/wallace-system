@@ -1,22 +1,27 @@
 // ============================================================
 //  INTERFAZ · Mi Negocio
 //  Datos y preferencias que edita el propio negocio.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/11-business-settings/11-business-settings.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/11-business-settings/11-business-settings.md
 // ============================================================
+import { STATE, escapeHtml, fijarEscribiendo } from '../nucleo/estado.js';
+import { puedeVerPantalla, usaInventario } from '../nucleo/permisos.js';
+import { ic, pProds, toast } from '../nucleo/componentes.js';
+import { render } from '../nucleo/navegacion.js';
+import { descuentaAlPedir } from '../ventas/cuentas-abiertas.js';
 
 // ============================================================
 //  MI NEGOCIO (lo edita el propio administrador)
 // ============================================================
-function minegocio(){
-  ESCRIBIENDO=false;
+export function minegocio(){
+  fijarEscribiendo(false);
   const neg=STATE.negocio;
   return `
     <div class="tarjeta">
       <span class="t-tit">${ic('building')} Datos de tu negocio</span>
       <p class="gris">Esta información sale en las facturas que entregas a tus clientes.</p>
-      <div class="form2" style="margin-top:14px;">
+      <div class="form2 mt-14">
         <div class="m-row"><label>Nombre del negocio</label><input id="n-nombre" class="campo" value="${escapeHtml(neg.nombre||'')}"></div>
         <div class="m-row"><label>NIT / Cédula</label><input id="n-nit" class="campo" value="${escapeHtml(neg.nit||'')}" placeholder="Ej: 900123456-7"></div>
         <div class="m-row"><label>Teléfono</label><input id="n-tel" class="campo" value="${escapeHtml(neg.tel||'')}" placeholder="Ej: 3125214210"></div>
@@ -33,9 +38,9 @@ function minegocio(){
           ${neg.logo?`<img src="${neg.logo}" alt="logo">`:`<div class="logo-vacio">Sin logo</div>`}
         </div>
         <div class="logo-acc">
-          <input type="file" id="n-logo" accept="image/*" onchange="cargarLogo(this)" style="display:none;">
-          <button class="btn btn-gold" onclick="document.getElementById('n-logo').click()">Subir logo</button>
-          ${neg.logo?`<button class="btn btn-rojo btn-sm" onclick="quitarLogo()">Quitar</button>`:''}
+          <input type="file" id="n-logo" accept="image/*" data-change="cargarLogo(this)" class="oculto">
+          <button class="btn btn-gold" data-click="elegirLogo()">Subir logo</button>
+          ${neg.logo?`<button class="btn btn-rojo btn-sm" data-click="quitarLogo()">Quitar</button>`:''}
           <p class="nota">La imagen se reduce sola para no pesar.</p>
         </div>
       </div>
@@ -49,7 +54,7 @@ function minegocio(){
             <option value="claro" ${neg.tema==='claro'?'selected':''}>Claro / fondo blanco</option>
           </select></div>
         <div class="m-row"><label>Color principal</label>
-          <input id="n-color" type="color" class="campo" style="height:46px;padding:5px;cursor:pointer;" value="${/^#[0-9a-fA-F]{6}$/.test(neg.colorTema||'')?neg.colorTema:'#01c38e'}">
+          <input id="n-color" type="color" class="campo h-46 p-5 cursor-mano" value="${/^#[0-9a-fA-F]{6}$/.test(neg.colorTema||'')?neg.colorTema:'#01c38e'}">
           <p class="nota">Pinta botones, menú y detalles en todos los equipos. El verde original es #01c38e.</p></div>
         <div class="m-row"><label>Tamaño de la factura</label>
           <select id="n-fact" class="campo">
@@ -78,20 +83,20 @@ function minegocio(){
         <label class="chk"><input type="checkbox" id="n-cuentas" ${neg.usaCuentas?'checked':''}> Usar cuentas abiertas (agregar y cobrar al final)</label>
         <label class="chk"><input type="checkbox" id="n-descontarpedir" ${descuentaAlPedir()?'checked':''}> Descontar el inventario apenas se pide (no al cobrar)</label>
       </div>
-      <p class="nota" style="margin-top:8px;">Si apagas el control de inventario, los ${pProds()} no llevan existencias: no se descuentan al vender ni aparecen alertas. Útil para servicios o negocios que no manejan stock.</p>
-      <p class="nota" style="margin-top:8px;">🧾 <strong>Cuentas abiertas:</strong> agrega una ventana para llevar cuentas por mesa o por cliente, irles sumando productos y cobrar al final. Es para bares, licoreras y restaurantes. Si tu negocio cobra de una, déjala apagada y no aparece.</p>
-      <p class="nota" style="margin-top:8px;">🍺 <strong>Descontar al pedir:</strong> apenas se agrega el producto a una cuenta o pedido, sale del inventario. Es lo correcto en licoreras y bares, donde el producto ya se entregó. Si lo apagas, el stock baja solo cuando se cobra.</p>
-      <div class="m-row" style="margin-top:12px;">
+      <p class="nota mt-8">Si apagas el control de inventario, los ${pProds()} no llevan existencias: no se descuentan al vender ni aparecen alertas. Útil para servicios o negocios que no manejan stock.</p>
+      <p class="nota mt-8">🧾 <strong>Cuentas abiertas:</strong> agrega una ventana para llevar cuentas por mesa o por cliente, irles sumando productos y cobrar al final. Es para bares, licoreras y restaurantes. Si tu negocio cobra de una, déjala apagada y no aparece.</p>
+      <p class="nota mt-8">🍺 <strong>Descontar al pedir:</strong> apenas se agrega el producto a una cuenta o pedido, sale del inventario. Es lo correcto en licoreras y bares, donde el producto ya se entregó. Si lo apagas, el stock baja solo cuando se cobra.</p>
+      <div class="m-row mt-12">
         <label>Avisar cuántos días antes de que un producto se venza</label>
         <input id="n-diasvence" type="number" min="0" class="campo" value="${neg.diasAvisoVence!=null?neg.diasAvisoVence:7}" placeholder="Ej: 7"></div>
-      <button class="btn btn-ghost btn-sm" style="margin-top:12px;" onclick="sonidoVenta()">🔊 Probar sonido</button>
+      <button class="btn btn-ghost btn-sm mt-12" data-click="sonidoVenta()">🔊 Probar sonido</button>
     </div>
     <div class="tarjeta">
-      <button class="btn btn-gold btn-block btn-grande" onclick="guardarMiNegocio()">Guardar cambios</button>
-      <p class="nota centrado" style="margin-top:10px;">Los cambios se ven en todos los equipos al instante.</p>
+      <button class="btn btn-gold btn-block btn-grande" data-click="guardarMiNegocio()">Guardar cambios</button>
+      <p class="nota centrado mt-10">Los cambios se ven en todos los equipos al instante.</p>
     </div>`;
 }
-function cargarLogo(input){
+export function cargarLogo(input){
   const f=input.files && input.files[0];
   if(!f) return;
   if(f.size>5*1024*1024){ toast('La imagen es muy pesada (máx 5MB)','error'); return; }
@@ -116,13 +121,13 @@ function cargarLogo(input){
   };
   lector.readAsDataURL(f);
 }
-function quitarLogo(){
+export function quitarLogo(){
   window._logoNuevo='';
   const vista=document.getElementById('logo-vista');
   if(vista) vista.innerHTML='<div class="logo-vacio">Sin logo</div>';
   toast('Logo quitado. Dale a Guardar cambios.','info');
 }
-function guardarMiNegocio(){
+export function guardarMiNegocio(){
   if(!puedeVerPantalla('minegocio')){ toast('No tienes permiso para cambiar los datos del negocio','error'); return; }
   const val=id=>{ const e=document.getElementById(id); return e?e.value:''; };
   const chk=id=>{ const e=document.getElementById(id); return e?e.checked:false; };
@@ -160,3 +165,5 @@ function guardarMiNegocio(){
   toast('Datos guardados','success');
   render();
 }
+// Abre el selector de archivo del logo (input oculto #n-logo)
+export function elegirLogo(){ const e=document.getElementById('n-logo'); if(e) e.click(); }

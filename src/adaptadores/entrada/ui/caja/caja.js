@@ -1,17 +1,25 @@
 // ============================================================
 //  INTERFAZ · Caja
 //  Apertura, movimientos, cierre con cuadre, base del día siguiente.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/03-cash-register/03-cash-register.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/03-cash-register/03-cash-register.md
 // ============================================================
+import { STATE, escapeHtml, fijarEscribiendo, fmtDate, fmtMoney, jornadaActual, now } from '../nucleo/estado.js';
+import { cajaActual, guardarCajaActual, sucursalActual, tienePermiso } from '../nucleo/permisos.js';
+import { abrirModal, cerrarModal, ic, pPedidos, pPersonal, pProds, toast } from '../nucleo/componentes.js';
+import { render } from '../nucleo/navegacion.js';
+import { logAudit } from '../usuarios/auditoria.js';
+import { _guardando, fijarGuardando } from '../ventas/nueva-venta.js';
+import { ventasJornada } from '../ventas/pedidos.js';
+import { ventasPorVerificar } from '../ventas/cobro.js';
 
 
 // ============================================================
 //  CAJA
 // ============================================================
-function caja(){
-  ESCRIBIENDO=false;
+export function caja(){
+  fijarEscribiendo(false);
   const neg=STATE.negocio;
   const c=cajaActual();
   if(!c){
@@ -23,21 +31,21 @@ function caja(){
       <div class="t-tit centrado">Caja cerrada</div>
       ${bs===null
         ? `<p class="gris">Primera apertura: escribe la base con la que arranca el negocio. De aquí en adelante la base sale sola de lo que quede al cerrar.</p>
-           <div class="m-row" style="max-width:280px;margin:16px auto;">
+           <div class="m-row maxw-280 m-16-auto">
              <label>Base inicial (efectivo con el que arrancas)</label>
              <input type="number" id="caja-base" value="0" class="campo">
            </div>`
         : `<p class="gris">La caja abre con <strong class="oro">${fmtMoney(bs)}</strong>, que fue lo que quedó guardado en el último cierre. No se puede cambiar al abrir.</p>
            <input type="hidden" id="caja-base" value="${bs}">`}
-      <button class="btn btn-gold" onclick="abrirCaja()">Abrir caja con ${bs===null?'esa base':fmtMoney(bs)}</button>
+      <button class="btn btn-gold" data-click="abrirCaja()">Abrir caja con ${bs===null?'esa base':fmtMoney(bs)}</button>
       ${(bs!==null&&puedeRetirarJefe())?`
-        <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--linea2);">
+        <div class="mt-18 pt-14 borde-arriba-1-solid-linea2">
           <p class="nota">Guardado en el cajón para mañana: <strong class="oro">${fmtMoney(bs)}</strong></p>
-          <div class="botones-fila" style="justify-content:center;">
-            <button class="btn btn-sm" onclick="retiroCajaCerrada()">${ic('cash')} Retirar dinero</button>
-            <button class="btn btn-sm btn-ghost" onclick="cambiarBaseApertura()">Corregir base</button>
+          <div class="botones-fila justify-centro">
+            <button class="btn btn-sm" data-click="retiroCajaCerrada()">${ic('cash')} Retirar dinero</button>
+            <button class="btn btn-sm btn-ghost" data-click="cambiarBaseApertura()">Corregir base</button>
           </div>
-          ${ret.length?`<div class="tabla-wrap" style="margin-top:12px;text-align:left;"><table class="tabla">
+          ${ret.length?`<div class="tabla-wrap mt-12 txt-izq"><table class="tabla">
             <thead><tr><th>Retiro</th><th>Quién</th><th>Quedó</th><th>Fecha</th></tr></thead>
             <tbody>${ret.map(r=>`<tr><td class="negrita">${fmtMoney(r.monto)}</td><td>${escapeHtml(r.por||'')}</td>
               <td class="oro">${fmtMoney(r.baseDespues)}</td><td class="gris chico">${fmtDate(r.fecha)}</td></tr>`).join('')}</tbody>
@@ -78,9 +86,9 @@ function caja(){
       return `<div class="tarjeta alerta">
         <span class="t-tit chico">⚠️ ${pv.length} transferencia(s) sin verificar — ${fmtMoney(tot)}</span>
         <p>Estos pagos por banco todavía no se han confirmado en la cuenta. Verifícalos antes de cerrar: si no llegaron, la plata no está.</p>
-        <div class="botones-fila" style="margin-top:8px;">${pv.slice(0,8).map(v=>`<button class="btn btn-sm btn-verde" onclick="marcarVerificada('${v.id}')">${escapeHtml(v.factura||'')} · ${fmtMoney(pagosDe(v).banco)}</button>`).join('')}</div>
+        <div class="botones-fila mt-8">${pv.slice(0,8).map(v=>`<button class="btn btn-sm btn-verde" data-click="marcarVerificada('${v.id}')">${escapeHtml(v.factura||'')} · ${fmtMoney(pagosDe(v).banco)}</button>`).join('')}</div>
       </div>`; })()}
-    <p class="nota" style="margin:-6px 0 14px;">💵 VENTA (solo ${pProds()}) recibida por cada método. Total venta: <strong class="oro">${fmtMoney(totalVenta)}</strong>.${domBancoTotal>0?` Además entraron <strong>${fmtMoney(domBancoTotal)}</strong> de domicilios por banco (se le pagan al domiciliario en efectivo).`:''}</p>
+    <p class="nota m-n6-0-14">💵 VENTA (solo ${pProds()}) recibida por cada método. Total venta: <strong class="oro">${fmtMoney(totalVenta)}</strong>.${domBancoTotal>0?` Además entraron <strong>${fmtMoney(domBancoTotal)}</strong> de domicilios por banco (se le pagan al domiciliario en efectivo).`:''}</p>
     <div class="grid2">
       <div class="tarjeta">
         <span class="t-tit">${ic('cash')} Resumen de caja — ${escapeHtml(c.cajero||'')}</span>
@@ -91,25 +99,25 @@ function caja(){
         <div class="linea"><span>Entradas extra</span><strong class="verde">${fmtMoney(entradas)}</strong></div>
         <div class="linea"><span>Gastos / Nómina</span><strong class="rojo">−${fmtMoney(gastos)}</strong></div>
         <div class="linea"><span>Retiros autorizados</span><strong class="rojo">−${fmtMoney(retiros)}</strong></div>
-        <div class="linea total-linea" style="font-size:18px;"><span>Efectivo en Caja</span><strong class="oro">${fmtMoney(enCaja)}</strong></div>
-        <p class="nota" style="margin-top:8px;">Efectivo del cajón: base + ${pProds()} en efectivo + entradas − gastos − retiros${(propBanco+domBanco)>0?' − propinas/domicilios por banco ('+fmtMoney(propBanco+domBanco)+', pagados en efectivo a su dueño)':''}. Solo la venta es del negocio. El banco/tarjeta no está en el cajón.</p>
-        ${esAdmin?`<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:12px;color:var(--verde-c);">🔍 Ver desglose del efectivo (diagnóstico)</summary>
-          <div style="margin-top:8px;font-size:12px;">
-            <div class="linea" style="padding:4px 0;"><span>Base inicial</span><span>${fmtMoney(c.base||0)}</span></div>
-            <div class="linea" style="padding:4px 0;"><span>+ ${pProds(true)} en efectivo</span><span>${fmtMoney(metodos.efectivo)}</span></div>
-            <div class="linea" style="padding:4px 0;"><span>+ Propinas/domicilios efectivo</span><span>${fmtMoney(propEf+domEf+recEf)}</span></div>
-            <div class="linea" style="padding:4px 0;" title="Total del efectivo que entró por ventas"><span>= Efectivo recibido</span><span>${fmtMoney(efRecibido)}</span></div>
-            <div class="linea" style="padding:4px 0;"><span>+ Entradas</span><span>${fmtMoney(entradas)}</span></div>
-            <div class="linea" style="padding:4px 0;"><span>− Gastos</span><span>−${fmtMoney(gastos)}</span></div>
-            <div class="linea" style="padding:4px 0;"><span>− Retiros</span><span>−${fmtMoney(retiros)}</span></div>
-            <div class="linea" style="padding:4px 0;"><span>− Propinas/domicilios por banco</span><span>−${fmtMoney(propBanco+domBanco)}</span></div>
-            <div class="linea" style="padding:4px 0;font-weight:800;"><span>= Efectivo esperado</span><span class="oro">${fmtMoney(enCaja)}</span></div>
+        <div class="linea total-linea fs-18"><span>Efectivo en Caja</span><strong class="oro">${fmtMoney(enCaja)}</strong></div>
+        <p class="nota mt-8">Efectivo del cajón: base + ${pProds()} en efectivo + entradas − gastos − retiros${(propBanco+domBanco)>0?' − propinas/domicilios por banco ('+fmtMoney(propBanco+domBanco)+', pagados en efectivo a su dueño)':''}. Solo la venta es del negocio. El banco/tarjeta no está en el cajón.</p>
+        ${esAdmin?`<details class="mt-8"><summary class="cursor-mano fs-12 color-verde-c">🔍 Ver desglose del efectivo (diagnóstico)</summary>
+          <div class="mt-8 fs-12">
+            <div class="linea p-4-0"><span>Base inicial</span><span>${fmtMoney(c.base||0)}</span></div>
+            <div class="linea p-4-0"><span>+ ${pProds(true)} en efectivo</span><span>${fmtMoney(metodos.efectivo)}</span></div>
+            <div class="linea p-4-0"><span>+ Propinas/domicilios efectivo</span><span>${fmtMoney(propEf+domEf+recEf)}</span></div>
+            <div class="linea p-4-0" title="Total del efectivo que entró por ventas"><span>= Efectivo recibido</span><span>${fmtMoney(efRecibido)}</span></div>
+            <div class="linea p-4-0"><span>+ Entradas</span><span>${fmtMoney(entradas)}</span></div>
+            <div class="linea p-4-0"><span>− Gastos</span><span>−${fmtMoney(gastos)}</span></div>
+            <div class="linea p-4-0"><span>− Retiros</span><span>−${fmtMoney(retiros)}</span></div>
+            <div class="linea p-4-0"><span>− Propinas/domicilios por banco</span><span>−${fmtMoney(propBanco+domBanco)}</span></div>
+            <div class="linea p-4-0 fw-800"><span>= Efectivo esperado</span><span class="oro">${fmtMoney(enCaja)}</span></div>
           </div></details>`:''}
-        <div class="botones-fila" style="margin-top:14px;margin-bottom:0;">
-          <button class="btn btn-sm btn-rojo" onclick="movimientoCaja('gasto')">$ Gasto</button>
-          <button class="btn btn-sm" onclick="movimientoCaja('retiro')">$ Retiro</button>
-          <button class="btn btn-sm btn-verde" onclick="movimientoCaja('entrada')">+ Entrada</button>
-          <button class="btn btn-rojo" onclick="cerrarCaja()" style="margin-left:auto;">🔒 Cerrar Caja</button>
+        <div class="botones-fila mt-14 mb-0">
+          <button class="btn btn-sm btn-rojo" data-click="movimientoCaja('gasto')">$ Gasto</button>
+          <button class="btn btn-sm" data-click="movimientoCaja('retiro')">$ Retiro</button>
+          <button class="btn btn-sm btn-verde" data-click="movimientoCaja('entrada')">+ Entrada</button>
+          <button class="btn btn-rojo ml-auto" data-click="cerrarCaja()">🔒 Cerrar Caja</button>
         </div>
       </div>
       ${(()=>{
@@ -123,7 +131,7 @@ function caja(){
         if(!lineas.length) return '';
         return `<div class="tarjeta">
         <span class="t-tit">${ic('users')} No son ingreso del negocio</span>
-        <p class="gris" style="margin-bottom:10px;">Estos valores se cobran pero pertenecen a terceros. No suman a las ventas reales.</p>
+        <p class="gris mb-10">Estos valores se cobran pero pertenecen a terceros. No suman a las ventas reales.</p>
         ${lineas.join('')}
       </div>`;
       })()}
@@ -142,7 +150,7 @@ function caja(){
     </div>`:''}`;
 }
 
-function abrirCaja(){
+export function abrirCaja(){
   if(!tienePermiso('abrircaja')){ toast('No tienes permiso para abrir la caja','error'); return; }
   const abierta=cajaActual();
   if(abierta){ toast('Ya hay una caja abierta por '+(abierta.cajero||'otro usuario'),'info'); render(); return; }
@@ -150,7 +158,7 @@ function abrirCaja(){
   // Si ya hubo un cierre, la base es OBLIGATORIA: la que quedó guardada
   const base = bs!==null ? bs : (parseFloat((document.getElementById('caja-base')||{}).value)||0);
   if(_guardando) return;
-  _guardando=true;
+  fijarGuardando(true);
   const nueva={id:uid(), base, apertura:now(), cajero:STATE.user.nombre, movimientos:[]};
   // Transacción: solo se abre si en la NUBE sigue sin caja (antes dos equipos
   // podían abrir a la vez y el último pisaba al primero)
@@ -166,9 +174,9 @@ function abrirCaja(){
       render();
     })
     .catch(e=>{ console.error(e); toast('No se pudo abrir la caja','error'); })
-    .then(()=>{ _guardando=false; });
+    .then(()=>{ fijarGuardando(false); });
 }
-function movimientoCaja(tipo){
+export function movimientoCaja(tipo){
   if(!(tienePermiso('abrircaja')||puedeRetirarJefe())){ toast('No tienes permiso para registrar movimientos de caja','error'); return; }
   const titulos={gasto:'Registrar gasto de caja',retiro:'Registrar retiro',entrada:'Registrar entrada'};
   abrirModal({titulo:titulos[tipo], textoBoton:'Registrar', campos:[
@@ -196,14 +204,14 @@ function movimientoCaja(tipo){
     cerrarModal(); toast('Registrado','success'); render();
   }});
 }
-function cerrarCaja(){
+export function cerrarCaja(){
   if(!tienePermiso('abrircaja')){ toast('No tienes permiso para cerrar la caja','error'); return; }
   // No dejar cerrar con cobros a medio ajustar: eso es lo que descuadra la caja
   const sinAjustar=ventasJornada(true).filter(v=>v.pagoDescuadrado);
   if(sinAjustar.length){
     abrirModal({titulo:'Hay cobros sin ajustar', textoBoton:'Entendido', campos:[],
       extraHTML:`<p class="nota">Estos ${pPedidos()} se editaron después de cobrados y su pago no cuadra con el total. Ajústalos antes de cerrar la caja:</p>
-        <div class="botones-fila" style="margin-top:10px;">${sinAjustar.map(v=>`<button class="btn btn-sm btn-naranja" onclick="cerrarModal();ajustarPagoVenta('${v.id}')">${escapeHtml(v.factura||'')} · ${fmtMoney(v.total)}</button>`).join('')}</div>`,
+        <div class="botones-fila mt-10">${sinAjustar.map(v=>`<button class="btn btn-sm btn-naranja" data-click="ajustarPagoDesdeModal('${v.id}')">${escapeHtml(v.factura||'')} · ${fmtMoney(v.total)}</button>`).join('')}</div>`,
       onGuardar:()=>cerrarModal()});
     return;
   }
@@ -224,14 +232,14 @@ function cerrarCaja(){
   abrirModal({titulo:'Cerrar caja', textoBoton:'Cerrar caja', campos:[
     {id:'contado', label:'Cuenta el efectivo del cajón. Esperado: '+fmtMoney(esperado), tipo:'number', valor:String(esperado), requerido:true},
     {id:'base', label:'¿Cuánto dejas en el cajón para mañana?', tipo:'number', valor:String(sugerida), requerido:true}
-  ], extraHTML:`${porVerificar.length?`<div class="alerta" style="border-radius:10px;padding:11px 14px;margin-bottom:10px;">
+  ], extraHTML:`${porVerificar.length?`<div class="alerta radio-10 p-11-14 mb-10">
       <strong class="rojo">⚠️ ${porVerificar.length} transferencia(s) sin verificar (${fmtMoney(porVerificar.reduce((a,v)=>a+pagosDe(v).banco,0))})</strong>
-      <p class="nota" style="margin-top:4px;">Ese dinero se está contando como recibido. Si no llegó a la cuenta, revísalo antes de cerrar.</p></div>`:''}
+      <p class="nota mt-4">Ese dinero se está contando como recibido. Si no llegó a la cuenta, revísalo antes de cerrar.</p></div>`:''}
     <div class="cobro-caja">
       <div class="c-row"><span>Contado en el cajón</span><strong id="cc-contado">${fmtMoney(esperado)}</strong></div>
       <div class="c-row"><span>Queda de base para mañana</span><strong class="oro" id="cc-base">${fmtMoney(sugerida)}</strong></div>
       <div class="c-row c-total"><span>SE LLEVA EL JEFE</span><strong id="cc-retiro">${fmtMoney(Math.max(0,esperado-sugerida))}</strong></div>
-      <p class="nota" id="cc-aviso" style="margin-top:8px;">Lo que sobre de la base se retira y se guarda. Mañana la caja abre sola con la base que dejes aquí.</p>
+      <p class="nota mt-8" id="cc-aviso">Lo que sobre de la base se retira y se guarda. Mañana la caja abre sola con la base que dejes aquí.</p>
     </div>`,
     onAbrir:()=>{
       const calc=()=>{
@@ -255,7 +263,7 @@ function cerrarCaja(){
     const baseManana=parseFloat(d.base)||0;
     if(baseManana>contado){ toast('La base para mañana no puede ser mayor a lo contado','error'); return; }
     if(_guardando) return;
-    _guardando=true;
+    fijarGuardando(true);
     // Transacción: se cierra SOLO si en la nube sigue abierta esta misma caja.
     // Así dos equipos no generan dos cierres de la misma jornada. Se usa la
     // caja tal como está en el servidor (con los movimientos de todos).
@@ -270,11 +278,11 @@ function cerrarCaja(){
       if(!r.committed){ cerrarModal(); toast('Esta caja ya fue cerrada desde otro equipo','error'); render(); return; }
       terminarCierre(enServidor||c, ventas, contado, baseManana, d.motivo);
     }).catch(e=>{ console.error(e); toast('No se pudo cerrar la caja. Revisa la conexión.','error'); })
-      .then(()=>{ _guardando=false; });
+      .then(()=>{ fijarGuardando(false); });
   }});
 }
 // Registra el cierre ya confirmado (la caja ya quedó vacía en la nube)
-function terminarCierre(c, ventas, contado, baseManana, motivo){
+export function terminarCierre(c, ventas, contado, baseManana, motivo){
     const movs=c.movimientos||[];
     const gastos=movs.filter(m=>m.tipo==='gasto').reduce((a,m)=>a+m.valor,0);
     const retiros=movs.filter(m=>m.tipo==='retiro').reduce((a,m)=>a+m.valor,0);
@@ -311,7 +319,7 @@ function terminarCierre(c, ventas, contado, baseManana, motivo){
     render();
 }
 // Imprime el cuadre de caja en tirilla POS 80mm
-function imprimirCierre(c){
+export function imprimirCierre(c){
   const neg=STATE.negocio||{};
   const dif=c.diferencia||0;
   const html=`<div style="font-family:Arial,sans-serif;color:#000;width:72mm;padding:4mm;margin:0 auto;font-weight:600;">
@@ -362,16 +370,16 @@ function imprimirCierre(c){
   setTimeout(()=>w.print(),400);
 }
 // Reporte de descuadre (cuando la caja no cuadra al cerrar)
-function reporteDescuadre(c){
+export function reporteDescuadre(c){
   const dif=c.diferencia||0;
   const cuerpo=`
-    <div class="${dif<0?'alerta':'tarjeta-pend'}" style="border-radius:10px;padding:14px 16px;">
-      <div style="font-size:17px;font-weight:800;" class="${dif<0?'rojo':'oro'}">
+    <div class="${dif<0?'alerta':'tarjeta-pend'} radio-10 p-14-16">
+      <div class="${dif<0?'rojo':'oro'} fs-17 fw-800">
         ${dif<0?'⚠️ FALTÓ '+fmtMoney(Math.abs(dif)):'💰 SOBRÓ '+fmtMoney(dif)}
       </div>
-      <p class="nota" style="margin-top:6px;">Cerró: ${escapeHtml(c.cerradaPor||'')} · ${fmtDate(c.cierre)}</p>
+      <p class="nota mt-6">Cerró: ${escapeHtml(c.cerradaPor||'')} · ${fmtDate(c.cierre)}</p>
     </div>
-    <div class="cobro-caja" style="margin-top:12px;">
+    <div class="cobro-caja mt-12">
       <div class="c-row"><span>Base de apertura</span><span>${fmtMoney(c.base||0)}</span></div>
       <div class="c-row"><span>Ventas en efectivo</span><span>${fmtMoney(c.efVenta||0)}</span></div>
       <div class="c-row"><span>Entradas</span><span>+${fmtMoney(c.entradas||0)}</span></div>
@@ -398,34 +406,34 @@ function reporteDescuadre(c){
 //  Al otro día la caja abre EXACTAMENTE con lo que quedó, no con lo que
 //  alguien escriba. Así nadie puede "inventar" la base de apertura.
 // ============================================================
-function cfgCaja(){
+export function cfgCaja(){
   const c=DB.get(claveDe(STATE.negocio.id,'config'));
   return (c && !Array.isArray(c)) ? c : (Array.isArray(c)&&c[0]) ? c[0] : {};
 }
-function guardarCfgCaja(obj){ DB.set(claveDe(STATE.negocio.id,'config'), obj); }
+export function guardarCfgCaja(obj){ DB.set(claveDe(STATE.negocio.id,'config'), obj); }
 // La base guardada es por sede (F1): la principal en baseSiguiente (como siempre), las demás en basesSucursal
-function baseSiguiente(){
+export function baseSiguiente(){
   const c=cfgCaja(), suc=sucursalActual();
   const b = suc==='principal' ? c.baseSiguiente : (c.basesSucursal||{})[suc];
   return (b===undefined||b===null)?null:(parseFloat(b)||0);
 }
-function ponerBaseSiguiente(cfg, valor){
+export function ponerBaseSiguiente(cfg, valor){
   const suc=sucursalActual();
   if(suc==='principal') cfg.baseSiguiente=valor;
   else { cfg.basesSucursal=cfg.basesSucursal||{}; cfg.basesSucursal[suc]=valor; }
   return cfg;
 }
 // Base fija que el negocio quiere dejar todos los días (se configura en Mi Negocio)
-function baseFija(){
+export function baseFija(){
   const n=STATE.negocio;
   return (n && n.baseFija!=null && n.baseFija!=='') ? (parseFloat(n.baseFija)||0) : null;
 }
-function puedeRetirarJefe(){
+export function puedeRetirarJefe(){
   const u=STATE.user;
   return !!(u && (u.rol==='admin' || u.rol==='dueno' || u.esSupervisor));
 }
 // El jefe saca dinero cuando la caja YA está cerrada: baja la base de mañana
-function retiroCajaCerrada(){
+export function retiroCajaCerrada(){
   if(!puedeRetirarJefe()){ toast('Solo el administrador o el dueño pueden retirar','error'); return; }
   const base=baseSiguiente();
   if(base===null){ toast('Todavía no hay una base guardada','error'); return; }
@@ -434,7 +442,7 @@ function retiroCajaCerrada(){
     {id:'motivo', label:'Motivo (opcional)', valor:'Retiro del dueño'}
   ], extraHTML:`<div class="cobro-caja">
       <div class="c-row"><span>Guardado para mañana</span><strong class="oro">${fmtMoney(base)}</strong></div>
-      <p class="nota" style="margin-top:8px;">Lo que retire se descuenta de la base con la que abrirá mañana. Queda registrado a su nombre.</p>
+      <p class="nota mt-8">Lo que retire se descuenta de la base con la que abrirá mañana. Queda registrado a su nombre.</p>
     </div>`,
   onGuardar:(d)=>{
     const monto=parseFloat(d.monto)||0;
@@ -453,7 +461,7 @@ function retiroCajaCerrada(){
   }});
 }
 // Solo el admin/dueño puede cambiar a mano la base de apertura (queda registrado)
-function cambiarBaseApertura(){
+export function cambiarBaseApertura(){
   if(!puedeRetirarJefe()){ toast('Solo el administrador o el dueño pueden cambiar la base','error'); return; }
   const base=baseSiguiente();
   abrirModal({titulo:'Corregir la base de apertura', textoBoton:'Guardar', campos:[

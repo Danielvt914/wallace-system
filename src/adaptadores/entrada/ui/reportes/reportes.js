@@ -1,17 +1,19 @@
 // ============================================================
 //  INTERFAZ · Reportes
 //  Reportes de ventas.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/08-sales-reports/08-sales-reports.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/08-sales-reports/08-sales-reports.md
 // ============================================================
+import { STATE, escapeHtml, fijarEscribiendo, fmtCorto, fmtMoney } from '../nucleo/estado.js';
+import { ic, pPersonal, pProd, pProds } from '../nucleo/componentes.js';
 
 
 // ============================================================
 //  REPORTES
 // ============================================================
-function reportes(){
-  ESCRIBIENDO=false;
+export function reportes(){
+  fijarEscribiendo(false);
   const neg=STATE.negocio;
   const vs=misDatos('ventas').filter(v=>v.estado==='pagada');
   const h=today();
@@ -74,25 +76,25 @@ function reportes(){
     <div class="tarjeta">
       <div class="t-cab">
         <span class="t-tit">${ic('report')} Resumen del Día (Hoy)</span>
-        <button class="btn btn-gold btn-sm" onclick="imprimirReporte()">🖨️ PDF / Imprimir</button>
+        <button class="btn btn-gold btn-sm" data-click="imprimirReporte()">🖨️ PDF / Imprimir</button>
       </div>
-      <div class="stats" style="margin-bottom:6px;">
+      <div class="stats mb-6">
         <div class="stat verde"><div class="stat-lbl">Vendido hoy</div><div class="stat-val">${fmtMoney(totHoy)}</div><div class="stat-sub">${hoy.length} ventas</div></div>
         ${usaPropinaNeg?`<div class="stat gold"><div class="stat-lbl">Propinas del día</div><div class="stat-val">${fmtMoney(propinasHoy)}</div><div class="stat-sub">para ${pPersonal()}</div></div>`:''}
         ${usaDomiciliosNeg?`<div class="stat azul"><div class="stat-lbl">Domicilios</div><div class="stat-val">${domiciliosHoy}</div><div class="stat-sub">recargos: ${fmtMoney(recargosHoy)}</div></div>`:`<div class="stat gold"><div class="stat-lbl">Ticket promedio</div><div class="stat-val">${fmtMoney(ticket)}</div><div class="stat-sub">por venta</div></div>`}
       </div>
       <div class="grid2">
         ${usaPropinaNeg?`<div>
-          <p class="oro negrita" style="margin-bottom:8px;">💵 Propinas a repartir (entre ${numMeseros} ${pPersonal()})</p>
-          ${propinasHoy>0?`<div style="padding:12px 14px;background:rgba(var(--acc-rgb),.08);border-radius:10px;">
-            <div class="linea" style="border:none;padding:2px 0;"><span class="negrita">A cada uno le toca:</span><strong class="oro">${fmtMoney(propinaPorMesero)}</strong></div>
-            ${meseros.length?`<p class="gris chico" style="margin-top:4px;">${meseros.map(m=>escapeHtml(m)).join(' · ')}</p>`:''}
-            ${propPorPersona.length?`<p class="gris chico" style="margin-top:6px;">Recibidas por: ${propPorPersona.map(([n,t])=>escapeHtml(n)+' '+fmtMoney(t)).join(' · ')}</p>`:''}
+          <p class="oro negrita mb-8">💵 Propinas a repartir (entre ${numMeseros} ${pPersonal()})</p>
+          ${propinasHoy>0?`<div class="p-12-14 fondo-acc-rgb-08 radio-10">
+            <div class="linea borde-ninguno p-2-0"><span class="negrita">A cada uno le toca:</span><strong class="oro">${fmtMoney(propinaPorMesero)}</strong></div>
+            ${meseros.length?`<p class="gris chico mt-4">${meseros.map(m=>escapeHtml(m)).join(' · ')}</p>`:''}
+            ${propPorPersona.length?`<p class="gris chico mt-6">Recibidas por: ${propPorPersona.map(([n,t])=>escapeHtml(n)+' '+fmtMoney(t)).join(' · ')}</p>`:''}
           </div>`:'<p class="gris">No hay propinas registradas hoy.</p>'}
         </div>`:''}
         <div>
-          <p class="oro negrita" style="margin-bottom:8px;"><span class="ico-txt">${ic('box')}</span> ${pProds(true)} más vendidos hoy</p>
-          ${topHoy.length?`<table class="tabla"><tbody>${topHoy.map(([n,q])=>`<tr><td>${escapeHtml(n)}</td><td class="oro negrita" style="text-align:right;">${q}</td></tr>`).join('')}</tbody></table>`:'<p class="gris">Aún no hay ventas hoy.</p>'}
+          <p class="oro negrita mb-8"><span class="ico-txt">${ic('box')}</span> ${pProds(true)} más vendidos hoy</p>
+          ${topHoy.length?`<table class="tabla"><tbody>${topHoy.map(([n,q])=>`<tr><td>${escapeHtml(n)}</td><td class="oro negrita txt-der">${q}</td></tr>`).join('')}</tbody></table>`:'<p class="gris">Aún no hay ventas hoy.</p>'}
         </div>
       </div>
     </div>
@@ -109,7 +111,7 @@ function reportes(){
     </div>
     <div class="tarjeta"><span class="t-tit">${ic('history')} Horas Pico (últimos 30 días)</span>
       ${horasActivas.length?`<div class="barras">${horasActivas.map(x=>`<div class="barra"><div class="b-val">${fmtCorto(x.tot)}</div><div class="b-fill" style="height:${Math.max(4,(x.tot/maxHora)*130)}px"></div><div class="b-lbl">${x.h}H</div></div>`).join('')}</div>
-        <p class="nota" style="margin-top:8px;">Te ayuda a saber a qué horas necesitas más personal.</p>`:'<p class="gris">Sin datos.</p>'}
+        <p class="nota mt-8">Te ayuda a saber a qué horas necesitas más personal.</p>`:'<p class="gris">Sin datos.</p>'}
     </div>
     <div class="grid2">
       <div class="tarjeta"><span class="t-tit">${ic('box')} ${pProds(true)} más vendidos (30 días)</span>
@@ -123,7 +125,7 @@ function reportes(){
           <thead><tr><th>${pProd(true)}</th><th>Uds.</th><th>Total</th></tr></thead>
           <tbody>${menos.map(([n,d])=>`<tr><td>${escapeHtml(n)}</td><td class="negrita">${d.qty}</td><td class="gris">${fmtMoney(d.total)}</td></tr>`).join('')}</tbody>
         </table></div>
-        <p class="nota" style="margin-top:8px;">Candidatos a quitar o renovar en el menú.</p>`:'<p class="gris">Sin datos.</p>'}
+        <p class="nota mt-8">Candidatos a quitar o renovar en el menú.</p>`:'<p class="gris">Sin datos.</p>'}
       </div>
     </div>`;
 }

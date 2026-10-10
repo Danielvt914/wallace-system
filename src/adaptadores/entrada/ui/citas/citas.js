@@ -1,17 +1,25 @@
 // ============================================================
 //  INTERFAZ · Agenda
 //  Citas y turnos, productos apartados, cobro de la entrega.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/05-appointments-shifts/05-appointments-shifts.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/05-appointments-shifts/05-appointments-shifts.md
 // ============================================================
+import { STATE, escapeHtml, fijarEscribiendo, fmtDate, fmtMoney, jornadaActual, now } from '../nucleo/estado.js';
+import { cajaActual, exigirPermiso, puedeVerPantalla, sucursalActual, usaInventario } from '../nucleo/permisos.js';
+import { abrirModal, cerrarModal, confirmarModal, ic, toast } from '../nucleo/componentes.js';
+import { render } from '../nucleo/navegacion.js';
+import { logAudit } from '../usuarios/auditoria.js';
+import { siguienteFactura } from '../ventas/nueva-venta.js';
+import { abrirCobro } from '../ventas/cobro.js';
+import { moverInventario } from '../inventario/motor.js';
 
 
 // ============================================================
 //  AGENDAR (citas, turnos, entregas)
 // ============================================================
-function citas(){
-  ESCRIBIENDO=false;
+export function citas(){
+  fijarEscribiendo(false);
   const neg=STATE.negocio;
   const lista=misDatos('citas').slice().sort((a,b)=>new Date(a.fechaHora)-new Date(b.fechaHora));
   const hoy=today();
@@ -31,7 +39,7 @@ function citas(){
     <div class="tarjeta">
       <div class="t-cab">
         <span class="t-tit">${ic('calendar')} Agendar</span>
-        <button class="btn btn-gold" onclick="nuevaCita()">+ Nuevo agendamiento</button>
+        <button class="btn btn-gold" data-click="nuevaCita()">+ Nuevo agendamiento</button>
       </div>
       ${usaInv?`<p class="nota">Al apartar productos se descuentan del inventario y quedan reservados para esa persona. Si <strong>no se recoge</strong>, vuelven al stock.</p>`:''}
       <div class="tabla-wrap"><table class="tabla">
@@ -41,10 +49,10 @@ function citas(){
           const ap=c.apartados||[];
           const apHTML=ap.length
             ? ap.map(x=>`<div class="chico">${escapeHtml(x.nombre)} <strong>×${x.cantidad}</strong></div>`).join('')
-              +(c.estado==='pendiente'?'<span class="pill pill-azul" style="margin-top:4px;">Reservado</span>'
-                :c.estado==='atendida'?(c.ventaId?'<span class="pill pill-verde" style="margin-top:4px;">Entregado y cobrado</span>':'<span class="pill pill-verde" style="margin-top:4px;">Entregado</span>')
-                :c.estado==='no_recogio'?'<span class="pill pill-rojo" style="margin-top:4px;">Devuelto al stock</span>'
-                :'<span class="pill pill-rojo" style="margin-top:4px;">Devuelto al stock</span>')
+              +(c.estado==='pendiente'?'<span class="pill pill-azul mt-4">Reservado</span>'
+                :c.estado==='atendida'?(c.ventaId?'<span class="pill pill-verde mt-4">Entregado y cobrado</span>':'<span class="pill pill-verde mt-4">Entregado</span>')
+                :c.estado==='no_recogio'?'<span class="pill pill-rojo mt-4">Devuelto al stock</span>'
+                :'<span class="pill pill-rojo mt-4">Devuelto al stock</span>')
             : '<span class="gris chico">—</span>';
           return `<tr>
           <td>${fmtDate(c.fechaHora)}</td>
@@ -58,10 +66,10 @@ function citas(){
               :'<span class="pill pill-gold">Pendiente</span>'}</td>
           <td class="acciones">
             ${c.estado==='pendiente'?`
-              <button class="btn btn-sm btn-verde" onclick="marcarCita('${c.id}','atendida')" title="${ap.length?'Entregado (mantiene el descuento de inventario)':'Marcar atendida'}">${ap.length?'✓ Entregado':'✓'}</button>
-              ${ap.length?`<button class="btn btn-sm btn-rojo" onclick="marcarCita('${c.id}','no_recogio')" title="No se recogió (devuelve los productos al stock)">↩ No se recogió</button>`
-                :`<button class="btn btn-sm btn-rojo" onclick="marcarCita('${c.id}','cancelada')" title="Cancelar">✕</button>`}`:''}
-            <button class="btn btn-sm" onclick="eliminarCita('${c.id}')" title="Eliminar">🗑</button>
+              <button class="btn btn-sm btn-verde" data-click="marcarCita('${c.id}','atendida')" title="${ap.length?'Entregado (mantiene el descuento de inventario)':'Marcar atendida'}">${ap.length?'✓ Entregado':'✓'}</button>
+              ${ap.length?`<button class="btn btn-sm btn-rojo" data-click="marcarCita('${c.id}','no_recogio')" title="No se recogió (devuelve los productos al stock)">↩ No se recogió</button>`
+                :`<button class="btn btn-sm btn-rojo" data-click="marcarCita('${c.id}','cancelada')" title="Cancelar">✕</button>`}`:''}
+            <button class="btn btn-sm" data-click="eliminarCita('${c.id}')" title="Eliminar">🗑</button>
           </td>
         </tr>`;}).join('') : `<tr><td colspan="${usaInv?7:6}" class="gris">Nada agendado todavía.</td></tr>`}
         </tbody>
@@ -69,8 +77,8 @@ function citas(){
     </div>`;
 }
 
-let _apartTmp=[];   // productos que se están apartando en el modal de la cita
-function nuevaCita(){
+export let _apartTmp=[];   // productos que se están apartando en el modal de la cita
+export function nuevaCita(){
   if(!puedeVerPantalla('citas')){ toast('No tienes acceso a la agenda','error'); return; }
   const neg=STATE.negocio;
   const esServicio=(neg.palabraProducto||'')==='Servicio';
@@ -122,35 +130,35 @@ function nuevaCita(){
 }
 
 // --- Editor de productos apartados (dentro del modal de la cita) ---
-function apartadoEditorHTML(){
+export function apartadoEditorHTML(){
   const productos=misDatos('productos').filter(p=>p.stock!=null);
   if(!productos.length){
-    return `<div class="cobro-caja" style="margin-top:14px;">
+    return `<div class="cobro-caja mt-14">
       <strong>Apartar productos</strong>
-      <p class="nota" style="margin-top:8px;">No hay productos con inventario para apartar. Agrega productos con stock en <strong>Inventario</strong>.</p>
+      <p class="nota mt-8">No hay productos con inventario para apartar. Agrega productos con stock en <strong>Inventario</strong>.</p>
     </div>`;
   }
-  return `<div class="cobro-caja" style="margin-top:14px;">
+  return `<div class="cobro-caja mt-14">
     <strong>Apartar productos <span class="gris chico">(opcional — se restan del inventario y quedan reservados)</span></strong>
-    <div id="apart-lista" style="margin:10px 0;">${apartadoFilasHTML()}</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-      <select id="apart-prod" class="campo" style="flex:2;min-width:130px;margin:0;">
+    <div id="apart-lista" class="m-10-0">${apartadoFilasHTML()}</div>
+    <div class="d-flex gap-8 flex-wrap items-centro">
+      <select id="apart-prod" class="campo flex-2 minw-130 m-0">
         ${productos.map(p=>`<option value="${p.id}">${escapeHtml(p.nombre)} (stock ${p.stock})</option>`).join('')}
       </select>
-      <input id="apart-cant" type="number" min="1" class="campo" placeholder="Cant." style="flex:1;min-width:70px;margin:0;">
-      <button type="button" class="btn btn-verde btn-sm" onclick="agregarProdApartado()">+ Apartar</button>
+      <input id="apart-cant" type="number" min="1" class="campo flex-1 minw-70 m-0" placeholder="Cant.">
+      <button type="button" class="btn btn-verde btn-sm" data-click="agregarProdApartado()">+ Apartar</button>
     </div>
   </div>`;
 }
-function apartadoFilasHTML(){
+export function apartadoFilasHTML(){
   if(!_apartTmp.length) return '<p class="nota">Sin productos apartados. Esta cita se agenda sin reservar inventario.</p>';
-  return _apartTmp.map((x,idx)=>`<div class="c-row" style="padding:6px 0;">
+  return _apartTmp.map((x,idx)=>`<div class="c-row p-6-0">
       <span>${escapeHtml(x.nombre)}</span>
       <span><strong>×${x.cantidad}</strong>
-        <button type="button" class="mini-x" onclick="quitarProdApartado(${idx})">×</button></span>
+        <button type="button" class="mini-x" data-click="quitarProdApartado(${idx})">×</button></span>
     </div>`).join('');
 }
-function agregarProdApartado(){
+export function agregarProdApartado(){
   const sel=document.getElementById('apart-prod');
   const cant=parseFloat((document.getElementById('apart-cant')||{}).value)||0;
   if(!sel||!sel.value){ toast('Elige un producto','error'); return; }
@@ -164,26 +172,26 @@ function agregarProdApartado(){
   if(cont) cont.innerHTML=apartadoFilasHTML();
   const ci=document.getElementById('apart-cant'); if(ci) ci.value='';
 }
-function quitarProdApartado(idx){
+export function quitarProdApartado(idx){
   _apartTmp.splice(idx,1);
   const cont=document.getElementById('apart-lista');
   if(cont) cont.innerHTML=apartadoFilasHTML();
 }
 // Resta del stock los productos apartados (usa lotes FEFO si el producto los maneja)
 // Apartados: pasan por el motor de inventario, así quedan en Movimientos (F8)
-function reqApartados(apartados){
+export function reqApartados(apartados){
   const prod={};
   (apartados||[]).forEach(x=>{ if(x && x.prodId && x.cantidad>0) prod[x.prodId]=(prod[x.prodId]||0)+x.cantidad; });
   return {prod, ins:{}};
 }
-function descontarApartado(apartados, motivo){
+export function descontarApartado(apartados, motivo){
   moverInventario(reqApartados(apartados), -1, motivo||'Apartado de cita', true);
 }
 // Devuelve al stock los productos apartados (cuando no se recogió o se canceló)
-function devolverApartado(apartados, motivo){
+export function devolverApartado(apartados, motivo){
   moverInventario(reqApartados(apartados), +1, motivo||'Devolución de apartado', true);
 }
-function marcarCita(id,estado){
+export function marcarCita(id,estado){
   if(!puedeVerPantalla('citas')){ toast('No tienes acceso a la agenda','error'); return; }
   const arr=misDatos('citas');
   const c=arr.find(x=>x.id===id); if(!c) return;
@@ -213,7 +221,7 @@ function marcarCita(id,estado){
 
 // Al confirmar que la cita llegó y se llevó los productos: cobrar y registrar la venta.
 // El stock YA se descontó cuando se apartó, así que la venta NO vuelve a descontarlo.
-function cobrarCitaEntregada(cita){
+export function cobrarCitaEntregada(cita){
   if(!exigirPermiso('cobrar','No tienes permiso para cobrar')) return;
   const neg=STATE.negocio;
   // Igual que una venta: con caja, la caja debe estar abierta (F9)
@@ -247,7 +255,7 @@ function cobrarCitaEntregada(cita){
     logAudit('Cobró entrega de cita', (v.factura||'')+' · '+(cita.cliente||'')+' · '+fmtMoney(v.total));
   }});
 }
-function eliminarCita(id){
+export function eliminarCita(id){
   if(!puedeVerPantalla('citas')){ toast('No tienes acceso a la agenda','error'); return; }
   const c=misDatos('citas').find(x=>x.id===id);
   const debeDevolver = c && (c.apartados||[]).length && c.stockDescontado && !c.ventaId;

@@ -1,27 +1,32 @@
 // ============================================================
 //  INTERFAZ · Configuración del negocio (super-admin)
 //  Pestañas de configuración, plan, ventanas y sucursales.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/11-business-settings/11-business-settings.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/11-business-settings/11-business-settings.md
 // ============================================================
+import { STATE, escapeHtml, fmtDate, fmtMoney } from '../nucleo/estado.js';
+import { esAdminSistema } from '../nucleo/permisos.js';
+import { abrirModal, cerrarModal, confirmarModal, ic, toast } from '../nucleo/componentes.js';
+import { render } from '../nucleo/navegacion.js';
+import { resumenDe } from '../reportes/resumen.js';
 
 
 // ============================================================
 //  CONFIGURACIÓN DEL NEGOCIO (super-admin)
 // ============================================================
-function configNegocio(id){
+export function configNegocio(id){
   if(!esAdminSistema()){ toast('No tienes permiso para configurar negocios','error'); return; }
   window._logoNuevo=undefined; STATE.page='config:'+id; render();
 }
-function usuariosNegocio(id){
+export function usuariosNegocio(id){
   if(!esAdminSistema()){ toast('No tienes permiso para gestionar usuarios','error'); return; }
   STATE.page='usuarios:'+id; render();
 }
 
-let _cfgTab='datos';
-function cfgTab(t){ _cfgTab=t; render(); }
-function pantallaConfig(negId){
+export let _cfgTab='datos';
+export function cfgTab(t){ _cfgTab=t; render(); }
+export function pantallaConfig(negId){
   const neg=(DB.get('negocios')||[]).find(n=>n.id===negId);
   if(!neg) return '<div class="tarjeta">Negocio no encontrado</div>';
   const F=neg.funciones||[];
@@ -57,17 +62,17 @@ function pantallaConfig(negId){
       <div class="logo-zona">
         <div class="logo-vista" id="logo-vista">${neg.logo?`<img src="${neg.logo}" alt="logo">`:`<div class="logo-vacio">Sin logo</div>`}</div>
         <div class="logo-acc">
-          <input type="file" id="n-logo" accept="image/*" onchange="cargarLogo(this)" style="display:none;">
-          <button class="btn btn-gold" onclick="document.getElementById('n-logo').click()">Subir logo</button>
-          ${neg.logo?`<button class="btn btn-rojo btn-sm" onclick="quitarLogo()">Quitar</button>`:''}
+          <input type="file" id="n-logo" accept="image/*" data-change="cargarLogo(this)" class="oculto">
+          <button class="btn btn-gold" data-click="elegirLogo()">Subir logo</button>
+          ${neg.logo?`<button class="btn btn-rojo btn-sm" data-click="quitarLogo()">Quitar</button>`:''}
           <p class="nota">Sale en el menú lateral y en las facturas.</p>
         </div>
       </div>
-      <div class="form2" style="margin-top:14px;">
+      <div class="form2 mt-14">
         <div class="m-row"><label>Tema</label><select id="c-tema" class="campo">
           <option value="oscuro" ${neg.tema!=='claro'?'selected':''}>Oscuro neón</option>
           <option value="claro" ${neg.tema==='claro'?'selected':''}>Claro / fondo blanco</option></select></div>
-        <div class="m-row"><label>Color principal</label><input id="c-color" type="color" class="campo" style="height:46px;padding:5px;cursor:pointer;" value="${/^#[0-9a-fA-F]{6}$/.test(neg.colorTema||'')?neg.colorTema:'#01c38e'}"></div>
+        <div class="m-row"><label>Color principal</label><input id="c-color" type="color" class="campo h-46 p-5 cursor-mano" value="${/^#[0-9a-fA-F]{6}$/.test(neg.colorTema||'')?neg.colorTema:'#01c38e'}"></div>
         <div class="m-row"><label>Tamaño de factura</label><select id="c-fact" class="campo">
           <option value="pos" ${neg.tipoFactura==='pos'?'selected':''}>Tirilla POS (80mm)</option>
           <option value="media" ${neg.tipoFactura==='media'?'selected':''}>Media hoja</option>
@@ -81,7 +86,7 @@ function pantallaConfig(negId){
         <div class="m-row"><label>Plan</label><select id="c-plan" class="campo">${PLANES.map(x=>`<option ${(planDe(neg)===x)?'selected':''}>${x}</option>`).join('')}</select></div>
         <div class="m-row"><label>Precio mensual</label><input id="c-precio" type="number" class="campo" value="${neg.precioMes||0}"></div>
         <div class="m-row"><label>Día de pago del mes</label><input id="c-diapago" type="number" min="1" max="31" class="campo" value="${neg.diaPago||''}" placeholder="Ej: 5"></div>
-        <div class="m-row"><label>Estado</label><div class="campo" style="display:flex;align-items:center;">${neg.activo?'<span class="pill pill-verde">Activo</span>':'<span class="pill pill-rojo">Suspendido</span>'}</div></div>
+        <div class="m-row"><label>Estado</label><div class="campo d-flex items-centro">${neg.activo?'<span class="pill pill-verde">Activo</span>':'<span class="pill pill-rojo">Suspendido</span>'}</div></div>
       </div>`)
     + sec(ic('users')+' Vendedor a cargo', `
       <p class="nota">Quién vendió este negocio y lo atiende. Sirve para saber a quién le corresponde cada cliente.</p>
@@ -98,8 +103,8 @@ function pantallaConfig(negId){
       <div class="linea"><span>Usuarios creados</span><strong>${nUsuarios}</strong></div>
       <div class="linea"><span>Ventas registradas</span><strong>${(r=>r?r.pagadas:'—')(resumenDe(negId))}</strong></div>
       <div class="linea total-linea"><span>Facturado desde que entró</span><strong>${fmtMoney((neg.precioMes||0)*Math.max(1,Math.ceil((dias||0)/30)))}</strong></div>
-      <div class="botones-fila" style="margin-top:14px;">
-        <button class="btn btn-gold" onclick="reporteMensualNegocio('${negId}')">📄 Reporte mensual en PDF</button>
+      <div class="botones-fila mt-14">
+        <button class="btn btn-gold" data-click="reporteMensualNegocio('${negId}')">📄 Reporte mensual en PDF</button>
       </div>`);
   }
   else if(t==='operacion'){
@@ -132,7 +137,7 @@ function pantallaConfig(negId){
         <label class="chk"><input type="checkbox" id="c-sonidos" ${neg.sonidos!==false?'checked':''}> Sonidos</label>
         <label class="chk"><input type="checkbox" id="c-alerta" ${neg.alertaStock!==false?'checked':''}> Avisar stock bajo</label>
       </div>
-      <div class="form2" style="margin-top:14px;">
+      <div class="form2 mt-14">
         <div class="m-row"><label>Cliente predeterminado</label><input id="c-cfnom" class="campo" value="${escapeHtml(neg.clienteFijoNombre||'Consumidor Final')}"></div>
         <div class="m-row"><label>Teléfono predeterminado</label><input id="c-cftel" class="campo" value="${escapeHtml(neg.clienteFijoTel||'0000000')}"></div>
       </div>`)
@@ -148,14 +153,14 @@ function pantallaConfig(negId){
   else if(t==='ventanas'){
     cuerpo=sec('🪟 Ventanas habilitadas para este negocio', `
       <p class="nota">Todo lo que el negocio puede ver está aquí, en un solo lugar. Lo que desmarque no le aparece a nadie, ni al administrador del negocio. Los permisos de cada empleado se manejan aparte, dentro del negocio.</p>
-      ${GRUPOS.map(g=>`<div style="margin-top:16px;">
+      ${GRUPOS.map(g=>`<div class="mt-16">
         <div class="cc-sec"><span>${g[0]}</span><span>${g[1].filter(x=>F.indexOf(x[0])>-1).length}/${g[1].length}</span></div>
         <div class="checks">${g[1].map(x=>`<label class="chk"><input type="checkbox" class="c-fun" value="${x[0]}" ${F.indexOf(x[0])>-1?'checked':''}> ${x[1]}</label>`).join('')}</div>
       </div>`).join('')}
-      <div class="botones-fila" style="margin-top:16px;">
-        <button class="btn btn-sm" onclick="document.querySelectorAll('.c-fun').forEach(c=>c.checked=true)">Marcar todo</button>
-        <button class="btn btn-sm btn-ghost" onclick="document.querySelectorAll('.c-fun').forEach(c=>c.checked=false)">Quitar todo</button>
-        <button class="btn btn-sm btn-ghost" onclick="aplicarPlantillaPlan()">Aplicar lo del plan ${escapeHtml(neg.plan||'')}</button>
+      <div class="botones-fila mt-16">
+        <button class="btn btn-sm" data-click="marcarVentanas(true)">Marcar todo</button>
+        <button class="btn btn-sm btn-ghost" data-click="marcarVentanas(false)">Quitar todo</button>
+        <button class="btn btn-sm btn-ghost" data-click="aplicarPlantillaPlan()">Aplicar lo del plan ${escapeHtml(neg.plan||'')}</button>
       </div>`);
   }
   else {
@@ -163,9 +168,9 @@ function pantallaConfig(negId){
       <p class="nota">Cada sucursal maneja su <strong>caja, base, pedidos y cierres</strong> por separado. Inventario, clientes, numeración de facturas, reportes y contabilidad son de todo el negocio.</p>
       ${(neg.sucursales||[]).length?(neg.sucursales||[]).map((x,i)=>`<div class="suc-fila">
         <input type="text" class="campo c-suc" value="${escapeHtml(x.nombre)}" placeholder="Nombre">
-        <button class="btn btn-sm btn-rojo" onclick="quitarSucursal('${negId}',${i})">×</button>
+        <button class="btn btn-sm btn-rojo" data-click="quitarSucursal('${negId}',${i})">×</button>
       </div>`).join(''):'<p class="gris chico">Sin sucursales: funciona como un solo punto de venta.</p>'}
-      <button class="btn btn-sm" onclick="agregarSucursal('${negId}')">+ Agregar sucursal</button>`);
+      <button class="btn btn-sm" data-click="agregarSucursal('${negId}')">+ Agregar sucursal</button>`);
   }
   return `
   <div class="topbar">
@@ -173,22 +178,22 @@ function pantallaConfig(negId){
     <div class="tb-der">
       <span class="pill ${neg.activo?'pill-verde':'pill-rojo'}">${neg.activo?'Activo':'Suspendido'}</span>
       <span class="pill pill-gold">${escapeHtml(neg.plan||'Sin plan')}</span>
-      <button class="btn btn-ghost btn-sm" onclick="STATE.page='';render()">← Volver</button>
+      <button class="btn btn-ghost btn-sm" data-click="irPanel()">← Volver</button>
     </div>
   </div>
   <div class="contenido">
-    <div class="cats" style="margin-bottom:18px;">
-      ${tabs.map(x=>`<button class="cat ${t===x[0]?'on':''}" onclick="cfgTab('${x[0]}')">${x[1]}</button>`).join('')}
+    <div class="cats mb-18">
+      ${tabs.map(x=>`<button class="cat ${t===x[0]?'on':''}" data-click="cfgTab('${x[0]}')">${x[1]}</button>`).join('')}
     </div>
     ${cuerpo}
     <div class="tarjeta">
-      <button class="btn btn-gold btn-block btn-grande" onclick="guardarConfig('${negId}')">Guardar configuración</button>
-      <p class="nota centrado" style="margin-top:10px;">Se guarda todo lo de esta pestaña. Las demás conservan lo que ya tenían.</p>
+      <button class="btn btn-gold btn-block btn-grande" data-click="guardarConfig('${negId}')">Guardar configuración</button>
+      <p class="nota centrado mt-10">Se guarda todo lo de esta pestaña. Las demás conservan lo que ya tenían.</p>
     </div>
   </div>`;
 }
 // Deja marcadas las ventanas que corresponden al plan del negocio (VENTANAS_POR_PLAN: dominio/negocio.js)
-function aplicarPlantillaPlan(){
+export function aplicarPlantillaPlan(){
   const sel=document.getElementById('c-plan');
   const plan=sel?sel.value:'Profesional';
   const lista=VENTANAS_POR_PLAN[plan]||VENTANAS_POR_PLAN['Profesional'];
@@ -196,7 +201,7 @@ function aplicarPlantillaPlan(){
   toast('Marcadas las ventanas del plan '+plan,'info');
 }
 
-function guardarConfig(negId){
+export function guardarConfig(negId){
   if(!esAdminSistema()){ toast('No tienes permiso para configurar negocios','error'); return; }
   const negocios=JSON.parse(JSON.stringify(DB.get('negocios')||[]));
   const i=negocios.findIndex(n=>n.id===negId);
@@ -255,7 +260,7 @@ function guardarConfig(negId){
   render();
 }
 
-function agregarSucursal(negId){
+export function agregarSucursal(negId){
   if(!esAdminSistema()){ toast('No tienes permiso para crear sucursales','error'); return; }
   abrirModal({titulo:'Nueva sucursal', textoBoton:'Agregar', campos:[
     {id:'nombre', label:'Nombre de la sede', requerido:true, placeholder:'Ej: Sede Cabecera'}
@@ -271,7 +276,7 @@ function agregarSucursal(negId){
     cerrarModal(); toast('Sucursal agregada','success'); render();
   }});
 }
-async function quitarSucursal(negId,idx){
+export async function quitarSucursal(negId,idx){
   if(!esAdminSistema()){ toast('No tienes permiso para quitar sucursales','error'); return; }
   const negocios=JSON.parse(JSON.stringify(DB.get('negocios')||[]));
   const i=negocios.findIndex(n=>n.id===negId); if(i<0) return;
@@ -292,3 +297,4 @@ async function quitarSucursal(negId,idx){
     toast('Sucursal quitada','info'); render();
   },'Quitar');
 }
+export function marcarVentanas(todas){ document.querySelectorAll('.c-fun').forEach(c=>{ c.checked=!!todas; }); }

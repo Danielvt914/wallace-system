@@ -1,14 +1,22 @@
 // ============================================================
 //  INTERFAZ · Negocios
 //  Crear, suspender, eliminar, asignar vendedor y supervisar un negocio.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/01-super-admin-panel/01-super-admin-panel.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/01-super-admin-panel/01-super-admin-panel.md
 // ============================================================
+import { STATE, escapeHtml, now } from '../nucleo/estado.js';
+import { esAdminSistema } from '../nucleo/permisos.js';
+import { abrirModal, cerrarModal, confirmarModal, toast } from '../nucleo/componentes.js';
+import { render } from '../nucleo/navegacion.js';
+import { conCuentasFirebase, mensajeCuenta, ponerPass } from '../usuarios/sesion.js';
+import { borrarCuentasDeNegocio, crearCuentaPara } from '../usuarios/cuentas.js';
+import { fijarFacturaReservada, reservarFactura } from '../ventas/nueva-venta.js';
+import { fijarResumenNeg } from '../reportes/resumen.js';
 
 
 // ---------- Crear negocio ----------
-function nuevoNegocio(){
+export function nuevoNegocio(){
   if(STATE.user&&STATE.user.rolSuper==='vendedor'){ toast('Como vendedor solo puedes crear demos','error'); return; }
   abrirModal({titulo:'Crear negocio', textoBoton:'Crear', campos:[
     {id:'nombre', label:'Nombre del negocio', requerido:true, placeholder:'Ej: MANILLASNET'},
@@ -71,7 +79,7 @@ function nuevoNegocio(){
 }
 
 // Asignar o cambiar el vendedor a cargo de un negocio
-function asignarVendedor(id){
+export function asignarVendedor(id){
   if(!esAdminSistema()){ toast('No tienes permiso para asignar vendedores','error'); return; }
   const negocios=DB.get('negocios')||[];
   const n=negocios.find(x=>x.id===id); if(!n) return;
@@ -92,7 +100,7 @@ function asignarVendedor(id){
     cerrarModal(); toast(x.vendedorId?('Asignado a '+x.vendedorNombre):'Vendedor quitado','success'); render();
   }});
 }
-function toggleNegocio(id){
+export function toggleNegocio(id){
   const negocios=DB.get('negocios')||[];
   const n=negocios.find(x=>x.id===id); if(!n) return;
   if(!STATE.esSuperAdmin){ toast('No tienes permiso','error'); return; }
@@ -105,7 +113,7 @@ function toggleNegocio(id){
   toast(n.activo?'Negocio activado':'Negocio suspendido','info');
   render();
 }
-function eliminarNegocio(id){
+export function eliminarNegocio(id){
   if(STATE.user.rolSuper!=='dueno'){ toast('Solo el dueño del sistema puede eliminar empresas','error'); return; }
   const negocios=DB.get('negocios')||[];
   const n=negocios.find(x=>x.id===id); if(!n) return;
@@ -134,7 +142,7 @@ function eliminarNegocio(id){
     }});
   },'Sí, continuar');
 }
-function entrarComoNegocio(id){
+export function entrarComoNegocio(id){
   const neg=(DB.get('negocios')||[]).find(n=>n.id===id); if(!neg) return;
   // Seguridad: un vendedor solo puede entrar a DEMOS, nunca a negocios reales de clientes
   if(STATE.user.rolSuper==='vendedor' && !neg.esDemo){
@@ -147,16 +155,16 @@ function entrarComoNegocio(id){
   STATE.modoSupervision=true;
   STATE.sucursal=(sucursalesDe(neg)[0]||{id:'principal'}).id;
   STATE.pageNeg='inicio';
-  _facturaReservada=null; reservarFactura();
+  fijarFacturaReservada(null); reservarFactura();
   // R1: con cuentas el panel no tiene los datos del negocio: se escuchan mientras se supervisa
   if(conCuentasFirebase()) sincronizarNegocio(id);
   toast('Supervisando '+neg.nombre,'info');
   render();
 }
-function volverSuperAdmin(){
+export function volverSuperAdmin(){
   STATE.esSuperAdmin=true; STATE.modoSupervision=false;
   STATE.negocio=null; STATE.sucursal=null;
-  _facturaReservada=null; _resumenNeg=null;
+  fijarFacturaReservada(null); fijarResumenNeg(null);
   if(conCuentasFirebase()) detenerSincNegocio();
   // Restaurar el super-admin original (conserva su rolSuper: dueno/ayudante/vendedor)
   STATE.user=STATE._superUser||{nombre:'Súper Administrador', rol:'superadmin', rolSuper:'dueno'};

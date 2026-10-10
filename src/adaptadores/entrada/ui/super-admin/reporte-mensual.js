@@ -1,16 +1,20 @@
 // ============================================================
 //  INTERFAZ · Informe mensual del negocio
 //  Informe imprimible para el super-admin.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/01-super-admin-panel/01-super-admin-panel.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/01-super-admin-panel/01-super-admin-panel.md
 // ============================================================
+import { escapeHtml, fmtDate, fmtMoney } from '../nucleo/estado.js';
+import { esAdminSistema } from '../nucleo/permisos.js';
+import { abrirModal, cerrarModal, toast } from '../nucleo/componentes.js';
+import { nombreMes } from '../gastos/contable.js';
 
 // ============================================================
 //  REPORTE MENSUAL DEL NEGOCIO (PDF / impresión) — para el super admin
 // ============================================================
-let _repNegMes=null;
-async function reporteMensualNegocio(negId){
+export let _repNegMes=null;
+export async function reporteMensualNegocio(negId){
   if(!esAdminSistema()){ toast('No tienes permiso para ver informes de negocios','error'); return; }
   const neg=(DB.get('negocios')||[]).find(n=>n.id===negId);
   if(!neg){ toast('Negocio no encontrado','error'); return; }
@@ -29,7 +33,7 @@ async function reporteMensualNegocio(negId){
   ], extraHTML:`<p class="nota">Se abre listo para imprimir o guardar como PDF (en la ventana de impresión elija "Guardar como PDF").</p>`,
   onGuardar:(d)=>{ cerrarModal(); imprimirReporteNegocio(negId, d.mes); }});
 }
-function imprimirReporteNegocio(negId, mes){
+export function imprimirReporteNegocio(negId, mes){
   const neg=(DB.get('negocios')||[]).find(n=>n.id===negId); if(!neg) return;
   const jorn=v=>(v.jornada||fechaLocal(v.fecha)||'').substring(0,7);
   const ventas=(datosDe(negId,'ventas')||[]).filter(v=>v.estado==='pagada' && jorn(v)===mes);

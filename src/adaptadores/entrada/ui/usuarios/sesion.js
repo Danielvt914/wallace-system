@@ -1,10 +1,17 @@
 // ============================================================
 //  INTERFAZ · Inicio de sesión
 //  Login con cuentas de Firebase (S1) o local, sesión guardada, configuración inicial del dueño.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/10-users-roles/10-users-roles.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/10-users-roles/10-users-roles.md
 // ============================================================
+import { STATE, escapeHtml, fijarEscribiendo, now, refrescarSiSePuede } from '../nucleo/estado.js';
+import { abrirModal, cerrarModal, toast } from '../nucleo/componentes.js';
+import { sonidoError } from '../nucleo/sonidos.js';
+import { render } from '../nucleo/navegacion.js';
+import { migrarContrasenasLegado } from './cuentas.js';
+import { fijarFacturaReservada } from '../ventas/nueva-venta.js';
+import { fijarResumenNeg } from '../reportes/resumen.js';
 
 
 // ============================================================
@@ -17,8 +24,8 @@
 // Convierte a hash todas las contraseñas que sigan en texto plano.
 // Corre una vez al arrancar, cuando ya se leyó la nube.
 // Contraseña con hash: reglas en src/dominio/contrasenas.js; la sal la da el adaptador de cripto
-function ponerPass(rec, pass){ return Dominio.contrasenas.ponerPass(rec, pass, Cripto.nuevaSal()); }
-function migrarContrasenas(){
+export function ponerPass(rec, pass){ return Dominio.contrasenas.ponerPass(rec, pass, Cripto.nuevaSal()); }
+export function migrarContrasenas(){
   ['superadmins','usuarios'].forEach(t=>{
     const arr=DB.get(t);
     if(!Array.isArray(arr)) return;
@@ -36,21 +43,22 @@ function migrarContrasenas(){
 //  src/aplicacion/servicios/sesion.js). Sin nube (modo local): se compara con
 //  el hash guardado en el equipo, como antes.
 // ============================================================
-let _sesion=null, _dejarPerfil=null, _entrando=false, _configInicial=false;
-const CLAVE_PERFIL='wallace_perfil_sesion';   // perfil de la sesión guardada (para abrir sin internet)
-function conCuentasFirebase(){ return !!(FB_READY && Datos.estado.cuentas); }
-function servicioSesion(){ return _sesion||(_sesion=ServicioSesion.crear()); }
-function mensajeCuenta(e){ return ServicioSesion.mensajeDeFallo((e&&(e.codigo||e.motivo))||'error'); }
+export let _sesion=null, _dejarPerfil=null, _entrando=false, _configInicial=false;
+export function fijarConfigInicial(v){ _configInicial=v; }   // lo averigua nucleo/arranque.js
+export const CLAVE_PERFIL='wallace_perfil_sesion';   // perfil de la sesión guardada (para abrir sin internet)
+export function conCuentasFirebase(){ return !!(FB_READY && Datos.estado.cuentas); }
+export function servicioSesion(){ return _sesion||(_sesion=ServicioSesion.crear()); }
+export function mensajeCuenta(e){ return ServicioSesion.mensajeDeFallo((e&&(e.codigo||e.motivo))||'error'); }
 // Corta una promesa que no responde (sin internet) y devuelve el valor por defecto
-function conTiempo(promesa, ms, porDefecto){
+export function conTiempo(promesa, ms, porDefecto){
   return Promise.race([promesa, new Promise(r=>setTimeout(()=>r(porDefecto), ms))]);
 }
-function guardarPerfilLocal(uid, perfil){ try{ localStorage.setItem(CLAVE_PERFIL, JSON.stringify({uid, perfil})); }catch(e){} }
-function leerPerfilLocal(){ try{ return JSON.parse(localStorage.getItem(CLAVE_PERFIL)||'null'); }catch(e){ return null; } }
-function borrarPerfilLocal(){ try{ localStorage.removeItem(CLAVE_PERFIL); }catch(e){} }
+export function guardarPerfilLocal(uid, perfil){ try{ localStorage.setItem(CLAVE_PERFIL, JSON.stringify({uid, perfil})); }catch(e){} }
+export function leerPerfilLocal(){ try{ return JSON.parse(localStorage.getItem(CLAVE_PERFIL)||'null'); }catch(e){ return null; } }
+export function borrarPerfilLocal(){ try{ localStorage.removeItem(CLAVE_PERFIL); }catch(e){} }
 
 // Modo local (sin nube): usuarios y contraseñas con hash guardados en el equipo
-function login(usuario, pass){
+export function login(usuario, pass){
   const sa=(DB.get('superadmins')||[]).find(s=>s.usuario===usuario && verificarPass(s,pass));
   if(sa){
     STATE.user={id:sa.id, nombre:sa.nombre, rol:'superadmin', rolSuper:sa.rolSuper||'dueno'};
@@ -66,7 +74,7 @@ function login(usuario, pass){
   return {ok:true, tipo:'negocio'};
 }
 // Estado de un empleado que entra a su negocio (con o sin cuentas de Firebase)
-function ponerSesionNegocio(u, neg){
+export function ponerSesionNegocio(u, neg){
   STATE.user=u; STATE.esSuperAdmin=false; STATE.negocio=neg;
   STATE.pageNeg='';   // la primera pantalla que su rol tenga permitida (ver pantallaValida)
   // Sucursal: la última usada o la primera permitida
@@ -82,13 +90,13 @@ function ponerSesionNegocio(u, neg){
     STATE.sucursal='principal';
   }
 }
-function hacerLogin(){
+export function hacerLogin(){
   const u=(document.getElementById('l-user')||{}).value||'';
   const p=(document.getElementById('l-pass')||{}).value||'';
   if(conCuentasFirebase()){ hacerLoginCuentas(u.trim(), p); return; }
   const r=login(u.trim(), p);
   if(!r.ok){ toast(r.msg,'error'); sonidoError(); return; }
-  _facturaReservada=null;
+  fijarFacturaReservada(null);
   // Arrancar la sincronización que corresponde
   if(r.tipo==='super'){
     detenerSincNegocio();
@@ -100,7 +108,7 @@ function hacerLogin(){
   }
   render();
 }
-async function hacerLoginCuentas(usuario, pass){
+export async function hacerLoginCuentas(usuario, pass){
   if(_entrando) return;
   _entrando=true;
   const btn=document.querySelector('.login-btn');
@@ -118,7 +126,7 @@ async function hacerLoginCuentas(usuario, pass){
   await entrarConPerfil(r.uid, r.perfil);
 }
 // Migración de una cuenta con contraseña de menos de 6 caracteres: se pide una nueva
-function pedirPassNueva(){
+export function pedirPassNueva(){
   return new Promise(resolver=>{
     let listo=false;
     abrirModal({titulo:'🔑 Elige una contraseña nueva', textoBoton:'Guardar y entrar', campos:[
@@ -134,11 +142,11 @@ function pedirPassNueva(){
   });
 }
 // Entra con el perfil de Firebase y arranca la sincronización que le corresponde
-async function entrarConPerfil(uid, perfil){
+export async function entrarConPerfil(uid, perfil){
   guardarPerfilLocal(uid, perfil);
   const u=Dominio.cuentas.usuarioDesdePerfil(perfil, uid);
   const enLinea=(typeof navigator==='undefined' || navigator.onLine!==false);
-  _facturaReservada=null;
+  fijarFacturaReservada(null);
   if(perfil.rol==='superadmin'){
     Datos.configurarSesion({cuentas:true, superAdmin:true});
     STATE.user=u; STATE.esSuperAdmin=true; STATE.negocio=null; STATE.page='';
@@ -173,7 +181,7 @@ async function entrarConPerfil(uid, perfil){
   render();
 }
 // Cambios del propio perfil en vivo: desactivado o contraseña restablecida → fuera; permisos nuevos → se aplican
-function escucharMiPerfil(uid){
+export function escucharMiPerfil(uid){
   if(_dejarPerfil) _dejarPerfil();
   _dejarPerfil=Cuentas.escucharPerfil(uid, p=>{
     if(!STATE.user) return;
@@ -188,18 +196,18 @@ function escucharMiPerfil(uid){
   });
 }
 // El negocio cambió en la nube (Mi Negocio en otro equipo, o el super-admin lo suspendió)
-function negocioCambiado(n){
+export function negocioCambiado(n){
   if(!STATE.user || STATE.esSuperAdmin || STATE.modoSupervision || !STATE.negocio || STATE.negocio.id!==n.id) return;
   STATE.negocio=JSON.parse(JSON.stringify(n));
   if(!n.activo){ toast('Este negocio fue suspendido. Contacta al proveedor.','error'); logout(); }
 }
-function logout(){
+export function logout(){
   STATE.user=null; STATE.negocio=null; STATE.esSuperAdmin=false;
   STATE.modoSupervision=false; STATE.sucursal=null;
   STATE.page=''; STATE.pageNeg='inicio';
-  ESCRIBIENDO=false;
-  _facturaReservada=null;   // la reserva es del negocio que se deja
-  _resumenNeg=null;
+  fijarEscribiendo(false);
+  fijarFacturaReservada(null);   // la reserva es del negocio que se deja
+  fijarResumenNeg(null);
   detenerSincNegocio();
   detenerSincTodo();
   if(_dejarPerfil){ _dejarPerfil(); _dejarPerfil=null; }
@@ -207,14 +215,14 @@ function logout(){
   render();
 }
 // Fuera de producción se dice en qué base se está trabajando (firebase-config.js)
-function avisoEntorno(){
+export function avisoEntorno(){
   const e=window.FIREBASE_ENTORNO;
   if(!e || e==='produccion') return '';
   const txt={pruebas:'🧪 Entorno de PRUEBAS', emulador:'🧪 Emuladores locales de Firebase',
     local:'💻 Modo local: los datos solo quedan en este navegador'}[e]||e;
-  return `<p class="nota" style="text-align:center;margin:-4px 0 12px;">${escapeHtml(txt)}</p>`;
+  return `<p class="nota txt-centro m-n4-0-12">${escapeHtml(txt)}</p>`;
 }
-function vistaLogin(){
+export function vistaLogin(){
   return `<div class="login-fondo">
     <div class="login-caja">
       <div class="login-emblema">${window.WALLACE_LOGO||''}</div>
@@ -222,10 +230,10 @@ function vistaLogin(){
       <p class="login-sub">Sistema administrativo para tu negocio</p>
       ${avisoEntorno()}
       <div class="m-row"><label>Usuario</label>
-        <input id="l-user" class="campo" placeholder="usuario" onkeydown="if(event.key==='Enter')hacerLogin()"></div>
+        <input id="l-user" class="campo" placeholder="usuario" data-enter="hacerLogin()"></div>
       <div class="m-row"><label>Contraseña</label>
-        <input id="l-pass" type="password" class="campo" placeholder="••••••" onkeydown="if(event.key==='Enter')hacerLogin()"></div>
-      <button class="login-btn" onclick="hacerLogin()">Entrar</button>
+        <input id="l-pass" type="password" class="campo" placeholder="••••••" data-enter="hacerLogin()"></div>
+      <button class="login-btn" data-click="hacerLogin()">Entrar</button>
       <div class="login-pie">WALLACE COMPANY SYSTEM</div>
     </div>
   </div>`;
@@ -233,13 +241,13 @@ function vistaLogin(){
 // ---------- Configuración inicial: crear el primer dueño del sistema ----------
 // Solo aparece cuando NO existe ningún super-admin y se sabe con certeza que
 // la tabla está vacía (se leyó de la nube, o se trabaja sin nube).
-function necesitaConfigInicial(){
+export function necesitaConfigInicial(){
   if(conCuentasFirebase()) return _configInicial;   // lo averigua arrancarCuentas (Cuentas.necesitaDueno)
   const sas=DB.get('superadmins');
   if(Array.isArray(sas) && sas.length) return false;
   return !FB_READY || GLOBALES_LEIDAS;
 }
-function vistaConfigInicial(){
+export function vistaConfigInicial(){
   return `<div class="login-fondo">
     <div class="login-caja">
       <div class="login-emblema">${window.WALLACE_LOGO||''}</div>
@@ -249,13 +257,13 @@ function vistaConfigInicial(){
       <div class="m-row"><label>Nombre completo</label><input id="ci-nombre" class="campo"></div>
       <div class="m-row"><label>Usuario</label><input id="ci-user" class="campo" autocomplete="off"></div>
       <div class="m-row"><label>Contraseña (mínimo 8 caracteres)</label><input id="ci-pass" type="password" class="campo" autocomplete="new-password"></div>
-      <div class="m-row"><label>Repite la contraseña</label><input id="ci-pass2" type="password" class="campo" autocomplete="new-password" onkeydown="if(event.key==='Enter')crearDuenoInicial()"></div>
-      <button class="login-btn" onclick="crearDuenoInicial()">Crear cuenta de dueño</button>
+      <div class="m-row"><label>Repite la contraseña</label><input id="ci-pass2" type="password" class="campo" autocomplete="new-password" data-enter="crearDuenoInicial()"></div>
+      <button class="login-btn" data-click="crearDuenoInicial()">Crear cuenta de dueño</button>
       <div class="login-pie">WALLACE COMPANY SYSTEM</div>
     </div>
   </div>`;
 }
-function crearDuenoInicial(){
+export function crearDuenoInicial(){
   const v=id=>((document.getElementById(id)||{}).value||'');
   const nombre=v('ci-nombre').trim(), usuario=v('ci-user').trim(), pass=v('ci-pass'), pass2=v('ci-pass2');
   if(!nombre||!usuario){ toast('Escribe nombre y usuario','error'); return; }
@@ -275,7 +283,7 @@ function crearDuenoInicial(){
   }).catch(e=>{ console.error(e); toast('No se pudo crear la cuenta en la nube','error'); });
 }
 // Instalación nueva con cuentas: cuenta de Firebase + registro + perfil del dueño
-async function crearDuenoInicialCuentas(nombre, usuario, pass){
+export async function crearDuenoInicialCuentas(nombre, usuario, pass){
   try{
     const cuenta=await Cuentas.crearCuentaPropia(pass);
     const rec={id:uid(), nombre, usuario, rolSuper:'dueno', creado:now()};

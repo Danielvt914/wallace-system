@@ -1,16 +1,18 @@
 // ============================================================
 //  INTERFAZ · Facturas
 //  Factura POS, media carta y carta.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/12-invoice-printing/12-invoice-printing.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/12-invoice-printing/12-invoice-printing.md
 // ============================================================
+import { STATE, escapeHtml, fmtDate, fmtMoney } from '../nucleo/estado.js';
+import { toast } from '../nucleo/componentes.js';
 
 
 // ============================================================
 //  FACTURAS
 // ============================================================
-function imprimirFactura(id){
+export function imprimirFactura(id){
   const v=misDatos('ventas').find(x=>x.id===id); if(!v) return;
   const neg=STATE.negocio;
   const tipo=neg.tipoFactura||'pos';
@@ -24,7 +26,7 @@ function imprimirFactura(id){
   w.document.close();
   setTimeout(()=>w.print(),400);
 }
-function datosCliente(v){
+export function datosCliente(v){
   const f=[];
   if(v.cliNombre) f.push(['Cliente',v.cliNombre]);
   if(v.cliTel) f.push(['Teléfono',v.cliTel]);
@@ -36,9 +38,9 @@ function datosCliente(v){
   if(v.domiciliario) f.push(['Domiciliario',v.domiciliario]);
   return f;
 }
-function tipoTexto(t){ return {mesa:'Mesa',domicilio:'Domicilio',llevar:'Para llevar',envio:'Envío nacional'}[t]||'Venta'; }
+export function tipoTexto(t){ return {mesa:'Mesa',domicilio:'Domicilio',llevar:'Para llevar',envio:'Envío nacional'}[t]||'Venta'; }
 
-function facturaPOS(v,neg){
+export function facturaPOS(v,neg){
   const cli=datosCliente(v);
   // ---- MODO LOGÍSTICA: remisión de entrega, sin valores ni cobro ----
   if(neg.esLogistica || v.esSalida){
@@ -125,7 +127,7 @@ function facturaPOS(v,neg){
     <div style="text-align:center;font-size:10px;margin-top:10px;border-top:1px dashed #000;padding-top:8px;">Software por WALLACE COMPANY SYSTEM<br>wallacecompany11@gmail.com</div>
   </div>`;
 }
-function facturaMedia(v,neg){
+export function facturaMedia(v,neg){
   const sub=v.subtotalBruto!==undefined?v.subtotalBruto:(v.subtotal||0);
   const cli=datosCliente(v);
   const N='#132d46';
@@ -190,6 +192,6 @@ function facturaMedia(v,neg){
     <div style="background:#01c38e;height:5px;margin-top:8px;"></div>
   </div>`;
 }
-function facturaCarta(v,neg){
+export function facturaCarta(v,neg){
   return facturaMedia(v,neg).replace('max-width:190mm','max-width:190mm;font-size:13px');
 }

@@ -1,10 +1,21 @@
 // ============================================================
 //  INTERFAZ · Cobro y edición de ventas
 //  Pago dividido, verificación de transferencias, anular, editar, ajustar cobro.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/02-pos-catalog/02-pos-catalog.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/02-pos-catalog/02-pos-catalog.md
 // ============================================================
+import { STATE, escapeHtml, fijarEscribiendo, fmtMoney, now } from '../nucleo/estado.js';
+import { cajaActual, exigirPermiso, tienePermiso } from '../nucleo/permisos.js';
+import { abrirModal, cerrarModal, confirmarModal, preguntarDespues, toast } from '../nucleo/componentes.js';
+import { sonidoVenta } from '../nucleo/sonidos.js';
+import { render } from '../nucleo/navegacion.js';
+import { logAudit } from '../usuarios/auditoria.js';
+import { _guardando, cargarPedidoEnVenta, fijarGuardando, limpiarPedido } from './nueva-venta.js';
+import { imprimirComanda } from '../cocina/comanda.js';
+import { avisarStockBajo, descontarStock, devolverStock } from '../inventario/motor.js';
+import { guardarClienteAuto } from '../clientes/clientes.js';
+import { imprimirFactura } from '../impresion/facturas.js';
 
 
 // ============================================================
@@ -13,7 +24,7 @@
 //  parte por transferencia, parte con tarjeta. Cada venta guarda cuánto
 //  entró por cada forma en v.pagos, y de ahí salen caja, reportes y contable.
 // ============================================================
-function detallePagos(v){
+export function detallePagos(v){
   const p=pagosDe(v);
   const et={efectivo:'Efectivo',banco:'Banco',tarjeta:'Tarjeta'};
   return Object.keys(p).filter(k=>p[k]>0).map(k=>et[k]+' '+fmtMoney(p[k])).join(' · ');
@@ -22,9 +33,9 @@ function detallePagos(v){
 // Un empleado puede decir "pagó por transferencia" sin que el dinero llegue.
 // Si el negocio activa esta opción, esas ventas quedan marcadas hasta que
 // alguien confirme el comprobante.
-function exigeVerificarBanco(){ return !!(STATE.negocio && STATE.negocio.verificarBanco); }
-function ventasPorVerificar(lista){ return (lista||[]).filter(bancoPendiente); }
-function marcarVerificada(id){
+export function exigeVerificarBanco(){ return !!(STATE.negocio && STATE.negocio.verificarBanco); }
+export function ventasPorVerificar(lista){ return (lista||[]).filter(bancoPendiente); }
+export function marcarVerificada(id){
   if(!(tienePermiso('cobrar')||tienePermiso('cambiarpago'))){ toast('No tienes permiso para verificar pagos','error'); return; }
   const v=misDatos('ventas').find(x=>x.id===id); if(!v) return;
   confirmarModal('¿Confirmas que la transferencia de '+fmtMoney(pagosDe(v).banco)+' de '+(v.factura||'')+' YA llegó a la cuenta?',()=>{
@@ -38,7 +49,7 @@ function marcarVerificada(id){
 }
 
 // ---------- COBRAR ----------
-function cobrarPedido(id){
+export function cobrarPedido(id){
   if(!exigirPermiso('cobrar','No tienes permiso para cobrar')) return;
   const v=misDatos('ventas').find(x=>x.id===id);
   if(!v){ toast('Pedido no encontrado','error'); return; }
@@ -51,7 +62,7 @@ function cobrarPedido(id){
 //   sinCarrito: no limpiar el pedido que se esté armando en Nueva Venta
 //   alCobrar(venta): se llama con la venta ya guardada
 //   pantalla: a dónde ir después (por defecto Pedidos)
-function abrirCobro(v, esNuevo, opc){
+export function abrirCobro(v, esNuevo, opc){
   opc=opc||{};
   const neg=STATE.negocio;
   const base=v.subtotal||0;
@@ -73,24 +84,24 @@ function abrirCobro(v, esNuevo, opc){
       <div class="c-row" id="r-rec" style="display:none;"><span>Recargo datáfono</span><strong id="v-rec">$ 0</strong></div>
       <div class="c-row c-total"><span>TOTAL A COBRAR</span><strong id="v-total">${fmtMoney(totalIni)}</strong></div>
     </div>
-    <div class="cobro-caja" style="margin-top:12px;">
+    <div class="cobro-caja mt-12">
       <strong>¿Cómo paga el cliente?</strong>
-      <p class="nota" style="margin:6px 0 10px;">Puede pagar con varias formas a la vez. Escribe cuánto entra por cada una; deja en 0 las que no use.</p>
+      <p class="nota m-6-0-10">Puede pagar con varias formas a la vez. Escribe cuánto entra por cada una; deja en 0 las que no use.</p>
       <div class="botones-fila">
-        <button type="button" class="btn btn-sm btn-verde" onclick="pagoRapido('efectivo')">Todo en efectivo</button>
-        <button type="button" class="btn btn-sm" onclick="pagoRapido('banco')">Todo por banco</button>
-        <button type="button" class="btn btn-sm" onclick="pagoRapido('tarjeta')">Todo con tarjeta</button>
-        <button type="button" class="btn btn-sm btn-ghost" onclick="pagoRapido('mitad')">Mitad y mitad</button>
+        <button type="button" class="btn btn-sm btn-verde" data-click="pagoRapido('efectivo')">Todo en efectivo</button>
+        <button type="button" class="btn btn-sm" data-click="pagoRapido('banco')">Todo por banco</button>
+        <button type="button" class="btn btn-sm" data-click="pagoRapido('tarjeta')">Todo con tarjeta</button>
+        <button type="button" class="btn btn-sm btn-ghost" data-click="pagoRapido('mitad')">Mitad y mitad</button>
       </div>
-      <div class="form2" style="margin-top:6px;">
-        <div class="m-row" style="margin-bottom:8px;"><label>💵 Efectivo</label>
+      <div class="form2 mt-6">
+        <div class="m-row mb-8"><label>💵 Efectivo</label>
           <input type="number" id="pg-efectivo" class="campo" value="${totalIni}" inputmode="decimal"></div>
-        <div class="m-row" style="margin-bottom:8px;"><label>🏦 Transferencia / Banco</label>
+        <div class="m-row mb-8"><label>🏦 Transferencia / Banco</label>
           <input type="number" id="pg-banco" class="campo" value="0" inputmode="decimal"></div>
-        <div class="m-row" style="margin-bottom:8px;"><label>💳 Tarjeta / Datáfono</label>
+        <div class="m-row mb-8"><label>💳 Tarjeta / Datáfono</label>
           <input type="number" id="pg-tarjeta" class="campo" value="0" inputmode="decimal"></div>
-        <div class="m-row" style="margin-bottom:8px;"><label>Falta / sobra</label>
-          <div class="campo" id="pg-estado" style="display:flex;align-items:center;font-weight:800;">$ 0</div></div>
+        <div class="m-row mb-8"><label>Falta / sobra</label>
+          <div class="campo d-flex items-centro fw-800" id="pg-estado">$ 0</div></div>
       </div>
       <div class="c-nota" id="c-nota"></div>
     </div>`,
@@ -133,7 +144,7 @@ function abrirCobro(v, esNuevo, opc){
         return;
       }
       const pagos=liq.pagos, cambio=liq.cambio;
-      _guardando=true;
+      fijarGuardando(true);
       try{
         const ventas=misDatos('ventas');
         let venta;
@@ -143,7 +154,7 @@ function abrirCobro(v, esNuevo, opc){
           if(yaEsta>-1) ventas[yaEsta]=venta; else ventas.unshift(venta);   // evita duplicados al editar
         } else {
           venta=ventas.find(x=>x.id===v.id);
-          if(!venta){ toast('El pedido ya no existe','error'); cerrarModal(); _guardando=false; return; }
+          if(!venta){ toast('El pedido ya no existe','error'); cerrarModal(); fijarGuardando(false); return; }
           venta.estado='pagada';
         }
         venta.pagos={efectivo:Math.round(pagos.efectivo), banco:Math.round(pagos.banco), tarjeta:Math.round(pagos.tarjeta)};
@@ -160,7 +171,7 @@ function abrirCobro(v, esNuevo, opc){
         guardarClienteAuto(venta);
         sonidoVenta();
         avisarStockBajo(venta);
-        if(esNuevo && !opc.sinCarrito){ limpiarPedido(); ESCRIBIENDO=false; }
+        if(esNuevo && !opc.sinCarrito){ limpiarPedido(); fijarEscribiendo(false); }
         if(opc.alCobrar){ try{ opc.alCobrar(venta); }catch(e){ console.error('alCobrar',e); } }
         cerrarModal();
         toast('Cobrado: '+fmtMoney(venta.total)+(cambio>0?' · Cambio '+fmtMoney(cambio):''),'success');
@@ -172,15 +183,15 @@ function abrirCobro(v, esNuevo, opc){
         STATE.pageNeg=opc.pantalla||'pedidos';
         render();
       }catch(e){ console.error(e); toast('Error al cobrar','error'); }
-      finally{ _guardando=false; }
+      finally{ fijarGuardando(false); }
     }});
 }
-function leerPagos(){
+export function leerPagos(){
   const n=id=>parseFloat((document.getElementById(id)||{}).value)||0;
   return {efectivo:n('pg-efectivo'), banco:n('pg-banco'), tarjeta:n('pg-tarjeta')};
 }
 // Muestra si falta plata, si está exacto o cuánto hay que devolver
-function pintarEstadoPago(){
+export function pintarEstadoPago(){
   const el=document.getElementById('pg-estado'); if(!el) return;
   const total=window._cobroTotal||0;
   const p=leerPagos();
@@ -195,7 +206,7 @@ function pintarEstadoPago(){
     else n.style.display='none';
   }
 }
-function pagoRapido(tipo){
+export function pagoRapido(tipo){
   const total=window._cobroTotal||0;
   const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.value=v; };
   if(tipo==='mitad'){ set('pg-efectivo',Math.round(total/2)); set('pg-banco',total-Math.round(total/2)); set('pg-tarjeta',0); }
@@ -204,7 +215,7 @@ function pagoRapido(tipo){
 }
 
 // ---------- ANULAR ----------
-function anularPedido(id){
+export function anularPedido(id){
   if(!exigirPermiso('anular','No tienes permiso para anular')) return;
   const v=misDatos('ventas').find(x=>x.id===id);
   if(!v){ toast('Pedido no encontrado','error'); return; }
@@ -226,7 +237,7 @@ function anularPedido(id){
 }
 
 // ---------- EDITAR PEDIDO ----------
-function editarPedido(id){
+export function editarPedido(id){
   if(!tienePermiso('editar')){ toast('No tienes permiso para editar pedidos','error'); return; }
   const v=misDatos('ventas').find(x=>x.id===id);
   if(!v){ toast('Pedido no encontrado','error'); return; }
@@ -243,14 +254,9 @@ function editarPedido(id){
   STATE._itemsAntes=JSON.parse(JSON.stringify(v.items||[]));
   STATE._totalAntes=v.total||0;
   // Cargar el pedido en el carrito para modificarlo
-  _carrito=(v.items||[]).map(i=>({prodId:i.prodId, nombre:i.nombre, precio:i.precio, qty:i.qty, obs:i.obs||''}));
-  _vTipo=v.tipo||'llevar'; _vMesa=v.mesa||''; _vObs=v.obs||'';
-  _desc=v.descuento||0; _descMot=v.descMotivo||v.descMot||'';
-  _vCli={nombre:v.cliNombre||'', tel:v.cliTel||'', dir:v.cliDir||'', barrio:v.cliBarrio||'',
-    ciudad:v.cliCiudad||'', depto:v.cliDepto||'', transportadora:v.transportadora||'',
-    domiciliario:v.domiciliario||'', valorDom:v.valorDom||0};
+  cargarPedidoEnVenta(v, true);
   STATE.editandoVentaId=id;   // marca que estamos editando, no creando
-  ESCRIBIENDO=true;
+  fijarEscribiendo(true);
   STATE.pageNeg='ventas';
   toast('Editando '+(v.factura||'pedido')+(v.estado==='pagada'?' (ya cobrado: se ajustará el pago)':'')+'. Guarda para aplicar cambios.','info');
   render();
@@ -260,11 +266,11 @@ function editarPedido(id){
 // Mi Negocio → "Al editar un pedido ya cobrado":
 //  · "diferencia": solo se registra lo que el cliente debe o lo que hay que devolverle.
 //  · "total": se vuelve a repartir el total completo entre las formas de pago.
-function modoAjusteCobro(){
+export function modoAjusteCobro(){
   const n=STATE.negocio;
   return (n && n.ajusteCobro==='total') ? 'total' : 'diferencia';
 }
-function ajustarPagoVenta(id, modoForzado){
+export function ajustarPagoVenta(id, modoForzado){
   const v=misDatos('ventas').find(x=>x.id===id);
   if(!v){ toast('Pedido no encontrado','error'); return; }
   const p=pagosDe(v);
@@ -285,22 +291,22 @@ function ajustarPagoVenta(id, modoForzado){
         ${(v.recargo||0)>0?`<div class="c-row"><span>Recargo datáfono</span><span>${fmtMoney(v.recargo)}</span></div>`:''}
         <div class="c-row c-total"><span>TOTAL A COBRAR</span><strong>${fmtMoney(total)}</strong></div>
       </div>
-      <div class="cobro-caja" style="margin-top:12px;">
+      <div class="cobro-caja mt-12">
         <strong>¿Cómo paga el cliente?</strong>
-        <p class="nota" style="margin:6px 0 10px;">Cobra el total completo de ${fmtMoney(total)}. Esto reemplaza el pago anterior del pedido, así que la caja queda con el valor correcto.</p>
+        <p class="nota m-6-0-10">Cobra el total completo de ${fmtMoney(total)}. Esto reemplaza el pago anterior del pedido, así que la caja queda con el valor correcto.</p>
         <div class="botones-fila">
-          <button type="button" class="btn btn-sm btn-verde" onclick="pagoRapido('efectivo')">Todo en efectivo</button>
-          <button type="button" class="btn btn-sm" onclick="pagoRapido('banco')">Todo por banco</button>
-          <button type="button" class="btn btn-sm" onclick="pagoRapido('tarjeta')">Todo con tarjeta</button>
-          <button type="button" class="btn btn-sm btn-ghost" onclick="pagoRapido('mitad')">Mitad y mitad</button>
+          <button type="button" class="btn btn-sm btn-verde" data-click="pagoRapido('efectivo')">Todo en efectivo</button>
+          <button type="button" class="btn btn-sm" data-click="pagoRapido('banco')">Todo por banco</button>
+          <button type="button" class="btn btn-sm" data-click="pagoRapido('tarjeta')">Todo con tarjeta</button>
+          <button type="button" class="btn btn-sm btn-ghost" data-click="pagoRapido('mitad')">Mitad y mitad</button>
         </div>
-        <div class="form2" style="margin-top:6px;">
-          <div class="m-row" style="margin-bottom:8px;"><label>💵 Efectivo</label><input type="number" id="pg-efectivo" class="campo" value="${total}"></div>
-          <div class="m-row" style="margin-bottom:8px;"><label>🏦 Banco</label><input type="number" id="pg-banco" class="campo" value="0"></div>
-          <div class="m-row" style="margin-bottom:8px;"><label>💳 Tarjeta</label><input type="number" id="pg-tarjeta" class="campo" value="0"></div>
-          <div class="m-row" style="margin-bottom:8px;"><label>Falta / sobra</label><div class="campo" id="pg-estado" style="display:flex;align-items:center;font-weight:800;">$ 0</div></div>
+        <div class="form2 mt-6">
+          <div class="m-row mb-8"><label>💵 Efectivo</label><input type="number" id="pg-efectivo" class="campo" value="${total}"></div>
+          <div class="m-row mb-8"><label>🏦 Banco</label><input type="number" id="pg-banco" class="campo" value="0"></div>
+          <div class="m-row mb-8"><label>💳 Tarjeta</label><input type="number" id="pg-tarjeta" class="campo" value="0"></div>
+          <div class="m-row mb-8"><label>Falta / sobra</label><div class="campo d-flex items-centro fw-800" id="pg-estado">$ 0</div></div>
         </div>
-        ${dif!==0?`<button type="button" class="btn btn-ghost btn-sm" style="margin-top:6px;" onclick="cerrarModal();ajustarPagoVenta('${id}','diferencia')">↔ Cobrar solo la diferencia (${fmtMoney(Math.abs(dif))})</button>`:''}
+        ${dif!==0?`<button type="button" class="btn btn-ghost btn-sm mt-6" data-click="ajustarPagoDesdeModal('${id}','diferencia')">↔ Cobrar solo la diferencia (${fmtMoney(Math.abs(dif))})</button>`:''}
         <div class="c-nota" id="c-nota"></div>
       </div>`,
     onAbrir:()=>{
@@ -328,21 +334,21 @@ function ajustarPagoVenta(id, modoForzado){
       <div class="c-row"><span>Total nuevo</span><span>${fmtMoney(total)}</span></div>
       <div class="c-row c-total"><span>${cobra?'EL CLIENTE DEBE':'HAY QUE DEVOLVERLE'}</span><strong class="${cobra?'oro':'rojo'}">${fmtMoney(monto)}</strong></div>
     </div>
-    <div class="cobro-caja" style="margin-top:12px;">
+    <div class="cobro-caja mt-12">
       <strong>${cobra?'¿Con qué paga esa diferencia?':'¿De dónde sale la devolución?'}</strong>
-      <p class="nota" style="margin:6px 0 10px;">Solo registra ${fmtMoney(monto)}. El resto del pago queda como estaba.${cobra?'':' No puedes devolver por una forma más de lo que se pagó por ella.'}</p>
+      <p class="nota m-6-0-10">Solo registra ${fmtMoney(monto)}. El resto del pago queda como estaba.${cobra?'':' No puedes devolver por una forma más de lo que se pagó por ella.'}</p>
       <div class="botones-fila">
-        <button type="button" class="btn btn-sm btn-verde" onclick="pagoRapido('efectivo')">Todo en efectivo</button>
-        <button type="button" class="btn btn-sm" onclick="pagoRapido('banco')">Todo por banco</button>
-        <button type="button" class="btn btn-sm" onclick="pagoRapido('tarjeta')">Todo con tarjeta</button>
+        <button type="button" class="btn btn-sm btn-verde" data-click="pagoRapido('efectivo')">Todo en efectivo</button>
+        <button type="button" class="btn btn-sm" data-click="pagoRapido('banco')">Todo por banco</button>
+        <button type="button" class="btn btn-sm" data-click="pagoRapido('tarjeta')">Todo con tarjeta</button>
       </div>
-      <div class="form2" style="margin-top:6px;">
-        <div class="m-row" style="margin-bottom:8px;"><label>💵 Efectivo${cobra?'':' (pagado: '+fmtMoney(tope.efectivo)+')'}</label><input type="number" id="pg-efectivo" class="campo" value="${monto}"></div>
-        <div class="m-row" style="margin-bottom:8px;"><label>🏦 Banco${cobra?'':' (pagado: '+fmtMoney(tope.banco)+')'}</label><input type="number" id="pg-banco" class="campo" value="0"></div>
-        <div class="m-row" style="margin-bottom:8px;"><label>💳 Tarjeta${cobra?'':' (pagado: '+fmtMoney(tope.tarjeta)+')'}</label><input type="number" id="pg-tarjeta" class="campo" value="0"></div>
-        <div class="m-row" style="margin-bottom:8px;"><label>Falta / sobra</label><div class="campo" id="pg-estado" style="display:flex;align-items:center;font-weight:800;">$ 0</div></div>
+      <div class="form2 mt-6">
+        <div class="m-row mb-8"><label>💵 Efectivo${cobra?'':' (pagado: '+fmtMoney(tope.efectivo)+')'}</label><input type="number" id="pg-efectivo" class="campo" value="${monto}"></div>
+        <div class="m-row mb-8"><label>🏦 Banco${cobra?'':' (pagado: '+fmtMoney(tope.banco)+')'}</label><input type="number" id="pg-banco" class="campo" value="0"></div>
+        <div class="m-row mb-8"><label>💳 Tarjeta${cobra?'':' (pagado: '+fmtMoney(tope.tarjeta)+')'}</label><input type="number" id="pg-tarjeta" class="campo" value="0"></div>
+        <div class="m-row mb-8"><label>Falta / sobra</label><div class="campo d-flex items-centro fw-800" id="pg-estado">$ 0</div></div>
       </div>
-      <button type="button" class="btn btn-ghost btn-sm" style="margin-top:6px;" onclick="cerrarModal();ajustarPagoVenta('${id}','total')">↔ Mejor repartir el total completo</button>
+      <button type="button" class="btn btn-ghost btn-sm mt-6" data-click="ajustarPagoDesdeModal('${id}','total')">↔ Mejor repartir el total completo</button>
       <div class="c-nota" id="c-nota"></div>
     </div>`,
   onAbrir:()=>{
@@ -365,7 +371,7 @@ function ajustarPagoVenta(id, modoForzado){
   }});
 }
 // Guarda el nuevo reparto del pago en la venta
-function guardarAjusteCobro(id, pagos, detalleExtra){
+export function guardarAjusteCobro(id, pagos, detalleExtra){
   const ventas=misDatos('ventas');
   const x=ventas.find(y=>y.id===id); if(!x){ cerrarModal(); return; }
   const antes=detallePagos(x);
@@ -383,7 +389,7 @@ function guardarAjusteCobro(id, pagos, detalleExtra){
 }
 
 // ---------- CAMBIAR FORMA DE PAGO (después de cobrado) ----------
-function cambiarFormaPago(id){
+export function cambiarFormaPago(id){
   if(!tienePermiso('cambiarpago')){ toast('No tienes permiso para cambiar la forma de pago','error'); return; }
   const v=misDatos('ventas').find(x=>x.id===id);
   if(!v){ toast('Pedido no encontrado','error'); return; }
@@ -394,10 +400,10 @@ function cambiarFormaPago(id){
     extraHTML:`<p class="nota">Total cobrado: <strong>${fmtMoney(total)}</strong>. Reparte ese valor entre las formas de pago reales.</p>
     <div class="cobro-caja">
       <div class="form2">
-        <div class="m-row" style="margin-bottom:8px;"><label>💵 Efectivo</label><input type="number" id="pg-efectivo" class="campo" value="${Math.round(p.efectivo)}"></div>
-        <div class="m-row" style="margin-bottom:8px;"><label>🏦 Banco</label><input type="number" id="pg-banco" class="campo" value="${Math.round(p.banco)}"></div>
-        <div class="m-row" style="margin-bottom:8px;"><label>💳 Tarjeta</label><input type="number" id="pg-tarjeta" class="campo" value="${Math.round(p.tarjeta)}"></div>
-        <div class="m-row" style="margin-bottom:8px;"><label>Falta / sobra</label><div class="campo" id="pg-estado" style="display:flex;align-items:center;font-weight:800;">$ 0</div></div>
+        <div class="m-row mb-8"><label>💵 Efectivo</label><input type="number" id="pg-efectivo" class="campo" value="${Math.round(p.efectivo)}"></div>
+        <div class="m-row mb-8"><label>🏦 Banco</label><input type="number" id="pg-banco" class="campo" value="${Math.round(p.banco)}"></div>
+        <div class="m-row mb-8"><label>💳 Tarjeta</label><input type="number" id="pg-tarjeta" class="campo" value="${Math.round(p.tarjeta)}"></div>
+        <div class="m-row mb-8"><label>Falta / sobra</label><div class="campo d-flex items-centro fw-800" id="pg-estado">$ 0</div></div>
       </div>
       <div class="c-nota" id="c-nota"></div>
     </div>`,
@@ -426,7 +432,7 @@ function cambiarFormaPago(id){
 }
 
 // ---------- REIMPRIMIR COMANDA (cocina) ----------
-function reimprimirComanda(id){
+export function reimprimirComanda(id){
   if(!tienePermiso('comanda')){ toast('No tienes permiso para imprimir comandas','error'); return; }
   const v=misDatos('ventas').find(x=>x.id===id);
   if(!v){ toast('Pedido no encontrado','error'); return; }
@@ -434,7 +440,7 @@ function reimprimirComanda(id){
 }
 
 // ---------- ELIMINAR DEFINITIVAMENTE ----------
-function eliminarDefinitivo(id){
+export function eliminarDefinitivo(id){
   if(!tienePermiso('eliminar')){ toast('No tienes permiso para eliminar','error'); return; }
   const v=misDatos('ventas').find(x=>x.id===id);
   if(!v){ toast('Pedido no encontrado','error'); return; }
@@ -446,3 +452,5 @@ function eliminarDefinitivo(id){
     toast('Pedido eliminado por completo','error'); render();
   },'Sí, eliminar');
 }
+// Botones dentro de un modal que abren el ajuste de cobro (fase 8: antes eran onclick compuestos)
+export function ajustarPagoDesdeModal(id, modo){ cerrarModal(); ajustarPagoVenta(id, modo); }

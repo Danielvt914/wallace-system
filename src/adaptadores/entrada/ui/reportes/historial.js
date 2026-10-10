@@ -1,18 +1,24 @@
 // ============================================================
 //  INTERFAZ · Historial
 //  Todas las ventas con filtros.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/08-sales-reports/08-sales-reports.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/08-sales-reports/08-sales-reports.md
 // ============================================================
+import { escapeHtml, fijarEscribiendo, fmtDate, fmtMoney } from '../nucleo/estado.js';
+import { tienePermiso } from '../nucleo/permisos.js';
+import { ic } from '../nucleo/componentes.js';
+import { render } from '../nucleo/navegacion.js';
+import { detallePagos } from '../ventas/cobro.js';
+import { nombreMes } from '../gastos/contable.js';
 
 
 // ============================================================
 //  HISTORIAL (todas las ventas, con filtros)
 // ============================================================
-let _hBusca='', _hFiltro='todas', _hMes=null;
-function historial(){
-  ESCRIBIENDO=false;
+export let _hBusca='', _hFiltro='todas', _hMes=null;
+export function historial(){
+  fijarEscribiendo(false);
   const mes=_hMes||today().substring(0,7);
   let vs=misDatos('ventas').slice().sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
   // Por defecto se muestra el mes seleccionado (como Portal Imperial)
@@ -33,15 +39,15 @@ function historial(){
       <div class="t-cab">
         <span class="t-tit">${ic('history')} Historial de ventas</span>
         <div class="t-acc">
-          <select class="busca" onchange="_hMes=this.value;render()">
+          <select class="busca" data-change="elegirMesHistorial(this.value)">
             ${meses.map(m=>`<option value="${m}" ${m===mes?'selected':''}>${nombreMes(m)}</option>`).join('')}
             <option value="todos" ${mes==='todos'?'selected':''}>Todo el historial</option>
           </select>
-          <input type="text" class="busca" placeholder="🔍 Factura, cliente, teléfono..." value="${escapeHtml(_hBusca)}" oninput="_hBusca=this.value;render()">
+          <input type="text" class="busca" placeholder="🔍 Factura, cliente, teléfono..." value="${escapeHtml(_hBusca)}" data-input="buscarHistorial(this.value)">
         </div>
       </div>
       <div class="cats">
-        ${[['todas','Todas'],['pagadas','Pagadas'],['abiertas','Por cobrar'],['anuladas','Anuladas']].map(f=>`<button class="cat ${_hFiltro===f[0]?'on':''}" onclick="_hFiltro='${f[0]}';render()">${f[1]}</button>`).join('')}
+        ${[['todas','Todas'],['pagadas','Pagadas'],['abiertas','Por cobrar'],['anuladas','Anuladas']].map(f=>`<button class="cat ${_hFiltro===f[0]?'on':''}" data-click="elegirFiltroHistorial('${f[0]}')">${f[1]}</button>`).join('')}
       </div>
       <p class="nota">${vs.length} venta(s) · Total pagado: <strong class="oro">${fmtMoney(totalPag)}</strong></p>
       <div class="tabla-wrap"><table class="tabla">
@@ -54,8 +60,11 @@ function historial(){
           <td class="negrita">${fmtMoney(v.total)}</td>
           <td>${v.estado==='pagada'?'<span class="pill pill-verde">Pagada</span>':v.estado==='anulada'?'<span class="pill pill-rojo">Anulada</span>':'<span class="pill pill-gold">Por cobrar</span>'}</td>
           <td class="gris chico">${jornadaDe(v)}${jornadaDe(v)!==fechaLocal(v.fecha)?'<br><span class="oro chico">madrugada</span>':''}<br><span class="gris chico">${fmtDate(v.fecha).split(' ').slice(1).join(' ')}</span></td>
-          <td>${tienePermiso('imprimir')&&v.estado==='pagada'?`<button class="btn btn-sm" onclick="imprimirFactura('${v.id}')" title="Reimprimir">🖨️</button>`:''}</td>
+          <td>${tienePermiso('imprimir')&&v.estado==='pagada'?`<button class="btn btn-sm" data-click="imprimirFactura('${v.id}')" title="Reimprimir">🖨️</button>`:''}</td>
         </tr>`).join('') : '<tr><td colspan="8" class="gris">Sin ventas.</td></tr>'}</tbody>
       </table></div>
     </div>`;
 }
+export function elegirMesHistorial(v){ _hMes=v; render(); }
+export function buscarHistorial(v){ _hBusca=v; render(); }
+export function elegirFiltroHistorial(f){ _hFiltro=f; render(); }

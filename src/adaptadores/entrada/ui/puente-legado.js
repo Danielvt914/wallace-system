@@ -1,7 +1,7 @@
 // ============================================================
 //  PUENTE DE MIGRACIÓN (temporal)
-//  La interfaz (los scripts clásicos de ui/manifiesto.js) tiene cientos de
-//  onclick que llaman funciones por nombre global. Mientras pasa a módulos
+//  La interfaz (los scripts clásicos de ui/manifiesto.js) llama acciones
+//  por nombre global (data-click, eventos.js). Mientras pasa a módulos
 //  (fase 8), este puente publica en window el dominio, los datos y las
 //  cuentas con los nombres que la interfaz ya usa (misDatos, pagosDe, ROLES…).
 //  Cuando un módulo de la interfaz deje de necesitar un nombre, se quita de aquí.

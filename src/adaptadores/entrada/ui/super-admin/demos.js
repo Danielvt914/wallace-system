@@ -1,16 +1,21 @@
 // ============================================================
 //  INTERFAZ · Negocios de demostración
 //  Plantillas y creación de demos con datos de ejemplo.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/01-super-admin-panel/01-super-admin-panel.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/01-super-admin-panel/01-super-admin-panel.md
 // ============================================================
+import { STATE, now } from '../nucleo/estado.js';
+import { abrirModal, cerrarModal, confirmarModal, toast } from '../nucleo/componentes.js';
+import { render } from '../nucleo/navegacion.js';
+import { conCuentasFirebase, mensajeCuenta, ponerPass } from '../usuarios/sesion.js';
+import { borrarCuentasDeNegocio, crearCuentaPara, ponerUidUsuario } from '../usuarios/cuentas.js';
 
 
 // ============================================================
 //  NEGOCIOS DE DEMOSTRACIÓN — crean un negocio ya lleno para mostrar/vender
 // ============================================================
-const DEMO_PLANTILLAS = {
+export const DEMO_PLANTILLAS = {
   'Restaurante':{
     tipo:'Restaurante', sufijo:'Sabor & Sazón',
     productos:[
@@ -231,18 +236,18 @@ const DEMO_PLANTILLAS = {
   }
 };
 
-function crearNegocioDemo(){
+export function crearNegocioDemo(){
   abrirModal({titulo:'Crear negocio de demostración', textoBoton:'Crear demo', campos:[
     {id:'tipo', label:'¿Qué tipo de negocio quieres mostrar?', tipo:'select',
       opciones:Object.keys(DEMO_PLANTILLAS).map(t=>({valor:t,label:DEMO_PLANTILLAS[t].sufijo+' ('+t+')'}))}
   ], extraHTML:`<p class="nota">Se creará un negocio <strong>ya lleno</strong>: con productos, clientes y <strong>ventas de los últimos 10 días</strong> (para que las gráficas de seguimiento se vean con historial). Ideal para demostraciones de venta. Clave del admin: <strong>demo123</strong></p>
-    <button type="button" class="btn btn-ghost btn-block btn-sm" style="margin-top:10px;" onclick="crearVariosDemos()">⚡ O crea 5 negocios demo variados de una vez</button>`,
+    <button type="button" class="btn btn-ghost btn-block btn-sm mt-10" data-click="crearVariosDemos()">⚡ O crea 5 negocios demo variados de una vez</button>`,
   onGuardar:(d)=>{
     crearDemoDeTipo(d.tipo, true);
   }});
 }
 // Crea 5 demos variados de golpe (para llenar el panel rápido)
-function crearVariosDemos(){
+export function crearVariosDemos(){
   const surtido=['Restaurante','Tienda / Accesorios','Barbería / Salón','Cafetería','Tecnología / Celulares'];
   let n=0;
   surtido.forEach(t=>{ if(DEMO_PLANTILLAS[t] && crearDemoDeTipo(t,false)) n++; });
@@ -251,7 +256,7 @@ function crearVariosDemos(){
   render();
 }
 // Lógica central de creación de un demo. Devuelve true si lo creó.
-function crearDemoDeTipo(tipoDemo, cerrarYToast){
+export function crearDemoDeTipo(tipoDemo, cerrarYToast){
     const plant=DEMO_PLANTILLAS[tipoDemo]; if(!plant){ if(cerrarYToast) toast('Plantilla no encontrada','error'); return false; }
     const perfil=JSON.parse(JSON.stringify(PERFILES[plant.tipo]||PERFILES['Otro']));
     // Usuario único: demo, demo2, demo3...
@@ -357,7 +362,7 @@ function crearDemoDeTipo(tipoDemo, cerrarYToast){
     return true;
 }
 // Un vendedor (o admin) borra un demo. Solo permite borrar DEMOS, nunca negocios reales.
-function eliminarDemoVendedor(id){
+export function eliminarDemoVendedor(id){
   const negocios=DB.get('negocios')||[];
   const n=negocios.find(x=>x.id===id); if(!n) return;
   if(!n.esDemo){ toast('Solo se pueden borrar negocios de demostración','error'); return; }

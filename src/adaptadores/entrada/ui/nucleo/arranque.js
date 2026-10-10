@@ -1,16 +1,21 @@
 // ============================================================
 //  INTERFAZ · Arranque de la interfaz
 //  iniciarInterfaz (la llama src/arranque.js), datos iniciales y relojes.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/-00-execution-protocol/-00-execution-protocol.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/-00-execution-protocol/-00-execution-protocol.md
 // ============================================================
+import { STATE, now, refrescarSiSePuede } from './estado.js';
+import { toast } from './componentes.js';
+import { render } from './navegacion.js';
+import { borrarPerfilLocal, conCuentasFirebase, conTiempo, entrarConPerfil, fijarConfigInicial, leerPerfilLocal, migrarContrasenas, servicioSesion } from '../usuarios/sesion.js';
+import { publicarResumen } from '../reportes/resumen.js';
 
 
 // ============================================================
 //  DATOS INICIALES (solo si la nube ya respondió)
 // ============================================================
-function seed(){
+export function seed(){
   // Con cuentas de Firebase las tablas globales no se descargan antes del login:
   // su formato y sus contraseñas los maneja la migración (entrarConPerfil).
   if(conCuentasFirebase()) return;
@@ -35,16 +40,16 @@ function seed(){
 // ============================================================
 //  ARRANQUE
 // ============================================================
-function arrancar(){
+export function arrancar(){
   try{ seed(); }catch(e){ console.error('seed',e); }
   try{ render(); }catch(e){
     console.error('render',e);
     const app=document.getElementById('app');
-    if(app) app.innerHTML='<div style="padding:40px;text-align:center;color:#fff;">Error al cargar. Recarga con Ctrl+Shift+R.</div>';
+    if(app) app.innerHTML='<div class="p-40 txt-centro color-fff">Error al cargar. Recarga con Ctrl+Shift+R.</div>';
   }
 }
 // Arranque de la interfaz: lo llama src/arranque.js cuando el puente ya está listo
-function iniciarInterfaz(){
+export function iniciarInterfaz(){
   const ok=Datos.iniciar();
   if(ok && Cuentas.iniciar()){
     // S1: nada de tablas globales antes del login. Firebase dice si hay una sesión guardada.
@@ -71,7 +76,7 @@ function iniciarInterfaz(){
   }
 }
 // Arranque con cuentas: sesión guardada → perfil (o el guardado en el equipo si no hay internet)
-async function arrancarCuentas(cuenta){
+export async function arrancarCuentas(cuenta){
   if(cuenta){
     const r=await conTiempo(servicioSesion().restaurar(cuenta.uid), 8000, {ok:false, motivo:'red'});
     let perfil=r.ok?r.perfil:null;
@@ -87,7 +92,7 @@ async function arrancarCuentas(cuenta){
     if(!r.ok && r.motivo!=='red') toast(ServicioSesion.mensajeDeFallo(r.motivo),'error');
   }
   borrarPerfilLocal();
-  _configInicial=await conTiempo(Cuentas.necesitaDueno(), 8000, false);
+  fijarConfigInicial(await conTiempo(Cuentas.necesitaDueno(), 8000, false));
   arrancar();
 }
 setInterval(function(){

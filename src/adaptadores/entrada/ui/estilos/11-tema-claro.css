@@ -1,0 +1,93 @@
+/* ============================================================
+   ESTILOS · Tema claro (por negocio) y ajustes de legibilidad
+   Parte 11 de 14. Se cargan en orden desde index.html: el orden importa
+   (una regla posterior pisa a una anterior). Antes estaban dentro de <style>.
+   ============================================================ */
+/* ============ TEMA CLARO (elegible por negocio) ============ */
+body.tema-claro{
+  --bg:#eef1f6; --panel:#ffffff; --panel2:#f3f5f9;
+  --txt:#1a1e29; --txt2:#3a4250; --gris:#69748a;
+  --linea2:rgba(19,45,70,.10);
+  --sombra:0 2px 12px rgba(19,45,70,.08);
+  --sombra-g:0 10px 30px rgba(19,45,70,.16);
+  background:radial-gradient(900px 520px at 85% -10%,rgba(var(--acc-rgb),.08),transparent 60%),#eef1f6;
+  color:var(--txt);
+}
+body.tema-claro ::-webkit-scrollbar-thumb{background:#c6ccd8;}
+body.tema-claro ::-webkit-scrollbar-thumb:hover{background:#aab2c2;}
+body.tema-claro select option{background:#fff;color:#1a1e29;}
+body.tema-claro .sidebar{background:#ffffff;border-right:1px solid var(--linea2);}
+body.tema-claro .topbar{background:rgba(255,255,255,.94);border-bottom:1px solid rgba(var(--acc-rgb),.25);}
+body.tema-claro .reloj{color:var(--verde-o);text-shadow:none;}
+body.tema-claro .tarjeta{background:#ffffff;box-shadow:var(--sombra);}
+body.tema-claro .tarjeta-pend{background:linear-gradient(135deg,rgba(var(--acc-rgb),.07),#ffffff);}
+body.tema-claro .alerta{background:linear-gradient(135deg,rgba(255,92,106,.06),#ffffff);}
+body.tema-claro .stat{background:#ffffff;border:1px solid var(--linea2);}
+body.tema-claro .stat-val{color:#132d46;text-shadow:none;}
+body.tema-claro .stat-ico{background:rgba(19,45,70,.06);color:#132d46;}
+body.tema-claro .nav-item.on{box-shadow:none;text-shadow:none;color:var(--verde-o);}
+body.tema-claro .campo,body.tema-claro .busca,body.tema-claro .busca-grande,
+body.tema-claro .m-row input,body.tema-claro .m-row select,body.tema-claro .m-row textarea,
+body.tema-claro .chk,body.tema-claro .tipo,body.tema-claro .logo-vista,body.tema-claro .cobro-caja{
+  background:#f3f5f9;color:var(--txt);}
+body.tema-claro .campo:focus,body.tema-claro .busca:focus,body.tema-claro .busca-grande:focus{background:#ffffff;}
+body.tema-claro .campo::placeholder,body.tema-claro .busca::placeholder,body.tema-claro .busca-grande::placeholder{color:#98a2b5;}
+body.tema-claro .btn{background:#f3f5f9;color:var(--txt);}
+body.tema-claro .btn:hover{background:#e8ecf3;}
+body.tema-claro .btn-gold{background:linear-gradient(135deg,var(--oro-c),var(--oro-o));color:#231a00;}
+body.tema-claro .btn-verde{background:linear-gradient(135deg,var(--verde),var(--verde-o));color:var(--acc-txt);}
+body.tema-claro .btn-rojo{color:#fff;}
+body.tema-claro .btn-naranja{color:#2b1500;}
+body.tema-claro .prod{background:#ffffff;}
+body.tema-claro .item-qty button{background:#f3f5f9;color:var(--txt);}
+body.tema-claro .modal{background:#ffffff;border:1px solid var(--linea2);box-shadow:0 24px 70px rgba(19,45,70,.28);}
+body.tema-claro .modal-fondo{background:rgba(19,45,70,.35);}
+body.tema-claro .toast{background:#ffffff;color:var(--txt);}
+body.tema-claro .caja-aviso{background:rgba(var(--acc-rgb),.07);color:var(--txt2);}
+body.tema-claro .oro,body.tema-claro .verde{text-shadow:none;}
+body.tema-claro .total,body.tema-claro .total-linea,body.tema-claro .stat-grande{color:var(--verde-o);text-shadow:none;}
+body.tema-claro .c-total strong{color:var(--verde-o);text-shadow:none;}
+body.tema-claro .prod-pre{color:var(--verde-o);text-shadow:none;}
+body.tema-claro .side-tipo{color:var(--verde-o);}
+body.tema-claro .t-tit svg,body.tema-claro .prod-ico svg,body.tema-claro .topbar h1 svg{color:var(--verde-o);filter:none;}
+body.tema-claro .pill-verde{color:var(--verde-o);}
+body.tema-claro .pill-gold,body.tema-claro .pill-oro{color:#a67c00;}
+body.tema-claro .c-marca span{color:var(--verde-o);text-shadow:none;}
+body.tema-claro .tabla th{color:var(--verde-o);}
+body.tema-claro .fb-dot.ok{background:var(--verde);}
+
+body.tema-claro .verde,body.tema-claro .oro{color:var(--verde-o) !important;text-shadow:none;}
+body.tema-claro .prod-pre,body.tema-claro .total,body.tema-claro .total-linea{color:var(--verde-o) !important;}
+body.tema-claro .pill-verde{background:rgba(var(--acc-rgb),.14);color:var(--verde-o) !important;border-color:rgba(var(--acc-rgb),.4);}
+body.tema-claro .stat-val{color:#132d46 !important;}
+
+
+/* ===== Botones siempre legibles (arregla letra blanca invisible) ===== */
+.btn-verde{color:#062318 !important;}          /* verde claro -> texto oscuro */
+.btn-gold{color:#231a00 !important;}
+.btn-naranja{color:#2b1500 !important;}
+.btn-rojo{color:#fff !important;}
+.cat.on,.tipo.on{color:#062318 !important;}
+body.tema-claro .btn{background:#eef1f6;color:#1a1e29 !important;border:1px solid rgba(19,45,70,.12);}
+body.tema-claro .btn:hover{background:#e2e7ef;}
+body.tema-claro .btn-ghost{background:transparent;color:#1a1e29 !important;}
+body.tema-claro .btn-sm{color:#1a1e29;}
+body.tema-claro .btn-verde{color:#062318 !important;}
+body.tema-claro .btn-gold{color:#231a00 !important;}
+body.tema-claro .btn-naranja{color:#2b1500 !important;}
+body.tema-claro .btn-rojo{color:#fff !important;}
+/* avatar / iniciales del menú: texto legible sobre el color */
+.side-ini,.avatar{color:#062318 !important;}
+
+/* ===== Rojos legibles sobre fondo blanco (tema claro) ===== */
+body.tema-claro .rojo{color:#d63a49 !important;}
+body.tema-claro .mini-x{color:#d63a49 !important;font-weight:800;}
+body.tema-claro .pill-rojo{background:rgba(214,58,73,.12);color:#c0293a !important;border-color:rgba(214,58,73,.45);}
+body.tema-claro .stat-ico.rojo{background:rgba(214,58,73,.12);color:#d63a49 !important;}
+body.tema-claro .alerta{border-left-color:#d63a49;}
+body.tema-claro .btn-rojo{background:linear-gradient(135deg,#e04455,#c0293a);color:#fff !important;box-shadow:0 2px 10px rgba(192,41,58,.3);}
+.mini-x{font-weight:800;}
+
+@media(prefers-reduced-motion:reduce){
+  *{animation-duration:.01ms !important;transition-duration:.01ms !important;}
+}

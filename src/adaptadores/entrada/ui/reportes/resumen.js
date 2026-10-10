@@ -3,22 +3,27 @@
 //  Los equipos de cada negocio publican data_<negocio>_resumen (ventas por día y
 //  por mes, total y cantidad; regla en dominio/ventas.js). El panel lee solo eso
 //  en vez de descargar las ventas de todos los negocios.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/08-sales-reports/08-sales-reports.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/08-sales-reports/08-sales-reports.md
 // ============================================================
+import { STATE } from '../nucleo/estado.js';
+import { esAdminSistema } from '../nucleo/permisos.js';
+import { reportarError, toast } from '../nucleo/componentes.js';
+import { render } from '../nucleo/navegacion.js';
 
-let _resumenNeg=null;   // negocio cuyas ventas ya bajaron completas de la nube
+export let _resumenNeg=null;   // negocio cuyas ventas ya bajaron completas de la nube
+export function fijarResumenNeg(v){ _resumenNeg=v; }   // al cerrar sesión o borrar el negocio
 
 // Lo llama el adaptador de datos (gancho alCargarTabla) cuando terminó de bajar las ventas
-function ventasCargadas(){
+export function ventasCargadas(){
   if(!STATE.negocio) return;
   _resumenNeg=STATE.negocio.id;
   publicarResumen();
 }
 // Publica el resumen si cambió. Solo con las ventas completas: un equipo a medio
 // sincronizar no debe sobrescribir las cifras con datos parciales.
-function publicarResumen(){
+export function publicarResumen(){
   if(!FB_READY || !STATE.negocio || _resumenNeg!==STATE.negocio.id) return;
   const clave=claveDe(STATE.negocio.id,'resumen');
   const r=Dominio.ventas.resumenVentas(misDatos('ventas'), today());
@@ -27,7 +32,7 @@ function publicarResumen(){
 }
 // Cifras de un negocio para el panel: el resumen publicado o, si las ventas están en
 // este equipo (modo local, o ya se leyeron), calculadas aquí. null = aún no hay datos.
-function resumenDe(negId){
+export function resumenDe(negId){
   const r=DB.get(claveDe(negId,'resumen'));
   if(r) return r;
   const vs=datosDe(negId,'ventas');
@@ -35,7 +40,7 @@ function resumenDe(negId){
 }
 // Panel: calcula y publica el resumen de los negocios que todavía no lo tienen
 // (negocios en los que nadie ha entrado desde la versión nueva)
-async function calcularResumenes(){
+export async function calcularResumenes(){
   if(!esAdminSistema()){ toast('No tienes permiso','error'); return; }
   const faltan=(DB.get('negocios')||[]).filter(n=>!DB.get(claveDe(n.id,'resumen')));
   if(!faltan.length){ toast('Todos los negocios tienen sus cifras al día','info'); return; }

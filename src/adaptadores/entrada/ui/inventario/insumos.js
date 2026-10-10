@@ -1,19 +1,25 @@
 // ============================================================
 //  INTERFAZ · Insumos
 //  Inventario de compra de un restaurante.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/06-inventory-recipes/06-inventory-recipes.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/06-inventory-recipes/06-inventory-recipes.md
 // ============================================================
+import { STATE, escapeHtml, fijarEscribiendo, fmtMoney, now } from '../nucleo/estado.js';
+import { tienePermiso } from '../nucleo/permisos.js';
+import { abrirModal, cerrarModal, confirmarModal, ic, pProd, pProds, toast } from '../nucleo/componentes.js';
+import { render } from '../nucleo/navegacion.js';
+import { logAudit } from '../usuarios/auditoria.js';
+import { registrarMovimientos } from './motor.js';
 
 
 // ============================================================
 //  INSUMOS (inventario de compra de un restaurante)
 //  Se descuentan solos por la receta de cada plato.
 // ============================================================
-let _insBusca='';
-function pantallaInsumos(){
-  ESCRIBIENDO=false;
+export let _insBusca='';
+export function pantallaInsumos(){
+  fijarEscribiendo(false);
   const todos=misDatos('insumos');
   let lista=todos;
   if(_insBusca){ const q=_insBusca.toLowerCase(); lista=lista.filter(i=>(i.nombre||'').toLowerCase().includes(q)); }
@@ -37,8 +43,8 @@ function pantallaInsumos(){
       <div class="t-cab">
         <span class="t-tit">${ic('box')} Insumos e inventario</span>
         <div class="t-acc">
-          <input type="text" class="busca" placeholder="🔍 Buscar insumo..." value="${escapeHtml(_insBusca)}" oninput="_insBusca=this.value;render()">
-          ${tienePermiso('editarprod')?`<button class="btn btn-gold" onclick="editarInsumo(null)">+ Agregar insumo</button>`:''}
+          <input type="text" class="busca" placeholder="🔍 Buscar insumo..." value="${escapeHtml(_insBusca)}" data-input="buscarInsumos(this.value)">
+          ${tienePermiso('editarprod')?`<button class="btn btn-gold" data-click="editarInsumo(null)">+ Agregar insumo</button>`:''}
         </div>
       </div>
       ${lista.length?`<div class="tabla-wrap"><table class="tabla">
@@ -52,9 +58,9 @@ function pantallaInsumos(){
             <td>${fmtMoney(i.costo||0)}</td>
             <td class="gris">${i.stockMin||0}</td>
             <td><div class="acciones">
-              ${tienePermiso('editarstock')?`<button class="btn btn-sm btn-verde" onclick="entradaInsumo('${i.id}')">+ Entrada</button>`:''}
-              ${tienePermiso('editarprod')?`<button class="btn btn-sm" onclick="editarInsumo('${i.id}')">Editar</button>`:''}
-              ${tienePermiso('editarprod')?`<button class="btn btn-sm btn-rojo" onclick="eliminarInsumo('${i.id}')">×</button>`:''}
+              ${tienePermiso('editarstock')?`<button class="btn btn-sm btn-verde" data-click="entradaInsumo('${i.id}')">+ Entrada</button>`:''}
+              ${tienePermiso('editarprod')?`<button class="btn btn-sm" data-click="editarInsumo('${i.id}')">Editar</button>`:''}
+              ${tienePermiso('editarprod')?`<button class="btn btn-sm btn-rojo" data-click="eliminarInsumo('${i.id}')">×</button>`:''}
             </div></td>
           </tr>`;
         }).join('')}</tbody>
@@ -62,7 +68,7 @@ function pantallaInsumos(){
     </div>`;
 }
 
-function editarInsumo(id){
+export function editarInsumo(id){
   if(!tienePermiso('editarprod')){ toast('No tienes permiso para editar insumos','error'); return; }
   const arr=misDatos('insumos');
   const i=id?arr.find(x=>x.id===id):null;
@@ -104,7 +110,7 @@ function editarInsumo(id){
     cerrarModal(); toast('Insumo guardado','success'); render();
   }});
 }
-function eliminarInsumo(id){
+export function eliminarInsumo(id){
   if(!tienePermiso('editarprod')){ toast('No tienes permiso para borrar insumos','error'); return; }
   const i=misDatos('insumos').find(x=>x.id===id);
   // Avisar si algún plato lo usa en su receta
@@ -119,7 +125,7 @@ function eliminarInsumo(id){
     toast('Insumo eliminado','info'); render();
   },'Eliminar');
 }
-function entradaInsumo(id){
+export function entradaInsumo(id){
   if(!tienePermiso('editarstock')){ toast('No tienes permiso para modificar el stock','error'); return; }
   const arr=misDatos('insumos');
   const i=arr.find(x=>x.id===id); if(!i) return;
@@ -137,3 +143,4 @@ function entradaInsumo(id){
     cerrarModal(); toast('Entrada registrada','success'); render();
   }});
 }
+export function buscarInsumos(v){ _insBusca=v; render(); }

@@ -1,12 +1,14 @@
 // ============================================================
 //  INTERFAZ · Impresión de reportes
 //  Reporte de ventas y contable imprimibles.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/12-invoice-printing/12-invoice-printing.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/12-invoice-printing/12-invoice-printing.md
 // ============================================================
+import { STATE, escapeHtml, fmtMoney } from '../nucleo/estado.js';
+import { toast } from '../nucleo/componentes.js';
 
-function imprimirReporte(){
+export function imprimirReporte(){
   const d=window._repData; if(!d){ toast('Abre primero los reportes','error'); return; }
   const neg=STATE.negocio;
   const html=`<div style="font-family:Arial,sans-serif;color:#000;max-width:800px;margin:0 auto;padding:18px;">
@@ -33,7 +35,7 @@ function imprimirReporte(){
   w.document.write('<html><head><title>Reporte</title><meta charset="utf-8"><style>@page{size:letter;margin:12mm;}body{margin:0;}</style></head><body>'+html+'</body></html>');
   w.document.close(); setTimeout(()=>w.print(),400);
 }
-function imprimirContable(){
+export function imprimirContable(){
   const d=window._contData; if(!d){ toast('Abre primero el informe','error'); return; }
   const neg=STATE.negocio;
   const html=`<div style="font-family:Arial,sans-serif;color:#000;max-width:800px;margin:0 auto;padding:18px;">

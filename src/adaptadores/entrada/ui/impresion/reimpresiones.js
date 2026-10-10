@@ -1,19 +1,23 @@
 // ============================================================
 //  INTERFAZ · Reimpresiones
 //  Centro de impresión.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/12-invoice-printing/12-invoice-printing.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/12-invoice-printing/12-invoice-printing.md
 // ============================================================
+import { STATE, escapeHtml, fijarEscribiendo, fmtDate, fmtMoney } from '../nucleo/estado.js';
+import { cajaActual } from '../nucleo/permisos.js';
+import { render } from '../nucleo/navegacion.js';
+import { ventasJornada } from '../ventas/pedidos.js';
 
 
 
 // ============================================================
 //  REIMPRESIONES (Centro de Impresión)
 // ============================================================
-let _reimpBusca='';
-function reimpresiones(){
-  ESCRIBIENDO=false;
+export let _reimpBusca='';
+export function reimpresiones(){
+  fijarEscribiendo(false);
   const neg=STATE.negocio;
   const cajaAbierta=cajaActual();
   // Solo los pedidos de la CAJA ACTUAL. Al cerrar caja y abrir otra, esta
@@ -29,7 +33,7 @@ function reimpresiones(){
       <div class="t-cab">
         <div><span class="t-tit">🖨️ Centro de Impresión <span class="pill ${cajaAbierta?'pill-verde':'pill-gold'}">${cajaAbierta?'Caja actual':'Sin caja abierta'}</span></span>
           <p class="gris">Pedidos de la caja actual. Al cerrar caja, esta lista se reinicia para la nueva jornada. Las cuentas sin cobrar salen marcadas como "cobro pendiente".</p></div>
-        <input type="text" class="busca" placeholder="🔍 Factura, cliente, mesa..." value="${escapeHtml(_reimpBusca)}" oninput="_reimpBusca=this.value;render()">
+        <input type="text" class="busca" placeholder="🔍 Factura, cliente, mesa..." value="${escapeHtml(_reimpBusca)}" data-input="buscarReimpresiones(this.value)">
       </div>
       <div class="tabla-wrap"><table class="tabla">
         <thead><tr><th>Pedido</th><th>Tipo</th><th>Cliente/Mesa</th><th>Total</th><th>Estado</th><th>Fecha</th><th>Reimprimir</th></tr></thead>
@@ -41,10 +45,11 @@ function reimpresiones(){
           <td>${v.estado==='pagada'?'<span class="pill pill-verde">Pagada</span>':'<span class="pill pill-gold">Por cobrar</span>'}</td>
           <td class="gris chico">${fmtDate(v.fecha)}</td>
           <td class="acciones">
-            <button class="btn btn-sm" onclick="imprimirFactura('${v.id}')" title="${v.estado==='pagada'?'Factura':'Cuenta (cobro pendiente)'}">${v.estado==='pagada'?'🧾 Factura':'🧾 Cuenta'}</button>
-            ${neg.usaCocina?`<button class="btn btn-sm" onclick="reimprimirComanda('${v.id}')" title="Comanda de cocina">👨‍🍳</button>`:''}
+            <button class="btn btn-sm" data-click="imprimirFactura('${v.id}')" title="${v.estado==='pagada'?'Factura':'Cuenta (cobro pendiente)'}">${v.estado==='pagada'?'🧾 Factura':'🧾 Cuenta'}</button>
+            ${neg.usaCocina?`<button class="btn btn-sm" data-click="reimprimirComanda('${v.id}')" title="Comanda de cocina">👨‍🍳</button>`:''}
           </td>
         </tr>`).join(''):'<tr><td colspan="7" class="gris">No hay pedidos para reimprimir.</td></tr>'}</tbody>
       </table></div>
     </div>`;
 }
+export function buscarReimpresiones(v){ _reimpBusca=v; render(); }

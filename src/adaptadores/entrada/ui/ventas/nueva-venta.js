@@ -1,29 +1,43 @@
 // ============================================================
 //  INTERFAZ · Nueva venta
 //  Carrito, cliente, descuento, consecutivo de factura, confirmar y cobrar directo.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/02-pos-catalog/02-pos-catalog.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/02-pos-catalog/02-pos-catalog.md
 // ============================================================
+import { STATE, escapeHtml, fijarEscribiendo, fmtMoney, jornadaActual, now } from '../nucleo/estado.js';
+import { cajaActual, exigirPermiso, sucursalActual, tienePermiso, usaInventario } from '../nucleo/permisos.js';
+import { abrirModal, cerrarModal, confirmarModal, ic, pPedido, preguntarDespues, toast } from '../nucleo/componentes.js';
+import { sonidoError, sonidoPedido } from '../nucleo/sonidos.js';
+import { render } from '../nucleo/navegacion.js';
+import { logAudit } from '../usuarios/auditoria.js';
+import { descuentaAlPedir, nombreCuenta, usaCuentas } from './cuentas-abiertas.js';
+import { idDomiciliario } from './pedidos.js';
+import { abrirCobro, ajustarPagoVenta } from './cobro.js';
+import { imprimirComanda } from '../cocina/comanda.js';
+import { ajustarStockPorEdicion, avisarStockBajo, descontarStock, faltantesPara, requerimientos } from '../inventario/motor.js';
+import { disponiblesCombo, faltantesParaAgregar } from '../inventario/combos.js';
+import { guardarClienteAuto } from '../clientes/clientes.js';
+import { imprimirFactura } from '../impresion/facturas.js';
 
 
 // ============================================================
 //  NUEVA VENTA
 // ============================================================
-let _carrito=[];
-let _vTipo='llevar';
-let _vCli={nombre:'',tel:'',dir:'',barrio:'',ciudad:'',depto:'',transportadora:'',domiciliario:'',valorDom:0};
-let _vMesa='';
-let _vObs='';
-let _vCat='Todas';
-let _vBusca='';
-let _desc=0;
-let _descMot='';
-let _guardando=false;   // bloquea doble clic
+export let _carrito=[];
+export let _vTipo='llevar';
+export let _vCli={nombre:'',tel:'',dir:'',barrio:'',ciudad:'',depto:'',transportadora:'',domiciliario:'',valorDom:0};
+export let _vMesa='';
+export let _vObs='';
+export let _vCat='Todas';
+export let _vBusca='';
+export let _desc=0;
+export let _descMot='';
+export let _guardando=false;   // bloquea doble clic
 
-function nuevaVenta(){
+export function nuevaVenta(){
   const neg=STATE.negocio;
-  ESCRIBIENDO=true;   // proteger: no refrescar mientras arma el pedido
+  fijarEscribiendo(true);   // proteger: no refrescar mientras arma el pedido
   // Venta rápida: si usa cliente predeterminado y aún no hay datos, precargarlos
   if(neg.usaClienteFijo && !_vCli.nombre && !_vCli.tel && !STATE.editandoVentaId){
     _vCli.nombre=neg.clienteFijoNombre||'Consumidor Final';
@@ -35,8 +49,8 @@ function nuevaVenta(){
       <div class="msg-ico">🔒</div>
       <div class="t-tit centrado">Caja cerrada</div>
       <p class="gris">Nadie puede vender hasta que se abra la caja. ${usaSucursales(neg)?'Cada sede tiene <strong>su propia caja</strong>: cuando alguien abra la de esta sede, todos los de aquí podrán vender.':'Es <strong>una sola caja para todo el negocio</strong>: cuando alguien la abra, todos podrán vender.'}</p>
-      <button class="btn btn-gold" onclick="irA('caja')">Ir a abrir caja</button>
-      <button class="btn btn-ghost btn-sm" onclick="refrescarDeLaNube()">🔄 Ya la abrieron, actualizar</button>
+      <button class="btn btn-gold" data-click="irA('caja')">Ir a abrir caja</button>
+      <button class="btn btn-ghost btn-sm" data-click="refrescarDeLaNube()">🔄 Ya la abrieron, actualizar</button>
     </div>`;
   }
   let productos=misDatos('productos').filter(p=>!p.agotado);
@@ -60,11 +74,11 @@ function nuevaVenta(){
     ${usaSucursales(neg)?`<div class="caja-aviso">📍 ${escapeHtml((sucursalesDe(neg).find(s=>s.id===sucursalActual())||{}).nombre||'')}</div>`:''}
     <div class="venta-grid">
       <div class="venta-izq">
-        ${neg.usaCodBarras?`<input type="text" id="escaner-venta" class="busca-grande" style="border-color:var(--verde);box-shadow:0 0 14px rgba(var(--acc-rgb),.25);" placeholder="📷 Escanea el código de barras aquí..." onkeydown="if(event.key==='Enter'){escanearProducto(this.value);this.value='';event.preventDefault();}" autocomplete="off">`:''}
-        <input type="text" class="busca-grande" placeholder="🔍 Buscar ${escapeHtml((neg.palabraProducto||'producto').toLowerCase())}..." value="${escapeHtml(_vBusca)}" oninput="_vBusca=this.value;render()">
-        ${cats.length>1?`<div class="cats">${cats.map(c=>`<button class="cat ${_vCat===c?'on':''}" onclick="_vCat='${escapeHtml(c)}';render()">${escapeHtml(c)}</button>`).join('')}</div>`:''}
+        ${neg.usaCodBarras?`<input type="text" id="escaner-venta" class="busca-grande borde-color-verde sombra-0-0-14-acc-rgb-25" placeholder="📷 Escanea el código de barras aquí..." data-enter="escanearDesdeCampo(this)" autocomplete="off">`:''}
+        <input type="text" class="busca-grande" placeholder="🔍 Buscar ${escapeHtml((neg.palabraProducto||'producto').toLowerCase())}..." value="${escapeHtml(_vBusca)}" data-input="buscarEnVenta(this.value)">
+        ${cats.length>1?`<div class="cats">${cats.map(c=>`<button class="cat ${_vCat===c?'on':''}" data-click="elegirCategoriaVenta(this.dataset.cat)" data-cat="${escapeHtml(c)}">${escapeHtml(c)}</button>`).join('')}</div>`:''}
         ${productos.length?`<div class="prods">
-          ${productos.map(p=>`<div class="prod" onclick="agregarAlCarrito('${p.id}')">
+          ${productos.map(p=>`<div class="prod" data-click="agregarAlCarrito('${p.id}')">
             <div class="prod-ico">${p.imagen?`<img src="${p.imagen}" alt="">`:ic('box')}</div>
             <div class="prod-nom">${escapeHtml(p.nombre)}</div>
             <div class="prod-pre">${fmtMoney(p.precio)}</div>
@@ -76,27 +90,27 @@ function nuevaVenta(){
       <div class="tarjeta carrito">
         <div class="carrito-cab">
           ${STATE.agregandoCuentaId?(()=>{ const cu=misDatos('ventas').find(x=>x.id===STATE.agregandoCuentaId)||{};
-            return `<div class="tarjeta-pend" style="padding:10px 12px;border-radius:10px;margin-bottom:10px;">
-              <div class="flex-between" style="gap:8px;flex-wrap:wrap;">
+            return `<div class="tarjeta-pend p-10-12 radio-10 mb-10">
+              <div class="flex-between gap-8 flex-wrap">
                 <span class="oro negrita">🧾 Agregando a ${escapeHtml(nombreCuenta(cu))}</span>
-                <button class="btn btn-sm btn-ghost" onclick="salirDeCuenta()">Salir</button>
+                <button class="btn btn-sm btn-ghost" data-click="salirDeCuenta()">Salir</button>
               </div>
-              <div class="gris chico" style="margin-top:4px;">La cuenta ya tiene ${(cu.items||[]).reduce((a,i)=>a+i.qty,0)} und por ${fmtMoney(cu.total||0)}. Lo que agregues aquí se le suma.</div>
+              <div class="gris chico mt-4">La cuenta ya tiene ${(cu.items||[]).reduce((a,i)=>a+i.qty,0)} und por ${fmtMoney(cu.total||0)}. Lo que agregues aquí se le suma.</div>
             </div>`; })():''}
           ${STATE.editandoVentaId?(()=>{ const ed=misDatos('ventas').find(x=>x.id===STATE.editandoVentaId)||{};
-            return `<div class="tarjeta-pend" style="padding:10px 12px;border-radius:10px;margin-bottom:10px;">
-              <div class="flex-between" style="gap:8px;flex-wrap:wrap;">
+            return `<div class="tarjeta-pend p-10-12 radio-10 mb-10">
+              <div class="flex-between gap-8 flex-wrap">
                 <span class="oro negrita">✏️ Editando ${escapeHtml(ed.factura||'pedido')}${ed.estado==='pagada'?' (ya cobrado)':''}</span>
-                <button class="btn btn-sm btn-ghost" onclick="cancelarEdicionPedido()">Cancelar</button>
+                <button class="btn btn-sm btn-ghost" data-click="cancelarEdicionPedido()">Cancelar</button>
               </div>
-              <div class="gris chico" style="margin-top:4px;">Antes: ${fmtMoney(ed.total||0)} · ${(ed.items||[]).reduce((a,i)=>a+i.qty,0)} und${ed.estado==='pagada'?' · si cambia el total te pedirá ajustar el cobro':''}</div>
+              <div class="gris chico mt-4">Antes: ${fmtMoney(ed.total||0)} · ${(ed.items||[]).reduce((a,i)=>a+i.qty,0)} und${ed.estado==='pagada'?' · si cambia el total te pedirá ajustar el cobro':''}</div>
             </div>`; })():''}
-          <div class="t-cab" style="margin-bottom:12px;">
+          <div class="t-cab mb-12">
             <span class="t-tit">${ic('cart')} ${pPedido(true)}</span>
-            ${_carrito.length?`<button class="btn btn-sm btn-ghost" onclick="vaciarCarrito()" title="Vaciar">🗑</button>`:''}
+            ${_carrito.length?`<button class="btn btn-sm btn-ghost" data-click="vaciarCarrito()" title="Vaciar">🗑</button>`:''}
           </div>
           ${tiposCfg.length>1?`<div class="tipos">
-            ${tiposCfg.map(t=>`<button class="tipo ${_vTipo===t?'on':''}" onclick="_vTipo='${t}';render()">${etiquetas[t]||t}</button>`).join('')}
+            ${tiposCfg.map(t=>`<button class="tipo ${_vTipo===t?'on':''}" data-click="elegirTipoEntrega('${t}')">${etiquetas[t]||t}</button>`).join('')}
           </div>`:''}
           <div class="carrito-datos">${camposCliente()}</div>
         </div>
@@ -104,13 +118,13 @@ function nuevaVenta(){
           ${_carrito.length? _carrito.map((i,idx)=>`<div class="item">
             <div class="item-info"><div class="item-nom">${escapeHtml(i.nombre)}</div><div class="item-uni">${fmtMoney(i.precio)} c/u</div></div>
             <div class="item-qty">
-              <button onclick="cambiarQty(${idx},-1)">−</button>
+              <button data-click="cambiarQty(${idx},-1)">−</button>
               <span>${i.qty}</span>
-              <button onclick="cambiarQty(${idx},1)">+</button>
+              <button data-click="cambiarQty(${idx},1)">+</button>
             </div>
             <div class="item-tot-wrap">
               <div class="item-tot">${neg.esLogistica?(i.qty+' und'):fmtMoney(i.precio*i.qty)}</div>
-              <button class="item-quitar" onclick="quitarItemCarrito(${idx})">quitar</button>
+              <button class="item-quitar" data-click="quitarItemCarrito(${idx})">quitar</button>
             </div>
           </div>`).join('') : '<div class="carrito-vacio">🛒<p>Toca un producto para agregarlo</p></div>'}
         </div>
@@ -120,75 +134,75 @@ function nuevaVenta(){
           `:`
           ${_desc>0?`<div class="linea"><span>Subtotal</span><span>${fmtMoney(bruto)}</span></div>
             <div class="linea desc"><span>Descuento${_descMot?' · '+escapeHtml(_descMot):''}</span>
-              <span>−${fmtMoney(_desc)} <button class="mini-x" onclick="quitarDescuento()">×</button></span></div>`
-           :(tienePermiso('descuento')?`<button class="btn btn-ghost btn-block btn-sm" onclick="abrirDescuento()">% Aplicar descuento</button>`:'')}
+              <span>−${fmtMoney(_desc)} <button class="mini-x" data-click="quitarDescuento()">×</button></span></div>`
+           :(tienePermiso('descuento')?`<button class="btn btn-ghost btn-block btn-sm" data-click="abrirDescuento()">% Aplicar descuento</button>`:'')}
           <div id="linea-dom">${valorDom>0?`<div class="linea"><span>${_vTipo==='envio'?'Envío':'Domicilio'}</span><span>${fmtMoney(valorDom)}</span></div>`:''}</div>
           <div class="total"><span>TOTAL</span><span id="venta-total">${fmtMoney(total+valorDom)}</span></div>
           `}
           ${STATE.agregandoCuentaId?`
-            <button class="btn btn-verde btn-block btn-grande" id="btn-confirmar" onclick="agregarACuenta()">➕ Agregar a la cuenta</button>
+            <button class="btn btn-verde btn-block btn-grande" id="btn-confirmar" data-click="agregarACuenta()">➕ Agregar a la cuenta</button>
           `:`
-            <button class="btn btn-gold btn-block btn-grande" id="btn-confirmar" onclick="${STATE.editandoVentaId?'guardarEdicionPedido()':(neg.esLogistica?'registrarSalida()':(dosPasos?'confirmarPedido()':'cobrarDirecto()'))}">
+            <button class="btn btn-gold btn-block btn-grande" id="btn-confirmar" data-click="${STATE.editandoVentaId?'guardarEdicionPedido()':(neg.esLogistica?'registrarSalida()':(dosPasos?'confirmarPedido()':'cobrarDirecto()'))}">
               ${STATE.editandoVentaId?'💾 Guardar cambios':(neg.esLogistica?'📦 Registrar salida':(dosPasos?'✓ Confirmar pedido':'💵 Cobrar ahora'))}
             </button>
             ${(usaCuentas()&&!dosPasos&&!STATE.editandoVentaId&&!neg.esLogistica)?`
-              <button class="btn btn-block btn-sm" style="margin-top:8px;" onclick="abrirCuentaNueva()">🧾 Dejar como cuenta abierta (cobrar después)</button>`:''}
+              <button class="btn btn-block btn-sm mt-8" data-click="abrirCuentaNueva()">🧾 Dejar como cuenta abierta (cobrar después)</button>`:''}
           `}
         </div>`:''}
       </div>
     </div>`;
 }
 
-function camposCliente(){
+export function camposCliente(){
   const c=_vCli;
   const neg=STATE.negocio;
   // Venta rápida: cliente fijo. Solo mostramos una etiqueta compacta y las
   // observaciones; no se piden datos del cliente (salvo domicilio/envío).
   if(neg && neg.usaClienteFijo && _vTipo!=='domicilio' && _vTipo!=='envio'){
     return `<div class="cli-fijo">👤 ${escapeHtml(c.nombre||neg.clienteFijoNombre||'Consumidor Final')} <span class="gris chico">· venta rápida</span></div>
-      ${_vTipo==='mesa'?`<input type="text" class="campo" placeholder="Número de mesa" value="${escapeHtml(_vMesa)}" oninput="_vMesa=this.value">`:''}
-      <input type="text" class="campo" placeholder="Observaciones..." value="${escapeHtml(_vObs)}" oninput="_vObs=this.value">`;
+      ${_vTipo==='mesa'?`<input type="text" class="campo" placeholder="Número de mesa" value="${escapeHtml(_vMesa)}" data-input="ponerMesa(this.value)">`:''}
+      <input type="text" class="campo" placeholder="Observaciones..." value="${escapeHtml(_vObs)}" data-input="ponerObservaciones(this.value)">`;
   }
   if(_vTipo==='mesa'){
-    return `<input type="text" class="campo" placeholder="Número de mesa" value="${escapeHtml(_vMesa)}" oninput="_vMesa=this.value">
-      <input type="text" class="campo" placeholder="Observaciones..." value="${escapeHtml(_vObs)}" oninput="_vObs=this.value">`;
+    return `<input type="text" class="campo" placeholder="Número de mesa" value="${escapeHtml(_vMesa)}" data-input="ponerMesa(this.value)">
+      <input type="text" class="campo" placeholder="Observaciones..." value="${escapeHtml(_vObs)}" data-input="ponerObservaciones(this.value)">`;
   }
   if(_vTipo==='domicilio'){
     const doms=misDatos('domiciliarios');
     return `<div class="cli-busca-wrap">
-      <input type="text" class="campo" placeholder="Nombre del cliente" value="${escapeHtml(c.nombre)}" oninput="_vCli.nombre=this.value;sugerirClientes(this.value)" onfocus="sugerirClientes(this.value)" onblur="setTimeout(ocultarSugerenciasCliente,180)">
-      <input type="tel" class="campo" placeholder="Teléfono" value="${escapeHtml(c.tel)}" oninput="_vCli.tel=this.value;sugerirClientes(this.value)" onfocus="sugerirClientes(this.value)" onblur="setTimeout(ocultarSugerenciasCliente,180)">
+      <input type="text" class="campo" placeholder="Nombre del cliente" value="${escapeHtml(c.nombre)}" data-input="datoCliente('nombre',this.value,true)" data-focus="sugerirClientes(this.value)" data-blur="ocultarSugerenciasLuego()">
+      <input type="tel" class="campo" placeholder="Teléfono" value="${escapeHtml(c.tel)}" data-input="datoCliente('tel',this.value,true)" data-focus="sugerirClientes(this.value)" data-blur="ocultarSugerenciasLuego()">
       <div id="cli-sugerencias" class="cli-sugerencias"></div>
-      <input type="text" class="campo" placeholder="Dirección" value="${escapeHtml(c.dir)}" oninput="_vCli.dir=this.value">
-      <input type="text" class="campo" placeholder="Barrio" value="${escapeHtml(c.barrio)}" oninput="_vCli.barrio=this.value">
-      <input type="number" class="campo" placeholder="Valor del domicilio" value="${c.valorDom||''}" oninput="_vCli.valorDom=this.value;actualizarTotalVenta()">
-      ${doms.length?`<select class="campo" onchange="_vCli.domiciliario=this.value">
+      <input type="text" class="campo" placeholder="Dirección" value="${escapeHtml(c.dir)}" data-input="datoCliente('dir',this.value)">
+      <input type="text" class="campo" placeholder="Barrio" value="${escapeHtml(c.barrio)}" data-input="datoCliente('barrio',this.value)">
+      <input type="number" class="campo" placeholder="Valor del domicilio" value="${c.valorDom||''}" data-input="valorDomicilio(this.value)">
+      ${doms.length?`<select class="campo" data-change="datoCliente('domiciliario',this.value)">
         <option value="">Domiciliario...</option>
         ${doms.map(d=>`<option ${c.domiciliario===d.nombre?'selected':''}>${escapeHtml(d.nombre)}</option>`).join('')}
       </select>`:''}
-      <input type="text" class="campo" placeholder="Observaciones..." value="${escapeHtml(_vObs)}" oninput="_vObs=this.value">`;
+      <input type="text" class="campo" placeholder="Observaciones..." value="${escapeHtml(_vObs)}" data-input="ponerObservaciones(this.value)">`;
   }
   if(_vTipo==='envio'){
     return `<div class="cli-busca-wrap">
-      <input type="text" class="campo" placeholder="Nombre del cliente" value="${escapeHtml(c.nombre)}" oninput="_vCli.nombre=this.value;sugerirClientes(this.value)" onfocus="sugerirClientes(this.value)" onblur="setTimeout(ocultarSugerenciasCliente,180)">
-      <input type="tel" class="campo" placeholder="Teléfono / WhatsApp" value="${escapeHtml(c.tel)}" oninput="_vCli.tel=this.value;sugerirClientes(this.value)" onfocus="sugerirClientes(this.value)" onblur="setTimeout(ocultarSugerenciasCliente,180)">
+      <input type="text" class="campo" placeholder="Nombre del cliente" value="${escapeHtml(c.nombre)}" data-input="datoCliente('nombre',this.value,true)" data-focus="sugerirClientes(this.value)" data-blur="ocultarSugerenciasLuego()">
+      <input type="tel" class="campo" placeholder="Teléfono / WhatsApp" value="${escapeHtml(c.tel)}" data-input="datoCliente('tel',this.value,true)" data-focus="sugerirClientes(this.value)" data-blur="ocultarSugerenciasLuego()">
       <div id="cli-sugerencias" class="cli-sugerencias"></div>
-      <input type="text" class="campo" placeholder="Dirección" value="${escapeHtml(c.dir)}" oninput="_vCli.dir=this.value">
-      <input type="text" class="campo" placeholder="Ciudad" value="${escapeHtml(c.ciudad)}" oninput="_vCli.ciudad=this.value">
-      <input type="text" class="campo" placeholder="Departamento" value="${escapeHtml(c.depto)}" oninput="_vCli.depto=this.value">
-      <input type="text" class="campo" placeholder="Transportadora" value="${escapeHtml(c.transportadora)}" oninput="_vCli.transportadora=this.value">
-      <input type="number" class="campo" placeholder="Valor del envío" value="${c.valorDom||''}" oninput="_vCli.valorDom=this.value;actualizarTotalVenta()">
-      <input type="text" class="campo" placeholder="Observaciones..." value="${escapeHtml(_vObs)}" oninput="_vObs=this.value">`;
+      <input type="text" class="campo" placeholder="Dirección" value="${escapeHtml(c.dir)}" data-input="datoCliente('dir',this.value)">
+      <input type="text" class="campo" placeholder="Ciudad" value="${escapeHtml(c.ciudad)}" data-input="datoCliente('ciudad',this.value)">
+      <input type="text" class="campo" placeholder="Departamento" value="${escapeHtml(c.depto)}" data-input="datoCliente('depto',this.value)">
+      <input type="text" class="campo" placeholder="Transportadora" value="${escapeHtml(c.transportadora)}" data-input="datoCliente('transportadora',this.value)">
+      <input type="number" class="campo" placeholder="Valor del envío" value="${c.valorDom||''}" data-input="valorDomicilio(this.value)">
+      <input type="text" class="campo" placeholder="Observaciones..." value="${escapeHtml(_vObs)}" data-input="ponerObservaciones(this.value)">`;
   }
   return `<div class="cli-busca-wrap">
-    <input type="text" class="campo" placeholder="Nombre del cliente (opcional)" value="${escapeHtml(c.nombre)}" oninput="_vCli.nombre=this.value;sugerirClientes(this.value)" onfocus="sugerirClientes(this.value)" onblur="setTimeout(ocultarSugerenciasCliente,180)">
-    <input type="tel" class="campo" placeholder="Teléfono (obligatorio)" value="${escapeHtml(c.tel)}" oninput="_vCli.tel=this.value;sugerirClientes(this.value)" onfocus="sugerirClientes(this.value)" onblur="setTimeout(ocultarSugerenciasCliente,180)">
+    <input type="text" class="campo" placeholder="Nombre del cliente (opcional)" value="${escapeHtml(c.nombre)}" data-input="datoCliente('nombre',this.value,true)" data-focus="sugerirClientes(this.value)" data-blur="ocultarSugerenciasLuego()">
+    <input type="tel" class="campo" placeholder="Teléfono (obligatorio)" value="${escapeHtml(c.tel)}" data-input="datoCliente('tel',this.value,true)" data-focus="sugerirClientes(this.value)" data-blur="ocultarSugerenciasLuego()">
     <div id="cli-sugerencias" class="cli-sugerencias"></div>
-    <input type="text" class="campo" placeholder="Observaciones..." value="${escapeHtml(_vObs)}" oninput="_vObs=this.value">`;
+    <input type="text" class="campo" placeholder="Observaciones..." value="${escapeHtml(_vObs)}" data-input="ponerObservaciones(this.value)">`;
 }
 
 // ---------- Autocompletar / recomendar clientes ya registrados al tomar el pedido ----------
-function sugerirClientes(texto){
+export function sugerirClientes(texto){
   const cont=document.getElementById('cli-sugerencias');
   if(!cont) return;
   const q=(texto||'').trim().toLowerCase();
@@ -198,7 +212,7 @@ function sugerirClientes(texto){
     .sort((a,b)=>(b.pedidos||0)-(a.pedidos||0))   // primero los más frecuentes
     .slice(0,6);
   if(!match.length){ cont.innerHTML=''; cont.classList.remove('abierta'); return; }
-  cont.innerHTML=match.map(c=>`<div class="cli-sug-item" onmousedown="elegirClienteSugerido('${c.id}')">
+  cont.innerHTML=match.map(c=>`<div class="cli-sug-item" data-mousedown="elegirClienteSugerido('${c.id}')">
       <span class="cli-sug-nom">${escapeHtml(c.nombre||'(sin nombre)')}</span>
       <span class="cli-sug-tel">${escapeHtml(c.tel||'')}</span>
       ${c.dir?`<span class="cli-sug-dir">${escapeHtml(c.dir)}${c.barrio?' · '+escapeHtml(c.barrio):''}</span>`:''}
@@ -206,11 +220,11 @@ function sugerirClientes(texto){
     </div>`).join('');
   cont.classList.add('abierta');
 }
-function ocultarSugerenciasCliente(){
+export function ocultarSugerenciasCliente(){
   const cont=document.getElementById('cli-sugerencias');
   if(cont){ cont.innerHTML=''; cont.classList.remove('abierta'); }
 }
-function elegirClienteSugerido(id){
+export function elegirClienteSugerido(id){
   const c=misDatos('clientes').find(x=>x.id===id); if(!c) return;
   _vCli.nombre=c.nombre||''; _vCli.tel=c.tel||''; _vCli.dir=c.dir||'';
   _vCli.barrio=c.barrio||''; _vCli.ciudad=c.ciudad||''; _vCli.depto=c.depto||'';
@@ -221,7 +235,7 @@ function elegirClienteSugerido(id){
 
 // Actualiza SOLO el total y la línea de domicilio en la pantalla de venta,
 // sin redibujar todo (así no se pierde el foco del campo = no se sale el teclado).
-function actualizarTotalVenta(){
+export function actualizarTotalVenta(){
   const bruto=_carrito.reduce((a,i)=>a+i.precio*i.qty,0);
   const total=Math.max(0,bruto-_desc);
   const valorDom=(_vTipo==='domicilio'||_vTipo==='envio')?(parseFloat(_vCli.valorDom)||0):0;
@@ -232,7 +246,7 @@ function actualizarTotalVenta(){
 }
 
 // Escanear con pistola: busca el producto por su código de barras y lo agrega al carrito
-function escanearProducto(codigo){
+export function escanearProducto(codigo){
   codigo=(codigo||'').trim();
   if(!codigo) return;
   const productos=misDatos('productos');
@@ -249,7 +263,7 @@ function escanearProducto(codigo){
   setTimeout(()=>{ const e=document.getElementById('escaner-venta'); if(e) e.focus(); },50);
 }
 
-function agregarAlCarrito(id){
+export function agregarAlCarrito(id){
   const neg=STATE.negocio;
   const p=misDatos('productos').find(x=>x.id===id); if(!p) return;
   // Combos y productos sueltos: se revisa el stock REAL contando todo el carrito
@@ -281,19 +295,19 @@ function agregarAlCarrito(id){
   if(ex) ex.qty++; else _carrito.push({prodId:id, nombre:p.nombre, precio:p.precio, qty:1});
   render();
 }
-function cambiarQty(idx,delta){
+export function cambiarQty(idx,delta){
   if(!_carrito[idx]) return;
   _carrito[idx].qty+=delta;
   if(_carrito[idx].qty<=0) _carrito.splice(idx,1);
   render();
 }
-function quitarItemCarrito(idx){
+export function quitarItemCarrito(idx){
   if(!_carrito[idx]) return;
   _carrito.splice(idx,1);
   render();
 }
-function vaciarCarrito(){ _carrito=[]; _desc=0; _descMot=''; render(); }
-function limpiarPedido(){
+export function vaciarCarrito(){ _carrito=[]; _desc=0; _descMot=''; render(); }
+export function limpiarPedido(){
   _carrito=[]; _vObs=''; _desc=0; _descMot=''; _vMesa='';
   STATE.editandoVentaId=null; STATE.agregandoCuentaId=null;
   const neg=STATE.negocio;
@@ -305,7 +319,20 @@ function limpiarPedido(){
     _vCli={nombre:'',tel:'',dir:'',barrio:'',ciudad:'',depto:'',transportadora:'',domiciliario:'',valorDom:0};
   }
 }
-function abrirDescuento(){
+// Pone un pedido guardado en el formulario de venta. conItems: para editarlo
+// (carrito, notas y descuento del pedido); sin ellos: cuenta abierta a la que se
+// le agregan productos (carrito vacío, el descuento no se toca)
+export function cargarPedidoEnVenta(v, conItems){
+  _carrito=conItems?(v.items||[]).map(i=>({prodId:i.prodId, nombre:i.nombre, precio:i.precio, qty:i.qty, obs:i.obs||''})):[];
+  _vTipo=v.tipo||'llevar'; _vMesa=v.mesa||''; _vObs=conItems?(v.obs||''):'';
+  if(conItems){ _desc=v.descuento||0; _descMot=v.descMotivo||v.descMot||''; }
+  _vCli={nombre:v.cliNombre||'', tel:v.cliTel||'', dir:v.cliDir||'', barrio:v.cliBarrio||'',
+    ciudad:v.cliCiudad||'', depto:v.cliDepto||'', transportadora:v.transportadora||'',
+    domiciliario:v.domiciliario||'', valorDom:v.valorDom||0};
+}
+// Otros archivos cambian estas variables con su función (un módulo no puede asignar lo que importa)
+export function fijarGuardando(v){ _guardando=v; }
+export function abrirDescuento(){
   if(!exigirPermiso('descuento','No tienes permiso para aplicar descuentos')) return;
   const bruto=_carrito.reduce((a,i)=>a+i.precio*i.qty,0);
   abrirModal({titulo:'Aplicar descuento', textoBoton:'Aplicar', campos:[
@@ -322,10 +349,10 @@ function abrirDescuento(){
     cerrarModal(); toast('Descuento aplicado','success'); render();
   }});
 }
-function quitarDescuento(){ _desc=0; _descMot=''; render(); }
-function cancelarEdicionPedido(){
+export function quitarDescuento(){ _desc=0; _descMot=''; render(); }
+export function cancelarEdicionPedido(){
   confirmarModal('¿Salir sin guardar los cambios del pedido?',()=>{
-    limpiarPedido(); ESCRIBIENDO=false; STATE.pageNeg='pedidos'; render();
+    limpiarPedido(); fijarEscribiendo(false); STATE.pageNeg='pedidos'; render();
     toast('Edición cancelada','info');
   },'Sí, salir');
 }
@@ -339,9 +366,10 @@ function cancelarEdicionPedido(){
 // Si un equipo cierra sin usar su número reservado, ese número queda sin usar
 // (puede haber saltos, nunca repetidos mientras haya conexión).
 
-let _facturaReservada=null, _reservandoFactura=false;
-function maxFacturaLocal(){ return Dominio.facturas.mayorNumero(misDatos('ventas')); }
-function reservarFactura(){
+export let _facturaReservada=null, _reservandoFactura=false;
+export function fijarFacturaReservada(v){ _facturaReservada=v; }   // al cerrar sesión o cambiar de negocio
+export function maxFacturaLocal(){ return Dominio.facturas.mayorNumero(misDatos('ventas')); }
+export function reservarFactura(){
   if(!FB_READY || !STATE.negocio || _reservandoFactura || _facturaReservada!==null) return;
   const negId=STATE.negocio.id;
   _reservandoFactura=true;
@@ -350,7 +378,7 @@ function reservarFactura(){
     .catch(e=>console.warn('Reserva de factura:',e&&e.message))
     .then(()=>{ _reservandoFactura=false; });
 }
-function siguienteFactura(){
+export function siguienteFactura(){
   const seq=parseInt(DB.get(claveDe(STATE.negocio.id,'factura_seq')))||0;
   const n=Dominio.facturas.elegirNumero(_facturaReservada, maxFacturaLocal(), seq);
   _facturaReservada=null;
@@ -359,7 +387,7 @@ function siguienteFactura(){
 }
 
 // ---------- Crear la venta (base común) ----------
-function armarVenta(estado){
+export function armarVenta(estado){
   const neg=STATE.negocio;
   const cajaAbierta=cajaActual();
   const bruto=_carrito.reduce((a,i)=>a+i.precio*i.qty,0);
@@ -401,7 +429,7 @@ function armarVenta(estado){
 
 // Valida datos mínimos del cliente según el tipo de pedido.
 // Teléfono obligatorio en Llevar y Domicilio (para poder guardar el cliente).
-function validarClientePedido(){
+export function validarClientePedido(){
   const neg=STATE.negocio;
   // Con cliente predeterminado (venta rápida) no se piden datos del cliente
   if(neg && neg.usaClienteFijo && _vTipo!=='domicilio' && _vTipo!=='envio') return true;
@@ -415,7 +443,7 @@ function validarClientePedido(){
 }
 
 // ---------- LOGÍSTICA: registrar salida/entrega de mercancía (sin dinero) ----------
-function registrarSalida(){
+export function registrarSalida(){
   if(_guardando) return;
   if(!_carrito.length){ toast('Agrega productos primero','error'); return; }
   if(!validarClientePedido()) return;
@@ -433,7 +461,7 @@ function registrarSalida(){
     logAudit('Registró salida', (venta.factura||'')+' · '+(venta.cliNombre||''));
     sonidoPedido();
     avisarStockBajo(venta);
-    limpiarPedido(); ESCRIBIENDO=false;
+    limpiarPedido(); fijarEscribiendo(false);
     STATE.pageNeg='pedidos'; render();
     toast('Salida '+venta.factura+' registrada','success');
     // Logística: la remisión siempre se ofrece (no depende de la ventana Facturas)
@@ -445,14 +473,14 @@ function registrarSalida(){
 // ---------- FLUJO A: confirmar ahora, cobrar después ----------
 // Guardar los cambios de un pedido que se está editando.
 // Vale para los dos flujos (cobro directo y confirmar→cobrar).
-function guardarEdicionPedido(){
+export function guardarEdicionPedido(){
   if(_guardando) return;
   if(!STATE.editandoVentaId){ toast('No hay ningún pedido en edición','error'); return; }
   if(!_carrito.length){ toast('El pedido no puede quedar vacío. Si quieres borrarlo, anúlalo.','error'); return; }
   if(!validarClientePedido()) return;
   const ventasPrev=misDatos('ventas');
   const orig=ventasPrev.find(x=>x.id===STATE.editandoVentaId);
-  if(!orig){ toast('Ese pedido ya no existe','error'); limpiarPedido(); ESCRIBIENDO=false; render(); return; }
+  if(!orig){ toast('Ese pedido ya no existe','error'); limpiarPedido(); fijarEscribiendo(false); render(); return; }
   const yaDescontado = orig.stockAplicado===true || (orig.stockAplicado===undefined && orig.estado==='pagada');
   if(yaDescontado){
     const d=difRequerimientos(requerimientos(orig.items), requerimientos(_carrito));
@@ -483,7 +511,7 @@ function guardarEdicionPedido(){
     logAudit('Editó pedido', (venta.factura||'')+': '+fmtMoney(totalAntes)+' → '+fmtMoney(venta.total||0)
       +' · '+itemsAntes.reduce((a,x)=>a+x.qty,0)+' → '+venta.items.reduce((a,x)=>a+x.qty,0)+' und');
     const idG=venta.id, ajustar=!!venta.pagoDescuadrado;
-    limpiarPedido(); ESCRIBIENDO=false; STATE.pageNeg='pedidos'; render();
+    limpiarPedido(); fijarEscribiendo(false); STATE.pageNeg='pedidos'; render();
     sonidoPedido();
     toast('Pedido '+venta.factura+' actualizado'+(cambiaronItems?' · inventario ajustado':''),'success');
     if(ajustar){ setTimeout(()=>ajustarPagoVenta(idG),450); }
@@ -495,7 +523,7 @@ function guardarEdicionPedido(){
   finally{ _guardando=false; }
 }
 
-function confirmarPedido(){
+export function confirmarPedido(){
   if(_guardando) return;
   if(!_carrito.length){ toast('Agrega productos primero','error'); return; }
   if(!validarClientePedido()) return;
@@ -547,7 +575,7 @@ function confirmarPedido(){
     if(!editando && STATE.negocio.usaCocina){ try{ imprimirComanda(venta); }catch(e){} }
     const idGuardada=venta.id, hayQueAjustar=!!venta.pagoDescuadrado, cambiaronItems=editando&&JSON.stringify(itemsAntes)!==JSON.stringify(venta.items);
     limpiarPedido();
-    ESCRIBIENDO=false;
+    fijarEscribiendo(false);
     STATE.pageNeg='pedidos';
     STATE._itemsAntes=null;
     render();
@@ -563,7 +591,7 @@ function confirmarPedido(){
 }
 
 // ---------- FLUJO B: cobrar de una vez ----------
-function cobrarDirecto(){
+export function cobrarDirecto(){
   if(!exigirPermiso('cobrar','No tienes permiso para cobrar. Pide a un cajero que lo cobre.')) return;
   if(_guardando) return;
   if(!_carrito.length){ toast('Agrega productos primero','error'); return; }
@@ -572,9 +600,20 @@ function cobrarDirecto(){
   abrirCobro(venta, true);
 }
 
-function bloquearBoton(id,texto){
+export function bloquearBoton(id,texto){
   try{
     const b=document.getElementById(id);
     if(b){ b.disabled=true; b.style.opacity='.55'; b.style.pointerEvents='none'; b.textContent=texto; }
   }catch(e){}
 }
+// ---------- Campos de Nueva Venta (fase 8: antes eran onclick/oninput compuestos) ----------
+export function buscarEnVenta(v){ _vBusca=v; render(); }
+export function elegirCategoriaVenta(c){ _vCat=c; render(); }
+export function elegirTipoEntrega(t){ _vTipo=t; render(); }
+export function ponerMesa(v){ _vMesa=v; }
+export function ponerObservaciones(v){ _vObs=v; }
+export function datoCliente(campo, v, sugerir){ _vCli[campo]=v; if(sugerir) sugerirClientes(v); }
+export function valorDomicilio(v){ _vCli.valorDom=v; actualizarTotalVenta(); }
+export function ocultarSugerenciasLuego(){ setTimeout(ocultarSugerenciasCliente, 180); }
+// Lector de código de barras: Enter en el campo
+export function escanearDesdeCampo(el){ escanearProducto(el.value); el.value=''; }

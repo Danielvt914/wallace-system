@@ -1,23 +1,28 @@
 // ============================================================
 //  INTERFAZ · Administradores del sistema
 //  Super-admins: crear, editar, eliminar, mi contraseña.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/01-super-admin-panel/01-super-admin-panel.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/01-super-admin-panel/01-super-admin-panel.md
 // ============================================================
+import { STATE, escapeHtml, fmtDate, now } from '../nucleo/estado.js';
+import { abrirModal, cerrarModal, confirmarModal, toast } from '../nucleo/componentes.js';
+import { render } from '../nucleo/navegacion.js';
+import { conCuentasFirebase, mensajeCuenta, ponerPass } from '../usuarios/sesion.js';
+import { borrarCuentaDe, cambiarMiPassCuenta, crearCuentaPara, trasGuardarCuenta } from '../usuarios/cuentas.js';
 
 
 // ============================================================
 //  GESTIÓN DE SUPER ADMINS (solo el dueño del sistema)
 // ============================================================
-function pantallaSuperAdmins(){
+export function pantallaSuperAdmins(){
   const esDueno = STATE.user.rolSuper==='dueno';
   const sas=DB.get('superadmins')||[];
   return `
   <div class="topbar">
     <h1><span class="sa-marca">👥 Administradores del sistema</span></h1>
     <div class="tb-der">
-      <button class="btn btn-ghost btn-sm" onclick="STATE.page='';render()">← Volver</button>
+      <button class="btn btn-ghost btn-sm" data-click="irPanel()">← Volver</button>
     </div>
   </div>
   <div class="contenido">
@@ -25,7 +30,7 @@ function pantallaSuperAdmins(){
     <div class="tarjeta">
       <div class="t-cab">
         <span class="t-tit">👥 Súper administradores</span>
-        <button class="btn btn-gold" onclick="editarSuperAdmin(null)">+ Crear administrador</button>
+        <button class="btn btn-gold" data-click="editarSuperAdmin(null)">+ Crear administrador</button>
       </div>
       <p class="nota">El <strong>dueño</strong> puede todo (crear negocios, otros admins, respaldos). El <strong>ayudante</strong> puede gestionar negocios pero no crear ni borrar otros administradores.</p>
       <div class="tabla-wrap"><table class="tabla">
@@ -36,15 +41,15 @@ function pantallaSuperAdmins(){
           <td>${s.rolSuper==='dueno'?'<span class="pill pill-oro">Dueño</span>':s.rolSuper==='vendedor'?'<span class="pill pill-verde">Vendedor</span>':'<span class="pill pill-azul">Ayudante</span>'}</td>
           <td class="gris chico">${s.creado?fmtDate(s.creado):'—'}</td>
           <td class="acciones">
-            <button class="btn btn-sm" onclick="editarSuperAdmin('${s.id}')">Editar</button>
-            ${s.rolSuper!=='dueno'||sas.filter(x=>x.rolSuper==='dueno').length>1?`<button class="btn btn-sm btn-rojo" onclick="eliminarSuperAdmin('${s.id}')">×</button>`:''}
+            <button class="btn btn-sm" data-click="editarSuperAdmin('${s.id}')">Editar</button>
+            ${s.rolSuper!=='dueno'||sas.filter(x=>x.rolSuper==='dueno').length>1?`<button class="btn btn-sm btn-rojo" data-click="eliminarSuperAdmin('${s.id}')">×</button>`:''}
           </td>
         </tr>`).join('')}</tbody>
       </table></div>
     </div>`}
   </div>`;
 }
-function editarSuperAdmin(id){
+export function editarSuperAdmin(id){
   if(STATE.user.rolSuper!=='dueno'){ toast('Solo el dueño puede crear administradores','error'); return; }
   const sas=DB.get('superadmins')||[];
   const s=id?sas.find(x=>x.id===id):null;
@@ -91,7 +96,7 @@ function editarSuperAdmin(id){
     cerrarModal(); toast('Administrador guardado','success'); render();
   }});
 }
-function eliminarSuperAdmin(id){
+export function eliminarSuperAdmin(id){
   if(STATE.user.rolSuper!=='dueno'){ toast('Solo el dueño puede eliminar','error'); return; }
   const sas=DB.get('superadmins')||[];
   const s=sas.find(x=>x.id===id); if(!s) return;
@@ -103,7 +108,7 @@ function eliminarSuperAdmin(id){
     toast('Administrador eliminado','info'); render();
   },'Eliminar');
 }
-function cambiarMiPassSuper(){
+export function cambiarMiPassSuper(){
   if(conCuentasFirebase()){ cambiarMiPassCuenta(); return; }
   const sas=DB.get('superadmins')||[];
   const yo=sas.find(x=>x.id===STATE.user.id);
@@ -122,3 +127,4 @@ function cambiarMiPassSuper(){
     cerrarModal(); toast('Contraseña actualizada','success');
   }});
 }
+export function irAdministradores(){ STATE.page='superadmins'; render(); }

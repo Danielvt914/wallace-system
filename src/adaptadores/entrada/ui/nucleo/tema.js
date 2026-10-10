@@ -1,29 +1,29 @@
 // ============================================================
 //  INTERFAZ · Tema por negocio
 //  Colores y modo claro/oscuro del negocio.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/11-business-settings/11-business-settings.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/11-business-settings/11-business-settings.md
 // ============================================================
 
 
 // ============================================================
 //  TEMA POR NEGOCIO (oscuro neón / claro + color a gusto)
 // ============================================================
-function _hexRgb(hex){
+export function _hexRgb(hex){
   hex=(hex||'').replace('#','');
   if(hex.length===3) hex=hex.split('').map(c=>c+c).join('');
   const n=parseInt(hex,16);
   if(isNaN(n)||hex.length!==6) return [1,195,142];
   return [(n>>16)&255,(n>>8)&255,n&255];
 }
-function _rgbHex(r,g,b){
+export function _rgbHex(r,g,b){
   const h=x=>Math.max(0,Math.min(255,Math.round(x))).toString(16).padStart(2,'0');
   return '#'+h(r)+h(g)+h(b);
 }
-function _aclarar(hex,p){ const [r,g,b]=_hexRgb(hex); return _rgbHex(r+(255-r)*p, g+(255-g)*p, b+(255-b)*p); }
-function _oscurecer(hex,p){ const [r,g,b]=_hexRgb(hex); return _rgbHex(r*(1-p), g*(1-p), b*(1-p)); }
-function aplicarTema(neg){
+export function _aclarar(hex,p){ const [r,g,b]=_hexRgb(hex); return _rgbHex(r+(255-r)*p, g+(255-g)*p, b+(255-b)*p); }
+export function _oscurecer(hex,p){ const [r,g,b]=_hexRgb(hex); return _rgbHex(r*(1-p), g*(1-p), b*(1-p)); }
+export function aplicarTema(neg){
   const b=document.body; if(!b) return;
   const claro = !!(neg && neg.tema==='claro');
   b.classList.toggle('tema-claro', claro);
@@ -40,7 +40,7 @@ function aplicarTema(neg){
   b.style.setProperty('--acc-rgb', r+','+g+','+bl);
   b.style.setProperty('--acc-txt', lum>0.55 ? '#141821' : '#ffffff');
 }
-function quitarTema(){
+export function quitarTema(){
   const b=document.body; if(!b) return;
   b.classList.remove('tema-claro');
   ['--verde','--verde-c','--verde-o','--acc-rgb','--acc-txt'].forEach(v=>b.style.removeProperty(v));

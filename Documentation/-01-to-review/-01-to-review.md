@@ -6,7 +6,7 @@ Cada hallazgo corregido tiene debajo su **Solución aplicada** y lo que queda pe
 
 **Severidad**: 🔴 Alta (seguridad o pérdida/corrupción de datos) · 🟠 Media (resultado incorrecto visible) · 🟡 Baja (inconsistencia, deuda técnica).
 
-> **Estado al 2026-10-08:** **los 33 hallazgos están cerrados** (`npm test` 63/63 · `npm run test:firebase` 35/35). **S1** quedó desplegado y verificado en el proyecto de simulación `wallacesys-dev-sandbox` (base desde cero, dueño creado, reglas cerradas: sin sesión todo responde "Permission denied"); **F17** se cerró por decisión comercial (planes iguales en ventanas). **En la empresa no hay nada desplegado:** su producción sigue con la versión original, con las contraseñas en texto plano y la base abierta, hasta que se repitan las fases de S1 en su proyecto. Ver [Pendientes](#pendientes).
+> **Estado al 2026-10-10:** **los 34 hallazgos están cerrados** (`npm test` 67/67 · `npm run test:firebase` 36/36). S6 se encontró y corrigió en la fase 8 (2026-10-09). **S1** quedó desplegado y verificado en el proyecto de simulación `wallacesys-dev-sandbox` (base desde cero, dueño creado, reglas cerradas: sin sesión todo responde "Permission denied"); **F17** se cerró por decisión comercial (planes iguales en ventanas). **En la empresa no hay nada desplegado:** su producción sigue con la versión original, con las contraseñas en texto plano y la base abierta, hasta que se repitan las fases de S1 en su proyecto. Ver [Pendientes](#pendientes).
 
 ## Resumen
 
@@ -17,6 +17,7 @@ Cada hallazgo corregido tiene debajo su **Solución aplicada** y lo que queda pe
 | S3 | 🔴 | Seguridad | Contraseña inicial del super-admin escrita en `app.js` | ✅ Corregido |
 | S4 | 🟠 | Seguridad | Permisos validados solo en el cliente; varias funciones no revalidan | ✅ Corregido |
 | S5 | 🟠 | Seguridad | Roles aterrizan en el Dashboard aunque no lo tengan permitido | ✅ Corregido |
+| S6 | 🔴 | Seguridad | El nombre de una categoría de producto ejecutaba código dentro de un `onclick` (XSS almacenado) | ✅ Corregido (fase 8) |
 | D1 | 🔴 | Datos | Consecutivo de factura puede duplicarse entre equipos | ✅ Corregido |
 | D2 | 🔴 | Datos | Stock guardado como valor absoluto: ventas simultáneas se pisan | ✅ Corregido |
 | D3 | 🟠 | Datos | Los recortes de historial no tienen efecto; tablas crecen sin límite | ✅ Corregido |
@@ -279,6 +280,18 @@ Hoy hay usuarios con contraseña guardada como hash; nadie conoce esas contrase�
 - **Resultado**: cocina ya no entra al Dashboard; un cajero que pide Contable se queda en su pantalla.
 - **Detalle y pruebas**: [-02-corrections](../-02-corrections/-02-corrections.md#s5--pantalla-inicial-sin-control-de-rol-).
 
+### S6 🔴 Código inyectable por el nombre de una categoría — ✅ Corregido
+- **Dónde estaba** (antes de la fase 8): botones de categoría de Nueva Venta (`ui/ventas/nueva-venta.js`) e Inventario (`ui/inventario/catalogo.js`, dos veces): `onclick="_vCat='${escapeHtml(c)}';render()"`.
+- **Qué pasaba**: el navegador decodifica `&#39;` a `'` antes de ejecutar el `onclick`, así que `escapeHtml` no protegía. Un apóstrofo en la categoría cerraba la cadena y lo que seguía se ejecutaba como código.
+- **Impacto**: XSS almacenado. Quien pueda editar productos (p. ej. un empleado con permiso de inventario) podía hacer ejecutar código en la sesión de quien abriera esas pantallas: el dueño, el administrador o el super-admin al entrar al negocio. Ese código podía usar sus permisos y su sesión de Firebase. Sin ataque: una categoría como `Niño's` dejaba el botón sin funcionar.
+- **Propuesta**: no mezclar datos con código en atributos de evento.
+- **Solución aplicada** (fase 8):
+  1. El nombre va en `data-cat="${escapeHtml(c)}"` y la acción lo lee como texto: `data-click="elegirCategoriaVenta(this.dataset.cat)"` (`elegirCategoriaInventario` en el catálogo).
+  2. Ya no hay ningún `onclick` en las plantillas; `ui/nucleo/eventos.js` interpreta `data-click` sin `eval` y solo llama funciones exportadas.
+- **Resultado**: la prueba de clics reales del recorrido usa una categoría `Niño's` y funciona. `tests/ui/estructura.test.mjs` falla si vuelve un `on…="…"`.
+- **Residual y ataques relacionados** (HTML inyectado con `onerror`, CSS, CSP recomendada): [seguridad-interfaz](../-03-architecture/seguridad-interfaz.md).
+- **Detalle**: [-02-corrections](../-02-corrections/-02-corrections.md#s6--código-inyectable-por-el-nombre-de-una-categoría-).
+
 ## Datos y concurrencia
 
 ### D1 🔴 Consecutivo de factura duplicable — ✅ Corregido
@@ -487,5 +500,6 @@ Hoy hay usuarios con contraseña guardada como hash; nadie conoce esas contrase�
 | D3 | Auditoría, movimientos y conteos crecen sin límite (a propósito, no se pierde historia) | Archivar por mes si el tamaño lo exige |
 | F15 | Las ventas anteriores a la corrección no tienen `prodId`/`vendedorId`/`domiciliarioId` y se siguen agrupando por nombre | Ninguna; las nuevas ya llevan id |
 | R1 | Los negocios donde nadie ha entrado con la versión nueva no tienen resumen | Botón "📊 Calcular cifras" del panel |
+| S6 | Si en otro lugar faltara `escapeHtml`, HTML inyectado con `onerror`/`onload` todavía se ejecutaría (no hay CSP) | Activar la CSP ([csp.md](../-03-architecture/csp.md): probada en local con 0 violaciones; falta `Report-Only` en el sandbox con Firebase real y luego activarla) |
 | DOC1 | El historial de commits tiene mensajes genéricos | No se corrige sin reescribir el historial; los commits nuevos son descriptivos |
 | — | Una prueba de navegador ("empleado con contraseña corta") falló una vez de forma intermitente y no se reprodujo | Vigilar en próximas corridas de `npm run test:firebase` |

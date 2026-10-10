@@ -1,10 +1,16 @@
 // ============================================================
 //  INTERFAZ · Combos
 //  Combos armados con productos del inventario.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/06-inventory-recipes/06-inventory-recipes.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/06-inventory-recipes/06-inventory-recipes.md
 // ============================================================
+import { STATE, escapeHtml, fijarEscribiendo, fmtMoney, now } from '../nucleo/estado.js';
+import { tienePermiso } from '../nucleo/permisos.js';
+import { abrirModal, cerrarModal, ic, pProd, pProds, toast } from '../nucleo/componentes.js';
+import { render } from '../nucleo/navegacion.js';
+import { logAudit } from '../usuarios/auditoria.js';
+import { _carrito } from '../ventas/nueva-venta.js';
 
 
 
@@ -16,20 +22,20 @@
 //  reales del inventario. Aparece solo en Nueva Venta junto a lo demás.
 // ============================================================
 // ¿Cuántos combos alcanzan con el stock que hay?
-function disponiblesCombo(p, productos){ return Dominio.inventario.disponiblesCombo(p, productos||misDatos('productos')); }
+export function disponiblesCombo(p, productos){ return Dominio.inventario.disponiblesCombo(p, productos||misDatos('productos')); }
 // ¿Se puede agregar uno más sin pasarse del stock real?
-function faltantesParaAgregar(prodId){
+export function faltantesParaAgregar(prodId){
   return Dominio.inventario.faltantesParaAgregar(_carrito, prodId, misDatos('productos'))
     .map(f=>f.nombre+(f.hay<=0?' (agotado)':' (solo quedan '+f.hay+')'));
 }
 // Lo que costaría comprando cada cosa por separado (para mostrar el ahorro)
-function precioSuelto(p, productos){ return Dominio.inventario.precioSuelto(p, productos||misDatos('productos')); }
+export function precioSuelto(p, productos){ return Dominio.inventario.precioSuelto(p, productos||misDatos('productos')); }
 
-let _comboTmp=[];      // componentes que se están armando en el modal
-let _comboBusca='';
+export let _comboTmp=[];      // componentes que se están armando en el modal
+export let _comboBusca='';
 
-function combos(){
-  ESCRIBIENDO=false;
+export function combos(){
+  fijarEscribiendo(false);
   const neg=STATE.negocio;
   const productos=misDatos('productos');
   const sueltos=productos.filter(p=>!esCombo(p));
@@ -40,7 +46,7 @@ function combos(){
     return `<div class="tarjeta centro-msg"><div class="msg-ico">${ic('box')}</div>
       <div class="t-tit centrado">Primero necesitas ${pProds()}</div>
       <p class="gris">Los combos se arman con lo que tengas en el inventario. Agrega primero los ${pProds()} sueltos (por ejemplo la cerveza en lata) y después vuelve aquí a armar el six pack o el cubetazo.</p>
-      <button class="btn btn-gold" onclick="irA('inventario')">Ir al inventario</button></div>`;
+      <button class="btn btn-gold" data-click="irA('inventario')">Ir al inventario</button></div>`;
   }
   return `
     <div class="tarjeta">
@@ -48,8 +54,8 @@ function combos(){
         <div><span class="t-tit">${ic('cart')} Menú y Combos</span>
           <p class="gris">Arma paquetes con lo que ya tienes en inventario y ponles su propio precio. Al venderlos se descuentan solas las unidades del stock.</p></div>
         <div class="t-acc">
-          <input type="text" class="busca" placeholder="🔍 Buscar combo..." value="${escapeHtml(_comboBusca)}" oninput="_comboBusca=this.value;render()">
-          ${puede?`<button class="btn btn-gold" onclick="editarCombo(null)">+ Crear combo</button>`:''}
+          <input type="text" class="busca" placeholder="🔍 Buscar combo..." value="${escapeHtml(_comboBusca)}" data-input="buscarCombos(this.value)">
+          ${puede?`<button class="btn btn-gold" data-click="editarCombo(null)">+ Crear combo</button>`:''}
         </div>
       </div>
       ${lista.length?`<div class="prods inv">
@@ -63,20 +69,20 @@ function combos(){
             <div class="prod-nom">${escapeHtml(p.nombre)}</div>
             <div class="prod-cat">${escapeHtml(p.categoria||'Combos')}</div>
             <div class="prod-pre">${fmtMoney(p.precio)}</div>
-            ${ahorro>0?`<div class="prod-stock" style="color:var(--verde-c);">Ahorra ${fmtMoney(ahorro)}</div>`
+            ${ahorro>0?`<div class="prod-stock color-verde-c">Ahorra ${fmtMoney(ahorro)}</div>`
               :ahorro<0?`<div class="prod-stock poco">Cuesta ${fmtMoney(-ahorro)} más que suelto</div>`:''}
-            <div class="gris chico" style="margin-top:6px;line-height:1.5;">
+            <div class="gris chico mt-6 lh-1_5">
               ${(p.componentes||[]).map(cp=>{
                 const base=productos.find(x=>x.id===cp.prodId);
                 return (cp.cantidad||1)+' × '+escapeHtml(base?base.nombre:'(borrado)');
               }).join('<br>')}
             </div>
-            <div class="prod-stock ${disp===0?'sin':(disp!==null&&disp<=3)?'poco':''}" style="margin-top:6px;">
+            <div class="prod-stock ${disp===0?'sin':(disp!==null&&disp<=3)?'poco':''} mt-6">
               ${disp===null?'Sin límite de stock':'Alcanzan para '+disp}
             </div>
             ${puede?`<div class="prod-acc">
-              <button class="btn btn-sm btn-verde" onclick="editarCombo('${p.id}')">Editar</button>
-              <button class="btn btn-sm btn-rojo" onclick="eliminarProducto('${p.id}')">×</button>
+              <button class="btn btn-sm btn-verde" data-click="editarCombo('${p.id}')">Editar</button>
+              <button class="btn btn-sm btn-rojo" data-click="eliminarProducto('${p.id}')">×</button>
             </div>`:''}
           </div>`;
         }).join('')}
@@ -100,7 +106,7 @@ function combos(){
     </div>`:''}`;
 }
 
-function editarCombo(id){
+export function editarCombo(id){
   if(!tienePermiso('editarprod')){ toast('No tienes permiso para crear combos','error'); return; }
   const productos=misDatos('productos');
   const p=id?productos.find(x=>x.id===id):null;
@@ -126,34 +132,34 @@ function editarCombo(id){
     cerrarModal(); toast('Combo guardado','success'); render();
   }});
 }
-function comboEditorHTML(){
+export function comboEditorHTML(){
   const sueltos=misDatos('productos').filter(x=>!esCombo(x));
-  return `<div class="cobro-caja" style="margin-top:14px;">
+  return `<div class="cobro-caja mt-14">
     <strong>¿Qué lleva el combo? <span class="gris chico">(sale del inventario)</span></strong>
-    <div id="combo-lista" style="margin:10px 0;">${comboFilasHTML()}</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-      <select id="cb-prod" class="campo" style="flex:2;min-width:140px;margin:0;">
+    <div id="combo-lista" class="m-10-0">${comboFilasHTML()}</div>
+    <div class="d-flex gap-8 flex-wrap items-centro">
+      <select id="cb-prod" class="campo flex-2 minw-140 m-0">
         ${sueltos.map(x=>`<option value="${x.id}">${escapeHtml(x.nombre)}${x.stock!=null?' (hay '+x.stock+')':''}</option>`).join('')}
       </select>
-      <input id="cb-cant" type="number" min="1" class="campo" placeholder="Cant." style="flex:1;min-width:70px;margin:0;">
-      <button type="button" class="btn btn-verde btn-sm" onclick="agregarAComboTmp()">+ Añadir</button>
+      <input id="cb-cant" type="number" min="1" class="campo flex-1 minw-70 m-0" placeholder="Cant.">
+      <button type="button" class="btn btn-verde btn-sm" data-click="agregarAComboTmp()">+ Añadir</button>
     </div>
-    <p class="nota" id="cb-resumen" style="margin-top:10px;"></p>
+    <p class="nota mt-10" id="cb-resumen"></p>
   </div>`;
 }
-function comboFilasHTML(){
+export function comboFilasHTML(){
   const prods=misDatos('productos');
   if(!_comboTmp.length) return '<p class="nota">Vacío. Agrega lo que lleva, por ejemplo 6 × Cerveza en lata.</p>';
   return _comboTmp.map((c,idx)=>{
     const b=prods.find(x=>x.id===c.prodId);
-    return `<div class="c-row" style="padding:6px 0;">
+    return `<div class="c-row p-6-0">
       <span>${b?escapeHtml(b.nombre):'(producto borrado)'}</span>
       <span><strong>${c.cantidad}</strong> und
-        <button type="button" class="mini-x" onclick="quitarDeComboTmp(${idx})">×</button></span>
+        <button type="button" class="mini-x" data-click="quitarDeComboTmp(${idx})">×</button></span>
     </div>`;
   }).join('');
 }
-function pintarResumenCombo(){
+export function pintarResumenCombo(){
   const el=document.getElementById('cb-resumen'); if(!el) return;
   const prods=misDatos('productos');
   const suelto=_comboTmp.reduce((a,c)=>{ const b=prods.find(x=>x.id===c.prodId); return a+(b?(b.precio||0):0)*(c.cantidad||1); },0);
@@ -165,7 +171,7 @@ function pintarResumenCombo(){
       :ahorro<0?' <span class="rojo">Ojo: el combo cuesta '+fmtMoney(-ahorro)+' más que suelto.</span>'
       :' Cuesta lo mismo que suelto.'):'');
 }
-function agregarAComboTmp(){
+export function agregarAComboTmp(){
   const sel=document.getElementById('cb-prod');
   const cant=parseFloat((document.getElementById('cb-cant')||{}).value)||0;
   if(!sel||!sel.value){ toast('Elige un '+pProd(),'error'); return; }
@@ -177,9 +183,10 @@ function agregarAComboTmp(){
   const ci=document.getElementById('cb-cant'); if(ci) ci.value='';
   pintarResumenCombo();
 }
-function quitarDeComboTmp(idx){
+export function quitarDeComboTmp(idx){
   _comboTmp.splice(idx,1);
   const cont=document.getElementById('combo-lista');
   if(cont) cont.innerHTML=comboFilasHTML();
   pintarResumenCombo();
 }
+export function buscarCombos(v){ _comboBusca=v; render(); }

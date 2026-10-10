@@ -5,6 +5,7 @@
 // (Documentation/-00-execution-protocol → 9. Entorno de pruebas):
 //   · dominios de HOSTS_PRODUCCION        → producción (wallace-system)
 //   · localhost con ?emulador             → emuladores locales (npm run emulador)
+//   · localhost con ?local                → modo local forzado (sin nube; lo usan las pruebas)
 //   · cualquier otro (localhost, el fork) → PRUEBAS; si aún no está configurado, modo local
 // window.FIREBASE_ENTORNO dice cuál se eligió (la pantalla de login lo muestra si no es producción).
 (function(){
@@ -35,7 +36,11 @@
   var esLocal = host === 'localhost' || host === '127.0.0.1' || host === '';
   var pide = function(p){ try{ return new URLSearchParams(location.search).has(p); }catch(e){ return false; } };
 
-  if (esLocal && pide('emulador')) {
+  if (esLocal && pide('local')) {
+    // localhost con ?local: modo local forzado (pruebas automáticas y capturas: nunca la nube)
+    window.FIREBASE_ENTORNO = 'local';
+    window.FIREBASE_CONFIG = null;
+  } else if (esLocal && pide('emulador')) {
     window.FIREBASE_ENTORNO = 'emulador';
     window.FIREBASE_CONFIG = { apiKey: 'demo-key', authDomain: 'demo-wallace.firebaseapp.com',
       projectId: 'demo-wallace', databaseURL: 'https://demo-wallace-default-rtdb.firebaseio.com' };

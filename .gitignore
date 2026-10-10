@@ -15,3 +15,6 @@ node_modules/
 # Claude Code: preferencias locales de cada persona
 .claude/settings.local.json
 CLAUDE.local.md
+
+# Capturas de regresión visual (scripts/capturas.mjs)
+capturas/

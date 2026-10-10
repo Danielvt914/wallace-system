@@ -1,10 +1,16 @@
 // ============================================================
 //  INTERFAZ · Conteo de inventario
 //  Conteo físico y ajuste por diferencias.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/06-inventory-recipes/06-inventory-recipes.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/06-inventory-recipes/06-inventory-recipes.md
 // ============================================================
+import { STATE, escapeHtml, fijarEscribiendo, fmtDate, fmtMoney, now } from '../nucleo/estado.js';
+import { tienePermiso, usaInventario } from '../nucleo/permisos.js';
+import { abrirModal, cerrarModal, confirmarModal, ic, toast } from '../nucleo/componentes.js';
+import { render } from '../nucleo/navegacion.js';
+import { logAudit } from '../usuarios/auditoria.js';
+import { registrarMovimientos, reingresarALotes } from './motor.js';
 
 
 
@@ -14,11 +20,11 @@
 //  Queda el registro de quién contó y qué encontró: así se ve si falta,
 //  sobra, y si los faltantes se repiten siempre con la misma persona.
 // ============================================================
-let _conteo=null;          // conteo que se está haciendo ahora
-let _conteoBusca='';
+export let _conteo=null;          // conteo que se está haciendo ahora
+export let _conteoBusca='';
 
 // Arma la lista de lo que hay que contar (productos con stock + insumos)
-function itemsParaContar(){
+export function itemsParaContar(){
   const neg=STATE.negocio;
   const filas=[];
   misDatos('productos').forEach(p=>{
@@ -34,7 +40,7 @@ function itemsParaContar(){
   }
   return filas.sort((a,b)=>(a.categoria+a.nombre).localeCompare(b.categoria+b.nombre,'es'));
 }
-function iniciarConteo(){
+export function iniciarConteo(){
   if(!tienePermiso('conteo')){ toast('No tienes permiso para hacer conteos','error'); return; }
   const filas=itemsParaContar();
   if(!filas.length){ toast('No hay productos con inventario para contar','error'); return; }
@@ -42,21 +48,21 @@ function iniciarConteo(){
   _conteoBusca='';
   render();
 }
-function cancelarConteo(){
+export function cancelarConteo(){
   confirmarModal('¿Cancelar el conteo? Se pierde lo que lleves contado.',()=>{
     _conteo=null; render();
   },'Sí, cancelar');
 }
 // Guarda lo que se escribe en una casilla y actualiza esa fila + los totales,
 // SIN redibujar la pantalla (no se pierde el teclado en el celular).
-function contarItem(idx, valor){
+export function contarItem(idx, valor){
   if(!_conteo || !_conteo.items[idx]) return;
   _conteo.items[idx].contado = valor===''?'':(parseFloat(valor));
   pintarFilaConteo(idx);
   pintarTotalesConteo();
 }
-function difDe(it){ return Dominio.inventario.diferenciaConteo(it); }
-function pintarFilaConteo(idx){
+export function difDe(it){ return Dominio.inventario.diferenciaConteo(it); }
+export function pintarFilaConteo(idx){
   const it=_conteo.items[idx];
   const d=difDe(it);
   const cel=document.getElementById('dif-'+idx);
@@ -68,7 +74,7 @@ function pintarFilaConteo(idx){
   const fila=document.getElementById('fila-'+idx);
   if(fila){ fila.style.background = d===null?'':(d===0?'':(d<0?'rgba(255,92,106,.08)':'rgba(245,197,24,.08)')); }
 }
-function resumenConteo(){
+export function resumenConteo(){
   let falta=0, sobra=0, vFalta=0, vSobra=0, contados=0, cuadran=0;
   (_conteo?_conteo.items:[]).forEach(it=>{
     const d=difDe(it);
@@ -80,7 +86,7 @@ function resumenConteo(){
   });
   return {falta,sobra,vFalta,vSobra,contados,cuadran,total:(_conteo?_conteo.items.length:0)};
 }
-function pintarTotalesConteo(){
+export function pintarTotalesConteo(){
   const r=resumenConteo();
   const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.innerHTML=v; };
   set('cn-contados', r.contados+' / '+r.total);
@@ -96,13 +102,13 @@ function pintarTotalesConteo(){
   }
 }
 // Marca todo lo que no se escribió como "igual al sistema"
-function conteoTodoBien(){
+export function conteoTodoBien(){
   if(!_conteo) return;
   _conteo.items.forEach((it,i)=>{ if(it.contado===''||it.contado==null) it.contado=it.sistema; });
   render();
   setTimeout(pintarTotalesConteo,50);
 }
-function guardarConteo(ajustar){
+export function guardarConteo(ajustar){
   if(!_conteo){ return; }
   if(ajustar && !tienePermiso('editarstock')){ toast('No tienes permiso para ajustar el stock','error'); return; }
   const r=resumenConteo();
@@ -155,7 +161,7 @@ function guardarConteo(ajustar){
     seguir();
   }
 }
-function verConteo(id){
+export function verConteo(id){
   const c=misDatos('conteos').find(x=>x.id===id); if(!c) return;
   const difs=(c.items||[]).filter(i=>i.dif!==0);
   const cuerpo=`
@@ -168,19 +174,19 @@ function verConteo(id){
       <div class="c-row"><span>Sobrantes</span><strong class="oro">${c.sobrantes||0} · ${fmtMoney(c.valorSobra||0)}</strong></div>
       <div class="c-row c-total"><span>Diferencia en dinero</span><strong class="${(c.valorSobra-c.valorFalta)<0?'rojo':'verde'}">${fmtMoney((c.valorSobra||0)-(c.valorFalta||0))}</strong></div>
     </div>
-    ${c.ajustado?'<p class="nota" style="margin-top:8px;">✔ El stock se ajustó a lo contado.</p>':'<p class="nota" style="margin-top:8px;">Solo quedó el registro; el stock NO se modificó.</p>'}
-    ${difs.length?`<div style="margin-top:12px;max-height:280px;overflow-y:auto;">
+    ${c.ajustado?'<p class="nota mt-8">✔ El stock se ajustó a lo contado.</p>':'<p class="nota mt-8">Solo quedó el registro; el stock NO se modificó.</p>'}
+    ${difs.length?`<div class="mt-12 maxh-280 overflow-y-auto">
       <table class="tabla"><thead><tr><th>Producto</th><th>Sistema</th><th>Contado</th><th>Dif.</th></tr></thead>
       <tbody>${difs.map(i=>`<tr>
         <td>${escapeHtml(i.nombre)}</td><td>${i.sistema}</td><td>${i.contado}</td>
         <td class="${i.dif<0?'rojo':'oro'} negrita">${i.dif>0?'+':''}${i.dif}</td></tr>`).join('')}</tbody></table>
-    </div>`:'<p class="nota" style="margin-top:12px;">Todo cuadró: ninguna diferencia.</p>'}`;
+    </div>`:'<p class="nota mt-12">Todo cuadró: ninguna diferencia.</p>'}`;
   abrirModal({titulo:'Conteo del '+(c.fecha||'').split('T')[0], textoBoton:'Cerrar', campos:[],
     extraHTML:cuerpo, onGuardar:()=>cerrarModal()});
 }
 
-function conteo(){
-  ESCRIBIENDO = !!_conteo;
+export function conteo(){
+  fijarEscribiendo(!!_conteo);
   const neg=STATE.negocio;
   if(!usaInventario()){
     return `<div class="tarjeta centro-msg"><div class="msg-ico">📦</div>
@@ -196,8 +202,8 @@ function conteo(){
         <div class="t-cab">
           <span class="t-tit">📋 Conteo en curso · ${escapeHtml(_conteo.por)}</span>
           <div class="t-acc">
-            <button class="btn btn-sm" onclick="conteoTodoBien()" title="Marca todo lo que falta por escribir con la cantidad del sistema">✓ Lo demás está igual</button>
-            <button class="btn btn-sm btn-rojo" onclick="cancelarConteo()">Cancelar</button>
+            <button class="btn btn-sm" data-click="conteoTodoBien()" title="Marca todo lo que falta por escribir con la cantidad del sistema">✓ Lo demás está igual</button>
+            <button class="btn btn-sm btn-rojo" data-click="cancelarConteo()">Cancelar</button>
           </div>
         </div>
         <p class="nota">Cuenta lo que hay físicamente y escríbelo en la casilla. La diferencia se calcula sola. Deja en blanco lo que no revises.</p>
@@ -211,21 +217,21 @@ function conteo(){
       <div class="tarjeta">
         <div class="t-cab">
           <span class="t-tit">Resultado: <span id="cn-neto" class="gris">Sin diferencia</span></span>
-          <input type="text" class="busca" placeholder="🔍 Buscar producto..." value="${escapeHtml(_conteoBusca)}" oninput="_conteoBusca=this.value;render()">
+          <input type="text" class="busca" placeholder="🔍 Buscar producto..." value="${escapeHtml(_conteoBusca)}" data-input="buscarConteo(this.value)">
         </div>
         <div class="tabla-wrap"><table class="tabla tabla-cards">
           <thead><tr><th>Producto</th><th>Sistema</th><th>Contado</th><th>Diferencia</th></tr></thead>
           <tbody>${filas.map(({it,i})=>`<tr id="fila-${i}">
             <td data-label="Producto"><strong>${escapeHtml(it.nombre)}</strong><br><span class="gris chico">${escapeHtml(it.categoria)}${it.tipo==='insumo'?' · insumo':''}</span></td>
             <td data-label="Sistema" class="negrita">${it.sistema}${it.unidad?' '+escapeHtml(it.unidad):''}</td>
-            <td data-label="Contado"><input type="number" class="busca" style="min-width:90px;width:110px;" inputmode="decimal"
-                value="${it.contado===''?'':it.contado}" placeholder="—" oninput="contarItem(${i}, this.value)"></td>
+            <td data-label="Contado"><input type="number" class="busca minw-90 w-110" inputmode="decimal"
+                value="${it.contado===''?'':it.contado}" placeholder="—" data-input="contarItem(${i}, this.value)"></td>
             <td data-label="Diferencia" id="dif-${i}"><span class="gris">—</span></td>
           </tr>`).join('')}</tbody>
         </table></div>
-        <div class="botones-fila" style="margin-top:16px;">
-          <button class="btn btn-gold" onclick="guardarConteo(false)">💾 Guardar conteo (sin tocar el stock)</button>
-          ${tienePermiso('editarstock')?`<button class="btn btn-verde" onclick="guardarConteo(true)">✔ Guardar y ajustar el stock</button>`:''}
+        <div class="botones-fila mt-16">
+          <button class="btn btn-gold" data-click="guardarConteo(false)">💾 Guardar conteo (sin tocar el stock)</button>
+          ${tienePermiso('editarstock')?`<button class="btn btn-verde" data-click="guardarConteo(true)">✔ Guardar y ajustar el stock</button>`:''}
         </div>
         ${!tienePermiso('editarstock')?`<p class="nota">Tú puedes contar y dejar el reporte, pero no ajustar el stock. Eso lo hace quien tenga ese permiso.</p>`:''}
       </div>`;
@@ -243,7 +249,7 @@ function conteo(){
     </div>`:''}
     <div class="stats">
       <div class="stat azul"><div class="stat-ico azul">${ic('box')}</div><div class="stat-lbl">Para contar</div><div class="stat-val">${items.length}</div><div class="stat-sub">con existencias</div></div>
-      <div class="stat ${pendiente?'naranja':'verde'}"><div class="stat-ico ${pendiente?'naranja':'verde'}">${ic('history')}</div><div class="stat-lbl">Último conteo</div><div class="stat-val" style="font-size:19px;">${ultimo?(dias===0?'Hoy':dias+' día(s)'):'Nunca'}</div><div class="stat-sub">${ultimo?escapeHtml(ultimo.por||''):'sin registros'}</div></div>
+      <div class="stat ${pendiente?'naranja':'verde'}"><div class="stat-ico ${pendiente?'naranja':'verde'}">${ic('history')}</div><div class="stat-lbl">Último conteo</div><div class="stat-val fs-19">${ultimo?(dias===0?'Hoy':dias+' día(s)'):'Nunca'}</div><div class="stat-sub">${ultimo?escapeHtml(ultimo.por||''):'sin registros'}</div></div>
       ${ultimo?`<div class="stat rojo"><div class="stat-ico rojo">${ic('cash')}</div><div class="stat-lbl">Faltante del último</div><div class="stat-val">${fmtMoney(ultimo.valorFalta||0)}</div><div class="stat-sub">${ultimo.faltantes||0} producto(s)</div></div>
       <div class="stat gold"><div class="stat-ico gold">${ic('report')}</div><div class="stat-lbl">Sobrante del último</div><div class="stat-val">${fmtMoney(ultimo.valorSobra||0)}</div><div class="stat-sub">${ultimo.sobrantes||0} producto(s)</div></div>`:''}
     </div>
@@ -251,7 +257,7 @@ function conteo(){
       <div class="t-cab">
         <span class="t-tit">${ic('box')} Conteo de inventario</span>
         <div class="t-acc">
-          ${tienePermiso('conteo')?`<button class="btn btn-gold" onclick="iniciarConteo()">+ Iniciar conteo</button>`
+          ${tienePermiso('conteo')?`<button class="btn btn-gold" data-click="iniciarConteo()">+ Iniciar conteo</button>`
             :`<span class="pill pill-gold">Solo lectura</span>`}
         </div>
       </div>
@@ -267,8 +273,9 @@ function conteo(){
           <td data-label="Faltan" class="${(c.faltantes||0)?'rojo negrita':'gris'}">${c.faltantes||0}${(c.faltantes||0)?'<br><span class="chico">'+fmtMoney(c.valorFalta||0)+'</span>':''}</td>
           <td data-label="Sobran" class="${(c.sobrantes||0)?'oro negrita':'gris'}">${c.sobrantes||0}${(c.sobrantes||0)?'<br><span class="chico">'+fmtMoney(c.valorSobra||0)+'</span>':''}</td>
           <td data-label="Diferencia" class="negrita ${dif<0?'rojo':dif>0?'oro':'verde'}">${dif===0?'Cuadró':fmtMoney(dif)}</td>
-          <td class="acciones" data-label="Acciones"><button class="btn btn-sm" onclick="verConteo('${c.id}')">Ver detalle</button></td>
+          <td class="acciones" data-label="Acciones"><button class="btn btn-sm" data-click="verConteo('${c.id}')">Ver detalle</button></td>
         </tr>`;}).join('') : '<tr><td colspan="7" class="gris">Todavía no se ha hecho ningún conteo.</td></tr>'}</tbody>
       </table></div>
     </div>`;
 }
+export function buscarConteo(v){ _conteoBusca=v; render(); }

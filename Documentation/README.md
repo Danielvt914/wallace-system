@@ -65,8 +65,8 @@ Esta carpeta documenta el sistema **por módulo**, tal como está implementado e
 - Las rutas `ui/<carpeta>/<archivo>.js` son relativas a `src/adaptadores/entrada/` (la interfaz) y las demás (`dominio/pagos.js`, `adaptadores/salida/firebase-datos.js`) a `src/`. Hasta el 2026-10-08 la interfaz era un solo `app.js` y la documentación citaba `app.js:NNN`; esas referencias se pasaron al archivo nuevo buscando la función por nombre. Para ubicar cualquier función: [mapa-interfaz](-03-architecture/mapa-interfaz.md).
 - **Alcance de una función**:
   - **Pantalla**: devuelve HTML de una vista y la invoca `renderContenido()`/`vistaNegocio()`/`render()`.
-  - **Acción UI**: se llama desde un `onclick`/`oninput` del HTML generado (alcance global, `window`).
+  - **Acción UI**: se llama desde un `data-click`/`data-input`/… del HTML generado (eventos delegados, `ui/nucleo/eventos.js`); debe estar exportada.
   - **Servicio**: lógica reutilizada por varios módulos.
   - **Interna**: ayudante usado solo dentro del módulo.
-- Las funciones de la interfaz están en el ámbito global (scripts clásicos que comparten ámbito) y las del dominio y los datos se publican en `window` mediante el puente, así que técnicamente se pueden invocar desde la consola del navegador. Dentro de cada negocio, los permisos de rol son **del lado del cliente**; el aislamiento entre negocios lo hacen las reglas de S1.
+- Las funciones de la interfaz son módulos ES y se ven en la consola del navegador como `WS.<nombre>`; las del dominio y los datos se publican en `window` mediante el puente. Así que técnicamente se pueden invocar desde la consola. Dentro de cada negocio, los permisos de rol son **del lado del cliente**; el aislamiento entre negocios lo hacen las reglas de S1.
 - "Negocio" = tenant. "Jornada" = periodo contable de una caja (ver [03-cash-register](03-cash-register/03-cash-register.md)).

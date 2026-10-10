@@ -158,14 +158,22 @@ El navegador sí recuerda la sesión (Firebase Authentication la guarda en el na
 | `El puerto 3000 está ocupado` | Otro `npx serve` u otra app en el 3000 | Cerrarlo, o `npm run emulador -- --puerto 3001` |
 | `Los emuladores no arrancaron (¿Java 11+ instalado?…)` | Falta Java, o algo que no es Firebase ocupa el 9000/9099 | `java -version`; revisar qué usa el puerto: `netstat -ano | findstr :9000` |
 | `npm : No se puede cargar el archivo …npm.ps1` | Política de scripts de PowerShell | [-00, sección 1.1](-00-execution-protocol.md#11-windows-la-ejecución-de-scripts-está-deshabilitada) |
-| El login muestra "💻 Modo local" | Se abrió sin `?emulador` | Abrir `http://localhost:3000/?emulador` |
+| El login muestra "💻 Modo local" | Se abrió con `?local` (o sin `?emulador` y con `PRUEBAS` vacío) | Abrir `http://localhost:3000/?emulador` |
+| "No se pudo cargar la aplicación" | Un módulo de la interfaz no cargó (error de sintaxis o de `import`) | Ver la consola (F12); correr `npm test` (la prueba estructural dice qué import falla) |
 | "Usuario o contraseña incorrectos" con un usuario real y `--reglas cerradas` | Ese usuario no migró: con las reglas finales ya no hay migración | Usar las reglas de transición, o entrar como `dev` → 🔐 Cuentas → "Crear cuenta" |
 
 ## 5. Modo local (sin nube)
 
 ### 5.1 Cuándo se activa
 
-`firebase-config.js` deja `FIREBASE_CONFIG = null` (y `FIREBASE_ENTORNO = 'local'`) cuando el dominio no es de producción, no se pidió `?emulador` y `PRUEBAS` está vacío. Es lo que pasa hoy al abrir `http://localhost:3000/`. También se puede forzar escribiendo `window.FIREBASE_CONFIG = null;` en `firebase-config.js`.
+`firebase-config.js` deja `FIREBASE_CONFIG = null` (y `FIREBASE_ENTORNO = 'local'`) en dos casos:
+
+- se abre con **`?local`** (`http://localhost:3000/?local`): fuerza el modo local aunque haya proyecto de pruebas. Es lo que usan las pruebas de navegador y `scripts/capturas.mjs`, para no escribir nunca en el proyecto de pruebas real;
+- el dominio no es de producción, no se pidió `?emulador` y `PRUEBAS` está vacío.
+
+Como `PRUEBAS` ya tiene el proyecto `wallacesys-dev-sandbox`, `http://localhost:3000/` sin nada **usa ese proyecto**, no el modo local.
+
+En la consola del navegador, las funciones y el estado de la interfaz están en `WS` (`WS.STATE`, `WS.render()`); el dominio y los datos, en `Dominio`, `Datos`, `misDatos`… (puente).
 
 ### 5.2 Cómo funciona
 

@@ -1,0 +1,38 @@
+/* ============================================================
+   ESTILOS · Variables de color y tipografía, reinicio, cuerpo y pantalla de carga
+   Parte 1 de 14. Se cargan en orden desde index.html: el orden importa
+   (una regla posterior pisa a una anterior). Antes estaban dentro de <style>.
+   ============================================================ */
+:root{
+  --verde:#01c38e; --verde-c:#2ee6ab; --verde-o:#00a878;
+  --navy:#132d46; --navy-o:#0e2135;
+  --oro:#f5c518; --oro-c:#ffd84d; --oro-o:#d9a80e;
+  --rojo:#ff5c6a; --azul:#4cc9f0; --naranja:#ff9f3c;
+  --bg:#12151d; --panel:#1a1e29; --panel2:#222836;
+  --txt:#eef2f6; --txt2:#c6cfd9; --gris:#8792a1;
+  --linea:rgba(var(--acc-rgb),.35); --linea2:rgba(255,255,255,.07);
+  --sombra:0 4px 18px rgba(0,0,0,.45);
+  --sombra-g:0 10px 34px rgba(0,0,0,.6);
+  --glow:0 0 16px rgba(var(--acc-rgb),.45);
+  --glow-txt:0 0 12px rgba(var(--acc-rgb),.5);
+  --gold:var(--oro);
+  --acc-rgb:1,195,142;
+  --acc-txt:#ffffff;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Inter',system-ui,sans-serif;color:var(--txt);min-height:100vh;-webkit-font-smoothing:antialiased;overflow-x:hidden;
+  background:radial-gradient(900px 520px at 85% -10%,rgba(var(--acc-rgb),.09),transparent 60%),
+             radial-gradient(760px 460px at -10% 110%,rgba(19,45,70,.55),transparent 60%),
+             var(--bg);}
+button,input,select,textarea{font-family:inherit;font-size:inherit;}
+::-webkit-scrollbar{width:10px;height:10px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:#2a3140;border-radius:8px;}
+::-webkit-scrollbar-thumb:hover{background:#39424f;}
+select option{background:var(--panel);color:var(--txt);}
+
+/* Carga */
+.cargando{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;color:var(--gris);}
+.spin{width:52px;height:52px;border:3px solid rgba(var(--acc-rgb),.18);border-top-color:var(--verde-c);border-radius:50%;
+  animation:girar .8s linear infinite;margin-bottom:16px;box-shadow:0 0 22px rgba(var(--acc-rgb),.25);}
+@keyframes girar{to{transform:rotate(360deg)}}

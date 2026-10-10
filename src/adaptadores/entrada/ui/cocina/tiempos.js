@@ -1,17 +1,19 @@
 // ============================================================
 //  INTERFAZ · Tiempos de entrega
 //  Promedios de preparación y entrega.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/04-kitchen-kds/04-kitchen-kds.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/04-kitchen-kds/04-kitchen-kds.md
 // ============================================================
+import { escapeHtml, fijarEscribiendo } from '../nucleo/estado.js';
+import { ic } from '../nucleo/componentes.js';
 
 
 // ============================================================
 //  TIEMPOS DE ENTREGA (como Portal Imperial)
 // ============================================================
-function tiempos(){
-  ESCRIBIENDO=false;
+export function tiempos(){
+  fijarEscribiendo(false);
   const vs=misDatos('ventas');
   const conTiempo=vs.filter(v=>v.fecha && v.horaListo)
     .map(v=>({tipo:v.tipo, min:(new Date(v.horaListo)-new Date(v.fecha))/60000, fecha:v.horaListo, ref:v.factura||'—'}))
@@ -31,12 +33,12 @@ function tiempos(){
   const fmtMin=m=>m>0?(m>=60?Math.floor(m/60)+'h '+Math.round(m%60)+'min':Math.round(m)+' min'):'—';
   const etiq={mesa:'Mesa',llevar:'Para llevar',domicilio:'Domicilio'};
   return `
-    <div class="tarjeta" style="text-align:center;">
+    <div class="tarjeta txt-centro">
       <span class="t-tit centrado">${ic('history')} Tiempo estimado para el cliente</span>
       ${estimado?`<div class="stat-grande">${estimado} – ${estimadoMax} min</div>
         <p class="gris">Basado en los últimos ${Math.min(5,conTiempo.length)} pedidos preparados. Dile este tiempo al cliente.</p>
-        ${enCocina>=4?`<p class="rojo chico" style="margin-top:6px;">⚠ Hay ${enCocina} pedidos en cocina ahora. El tiempo puede ser mayor.</p>`:''}`
-        :`<p class="gris" style="margin-top:10px;">Aún no hay suficientes datos. Se necesitan al menos 3 pedidos marcados como "listo". Llevan ${conTiempo.length}.</p>`}
+        ${enCocina>=4?`<p class="rojo chico mt-6">⚠ Hay ${enCocina} pedidos en cocina ahora. El tiempo puede ser mayor.</p>`:''}`
+        :`<p class="gris mt-10">Aún no hay suficientes datos. Se necesitan al menos 3 pedidos marcados como "listo". Llevan ${conTiempo.length}.</p>`}
     </div>
     <div class="stats">
       <div class="stat gold"><div class="stat-lbl">Promedio en vivo</div><div class="stat-val">${fmtMin(promVivo)}</div><div class="stat-sub">últimos ${Math.min(5,conTiempo.length)} pedidos</div></div>

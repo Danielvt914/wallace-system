@@ -1,27 +1,33 @@
 // ============================================================
 //  INTERFAZ · Usuarios de un negocio (super-admin)
 //  Crear, editar, desactivar y eliminar empleados.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/10-users-roles/10-users-roles.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/10-users-roles/10-users-roles.md
 // ============================================================
+import { escapeHtml, now } from '../nucleo/estado.js';
+import { esAdminSistema } from '../nucleo/permisos.js';
+import { abrirModal, cerrarModal, confirmarModal, ic, toast } from '../nucleo/componentes.js';
+import { render } from '../nucleo/navegacion.js';
+import { conCuentasFirebase, mensajeCuenta, ponerPass } from './sesion.js';
+import { borrarCuentaDe, crearCuentaPara, quitarUsuarioLegado, trasGuardarCuenta } from './cuentas.js';
 
 
 // ---------- Usuarios del negocio ----------
-function pantallaUsuarios(negId){
+export function pantallaUsuarios(negId){
   const neg=(DB.get('negocios')||[]).find(n=>n.id===negId);
   if(!neg) return '<div class="tarjeta">Negocio no encontrado</div>';
   const us=(DB.get('usuarios')||[]).filter(u=>u.negocioId===negId);
   return `
   <div class="topbar">
     <h1>${ic('users')} Usuarios de ${escapeHtml(neg.nombre)}</h1>
-    <div class="tb-der"><button class="btn btn-ghost btn-sm" onclick="STATE.page='';render()">← Volver</button></div>
+    <div class="tb-der"><button class="btn btn-ghost btn-sm" data-click="irPanel()">← Volver</button></div>
   </div>
   <div class="contenido">
     <div class="tarjeta">
       <div class="t-cab">
         <span class="t-tit">Empleados</span>
-        <button class="btn btn-gold" onclick="editarUsuario('${negId}',null)">+ Crear usuario</button>
+        <button class="btn btn-gold" data-click="editarUsuario('${negId}',null)">+ Crear usuario</button>
       </div>
       <div class="tabla-wrap"><table class="tabla">
         <thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Sucursales</th><th>Estado</th><th></th></tr></thead>
@@ -32,15 +38,15 @@ function pantallaUsuarios(negId){
           <td class="gris chico">${(u.sucursales&&u.sucursales.length)?u.sucursales.length+' asignada(s)':'todas'}</td>
           <td>${u.activo!==false?'<span class="pill pill-verde">Activo</span>':'<span class="pill pill-rojo">Inactivo</span>'}</td>
           <td class="acciones">
-            <button class="btn btn-sm" onclick="editarUsuario('${negId}','${u.id}')">Editar</button>
-            <button class="btn btn-sm btn-rojo" onclick="eliminarUsuario('${u.id}')">×</button>
+            <button class="btn btn-sm" data-click="editarUsuario('${negId}','${u.id}')">Editar</button>
+            <button class="btn btn-sm btn-rojo" data-click="eliminarUsuario('${u.id}')">×</button>
           </td>
         </tr>`).join(''):'<tr><td colspan="7" class="gris">Sin usuarios. Crea el primero.</td></tr>'}</tbody>
       </table></div>
     </div>
   </div>`;
 }
-function editarUsuario(negId,userId){
+export function editarUsuario(negId,userId){
   const neg=(DB.get('negocios')||[]).find(n=>n.id===negId);
   const u=userId?(DB.get('usuarios')||[]).find(x=>x.id===userId):null;
   const sugerido = u?u.usuario:(neg.nombre||'').toLowerCase().replace(/[^a-z0-9]/g,'').substring(0,8);
@@ -58,14 +64,14 @@ function editarUsuario(negId,userId){
       <div class="checks">${neg.sucursales.map(s=>`<label class="chk"><input type="checkbox" class="u-suc" value="${escapeHtml(s.id)}" ${(u&&u.sucursales&&u.sucursales.indexOf(s.id)>-1)?'checked':''}> 📍 ${escapeHtml(s.nombre)}</label>`).join('')}</div>
     </div>`:'';
   const permisosHTML=`
-    <div class="cobro-caja" style="margin-top:14px;">
+    <div class="cobro-caja mt-14">
       <strong>Ventanas que puede ver <span class="gris chico">(según lo que necesite)</span></strong>
-      <div class="checks" style="margin-top:8px;">${TODAS_PANTALLAS.map(p=>`<label class="chk"><input type="checkbox" class="u-pant" value="${p[0]}" ${pantActuales.indexOf(p[0])>-1?'checked':''}> ${escapeHtml(p[1])}</label>`).join('')}</div>
+      <div class="checks mt-8">${TODAS_PANTALLAS.map(p=>`<label class="chk"><input type="checkbox" class="u-pant" value="${p[0]}" ${pantActuales.indexOf(p[0])>-1?'checked':''}> ${escapeHtml(p[1])}</label>`).join('')}</div>
     </div>
-    <div class="cobro-caja" style="margin-top:12px;">
+    <div class="cobro-caja mt-12">
       <strong>Acciones que puede hacer</strong>
-      <div class="checks" style="margin-top:8px;">${ACCIONES.map(a=>`<label class="chk"><input type="checkbox" class="u-perm" value="${a[0]}" ${permActuales.indexOf(a[0])>-1?'checked':''}> ${escapeHtml(a[1])}</label>`).join('')}</div>
-      <p class="nota" style="margin-top:8px;">Si el rol es <strong>Administrador</strong>, puede hacer todo sin importar estas casillas.</p>
+      <div class="checks mt-8">${ACCIONES.map(a=>`<label class="chk"><input type="checkbox" class="u-perm" value="${a[0]}" ${permActuales.indexOf(a[0])>-1?'checked':''}> ${escapeHtml(a[1])}</label>`).join('')}</div>
+      <p class="nota mt-8">Si el rol es <strong>Administrador</strong>, puede hacer todo sin importar estas casillas.</p>
     </div>`;
   abrirModal({titulo:(u?'Editar':'Crear')+' usuario', textoBoton:'Guardar', campos:[
     {id:'nombre', label:'Nombre completo', valor:u?u.nombre:'', requerido:true},
@@ -73,7 +79,7 @@ function editarUsuario(negId,userId){
     {id:'pass', label:u?'Nueva contraseña (vacío = no cambiar)':'Contraseña', tipo:'password', valor:'', requerido:!u},
     {id:'rol', label:'Rol (define permisos por defecto)', tipo:'select', valor:u?u.rol:'cajero',
       opciones:ROLES.map(r=>({valor:r[0],label:r[1]}))}
-  ], extraHTML: `<label class="chk" style="margin-bottom:10px;"><input type="checkbox" id="u-activo" ${(!u||u.activo!==false)?'checked':''}> Usuario activo (si se desmarca, no puede entrar)</label>` + sucHTML + permisosHTML,
+  ], extraHTML: `<label class="chk mb-10"><input type="checkbox" id="u-activo" ${(!u||u.activo!==false)?'checked':''}> Usuario activo (si se desmarca, no puede entrar)</label>` + sucHTML + permisosHTML,
   onGuardar:(d)=>{
     if(!esAdminSistema()){ toast('Solo el administrador del sistema gestiona usuarios','error'); return; }
     const existe=(DB.get('usuarios')||[]).find(x=>x.usuario===d.usuario && (!u||x.id!==u.id))
@@ -113,7 +119,7 @@ function editarUsuario(negId,userId){
     cerrarModal(); toast('Usuario guardado','success'); render();
   }});
 }
-function eliminarUsuario(id){
+export function eliminarUsuario(id){
   if(!esAdminSistema()){ toast('No tienes permiso para eliminar usuarios','error'); return; }
   confirmarModal('¿Eliminar este usuario?',()=>{
     const rec=(DB.get('usuarios')||[]).find(u=>u.id===id);

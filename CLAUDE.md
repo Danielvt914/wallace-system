@@ -16,8 +16,8 @@ POS multi-negocio (SaaS) de WALLACE COMPANY SYSTEM. Sitio estático (`index.html
 - `src/dominio/` reglas puras (sin `window`, Firebase ni DOM) + pruebas en `tests/dominio/`.
 - `src/aplicacion/puertos/` contratos (`datos.js`, `cuentas.js`); `src/aplicacion/servicios/` casos de uso (`sesion.js`).
 - `src/adaptadores/salida/` Firebase (`firebase-datos.js`, `firebase-cuentas.js`), `localStorage`, cripto.
-- `src/adaptadores/entrada/ui/` interfaz: **45 scripts clásicos** por módulo (`nucleo/`, `usuarios/`, `ventas/`, `caja/`, `inventario/`…) que comparten el ámbito global (los `onclick` llaman funciones por nombre). Se cargan en el orden de `ui/manifiesto.js`. Para ubicar una función: `Documentation/-03-architecture/mapa-interfaz.md`.
-- `src/arranque.js` es el único que conecta todo; `puente-legado.js` publica en `window` los nombres que usa la interfaz (dominio, datos, cuentas).
+- `src/adaptadores/entrada/ui/` interfaz: **47 módulos ES** por carpeta (`nucleo/`, `usuarios/`, `ventas/`, `caja/`, `inventario/`…) listados en `ui/manifiesto.js`, cuya `cargarInterfaz()` los importa, instala los eventos delegados (`data-click`) y arma `window.WS`. Estilos en `ui/estilos/` (orden numérico). Para ubicar una función: `Documentation/-03-architecture/mapa-interfaz.md`.
+- `src/arranque.js` es el único que conecta todo; `puente-legado.js` publica en `window` los nombres que usa la interfaz (dominio, datos, cuentas). Retirarlo es lo único que falta de la fase 8.
 - Regla de dependencias y plan de fases: `Documentation/-03-architecture/-03-architecture.md`.
 - Operación nueva de datos o cuentas → agregarla al **puerto** y al **adaptador** (si no, la verificación del puerto falla al arrancar).
 - Regla pura nueva (cálculo, validación, constante del negocio) → `src/dominio/` con prueba, **no** en la interfaz. Si la interfaz la usa por nombre, publicarla en el puente con ese nombre.
@@ -25,8 +25,10 @@ POS multi-negocio (SaaS) de WALLACE COMPANY SYSTEM. Sitio estático (`index.html
 
 ## Reglas de código
 - Imitar el estilo existente: compacto, funciones cortas, comentarios en español que explican el porqué.
-- Interfaz = scripts clásicos con ámbito global compartido: **nunca** repetir un nombre global entre archivos ni tapar uno del puente (`Datos`, `Cuentas`, `Dominio`, `DB`, `misDatos`, `ROLES`, …); un archivo **no debe ejecutar al cargar** código de otro (solo declarar). `tests/ui/estructura.test.mjs` (en `npm test`) lo verifica, junto con identificadores sin declarar y `onclick` rotos.
-- Archivo nuevo de interfaz → agregarlo a `ui/manifiesto.js` y correr `node scripts/mapa-interfaz.mjs`. Al publicar, **cambiar `VERSION_UI`** en el manifiesto.
+- Interfaz = módulos ES: importar lo que se usa (`import { x } from '../nucleo/estado.js'`), sin renombrar. **Nunca** repetir un nombre entre módulos ni tapar uno del puente (`Datos`, `Cuentas`, `Dominio`, `DB`, `misDatos`, `ROLES`, …); al cargar, **solo declarar** (hay importaciones circulares). No asignar lo importado: el módulo dueño exporta `fijarX(v)` (p. ej. `fijarEscribiendo`). `tests/ui/estructura.test.mjs` (en `npm test`) lo verifica.
+- HTML generado: `data-click="accion('a', this.value)"` (y `data-input`, `data-change`, `data-keydown`, `data-enter`, `data-focus`, `data-blur`, `data-mousedown`, `data-toggle`) con la acción **exportada**; textos del usuario en `data-x="${escapeHtml(v)}"` + `this.dataset.x`. **Nunca** `onclick="…"` ni `style="…"` fijo: usar las clases de `estilos/15-utilidades.css` (en línea solo lo calculado, lo que el código muestra u oculta y la impresión).
+- Archivo nuevo de interfaz → agregarlo a `ui/manifiesto.js` y correr `node scripts/mapa-interfaz.mjs`. Al publicar, **cambiar `VERSION_UI`** en el manifiesto **y** el `?v=` de los estilos en `index.html`.
+- Consola y pruebas de navegador: `WS.<nombre>` (`WS.STATE`, `WS.render()`); las pruebas y capturas abren con `?local`. Cambios visuales: `node scripts/capturas.mjs tomar <dir>` antes y después, y `comparar <A> <B>`.
 - `usaCuentas()` en la interfaz significa **cuentas abiertas** (mesas). Para "¿hay cuentas de Firebase?" se usa `conCuentasFirebase()`.
 - Pregunta diferida tras una acción ("¿Imprimir?"): usar `preguntarDespues(...)`, nunca `setTimeout(()=>confirmarModal(...))` (taparía otro modal, F16).
 - `toast`, `confirmarModal` y el título de `abrirModal` **ya escapan** el texto: no pasarles `escapeHtml(...)` (doble escape). En HTML armado a mano, sí escapar.

@@ -1,18 +1,22 @@
 // ============================================================
 //  INTERFAZ · Dashboard
 //  Pantalla de inicio con las cifras del día.
-//  Adaptador de entrada: script clásico, sus funciones son globales porque
-//  las llaman los onclick del HTML generado. Lo carga src/arranque.js en el
-//  orden de ui/manifiesto.js. Doc: Documentation/08-sales-reports/08-sales-reports.md
+//  Adaptador de entrada: módulo ES. Lo que exporta lo importan otros módulos
+//  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
+//  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/08-sales-reports/08-sales-reports.md
 // ============================================================
+import { STATE, escapeHtml, fijarEscribiendo, fmtCorto, fmtDate, fmtMoney } from '../nucleo/estado.js';
+import { ic, pPedido, pPedidos } from '../nucleo/componentes.js';
+import { ventasJornada } from '../ventas/pedidos.js';
+import { detallePagos } from '../ventas/cobro.js';
 
 
 // ============================================================
 //  DASHBOARD
 // ============================================================
-function inicio(){
+export function inicio(){
   const neg=STATE.negocio;
-  ESCRIBIENDO=false;
+  fijarEscribiendo(false);
   // Monto de venta (comida) tolerante: si no hay subtotal, usa total. Antes las
   // ventas sin 'subtotal' sumaban 0 y el dashboard no mostraba lo cobrado.
   const montoVenta=v=>(v.subtotal!=null?v.subtotal:(v.total||0));
@@ -110,7 +114,7 @@ function inicio(){
       return `<div class="tarjeta alerta">
         <span class="t-tit chico">⚠️ ${rev.length} ${pPedido()}(s) con el cobro sin ajustar</span>
         <p>Se editaron después de cobrados y el total cambió. Ajusta el pago para que la caja cuadre.</p>
-        <div class="botones-fila" style="margin-top:8px;">${rev.slice(0,6).map(v=>`<button class="btn btn-sm btn-naranja" onclick="ajustarPagoVenta('${v.id}')">${escapeHtml(v.factura||'')} · ${fmtMoney(v.total)}</button>`).join('')}</div>
+        <div class="botones-fila mt-8">${rev.slice(0,6).map(v=>`<button class="btn btn-sm btn-naranja" data-click="ajustarPagoVenta('${v.id}')">${escapeHtml(v.factura||'')} · ${fmtMoney(v.total)}</button>`).join('')}</div>
       </div>`; })()}
     ${pend.length?`<div class="tarjeta tarjeta-pend">
       <span class="t-tit">⏳ ${pPedidos(true)} por cobrar</span>
@@ -121,7 +125,7 @@ function inicio(){
           <td>${escapeHtml(v.cliNombre||v.mesa||'—')}</td>
           <td class="negrita">${fmtMoney(v.total)}</td>
           <td class="gris">${escapeHtml(v.vendedor||'—')}</td>
-          <td><button class="btn btn-sm btn-gold" onclick="cobrarPedido('${v.id}')">Cobrar</button></td>
+          <td><button class="btn btn-sm btn-gold" data-click="cobrarPedido('${v.id}')">Cobrar</button></td>
         </tr>`).join('')}</tbody>
       </table></div>
     </div>`:''}
@@ -141,4 +145,4 @@ function inicio(){
       </table></div>`:'<p class="gris">No hay ventas aún.</p>'}
     </div>`;
 }
-function tipoVentaLabel(t){ return {mesa:'Mesa',domicilio:'Domicilio',llevar:'Para llevar',rapida:'Directa'}[t]||'Venta'; }
+export function tipoVentaLabel(t){ return {mesa:'Mesa',domicilio:'Domicilio',llevar:'Para llevar',rapida:'Directa'}[t]||'Venta'; }
