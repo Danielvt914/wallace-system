@@ -63,6 +63,8 @@ También: top 10 productos del mes, top 5 días. Selector de mes con todos los m
 
 ## 6. Modelo de datos
 
+> Diccionario completo de todas las tablas (formatos, campos nuevos y viejos): [modelo-de-datos](../-03-architecture/modelo-de-datos.md).
+
 ### `gastos_negocio`
 `id`, `concepto`, `valor`, `fecha` (`AAAA-MM-DD` para los del negocio; ISO completa para los de caja), `metodo`, `nota`, `por`, `creado`, `categoria` (`'Caja'` en los de caja), `origen` (`'caja'` o ausente).
 

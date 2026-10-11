@@ -79,6 +79,8 @@ Selector de mes y ventana imprimible (carta) con: ventas del mes (usa `subtotal`
 
 ## 5. Modelo de datos
 
+> Diccionario completo de todas las tablas (formatos, campos nuevos y viejos): [modelo-de-datos](../-03-architecture/modelo-de-datos.md).
+
 ### `negocios` (global)
 | Campo | Descripción |
 |---|---|

@@ -8,7 +8,8 @@
     "test:firebase": "node scripts/probar-firebase.mjs",
     "reglas:transicion": "firebase deploy --only database -P pruebas --config firebase.transicion.json",
     "reglas:cerradas": "firebase deploy --only database -P pruebas",
-    "emulador": "node scripts/emulador.mjs"
+    "emulador": "node scripts/emulador.mjs",
+    "publicar:sandbox": "node scripts/publicar-sandbox.mjs && firebase deploy --only hosting -P pruebas --config firebase.hosting.json"
   },
   "dependencies": {
     "serve": "^14.2.1"

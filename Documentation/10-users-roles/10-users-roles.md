@@ -94,6 +94,8 @@ Construye los grupos PRINCIPAL, OPERACIONES, GESTIÓN y CONFIGURACIÓN según `f
 
 ## 8. Modelo de datos — `usuarios` (global)
 
+> Diccionario completo de todas las tablas (formatos, campos nuevos y viejos): [modelo-de-datos](../-03-architecture/modelo-de-datos.md).
+
 | Campo | Descripción |
 |---|---|
 | `id`, `negocioId` | Identificación y tenant |

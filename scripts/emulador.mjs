@@ -95,3 +95,4 @@ if(!web){ console.error('El servidor web no arrancó en el puerto '+PUERTO); ter
 console.log('\n✅ Emuladores listos · reglas: '+reglas+' · datos: '+(archivoDatos||'vacío (configuración inicial)'));
 if(conDev) console.log('   Cuenta de desarrollo:  usuario dev  ·  contraseña dev12345  (solo existe en este emulador)');
 console.log('   Abre  http://localhost:'+PUERTO+'/?emulador     (Ctrl+C para terminar)\n');
+

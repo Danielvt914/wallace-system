@@ -6,7 +6,7 @@ Cada hallazgo corregido tiene debajo su **Solución aplicada** y lo que queda pe
 
 **Severidad**: 🔴 Alta (seguridad o pérdida/corrupción de datos) · 🟠 Media (resultado incorrecto visible) · 🟡 Baja (inconsistencia, deuda técnica).
 
-> **Estado al 2026-10-10:** **los 34 hallazgos están cerrados** (`npm test` 67/67 · `npm run test:firebase` 36/36). S6 se encontró y corrigió en la fase 8 (2026-10-09). **S1** quedó desplegado y verificado en el proyecto de simulación `wallacesys-dev-sandbox` (base desde cero, dueño creado, reglas cerradas: sin sesión todo responde "Permission denied"); **F17** se cerró por decisión comercial (planes iguales en ventanas). **En la empresa no hay nada desplegado:** su producción sigue con la versión original, con las contraseñas en texto plano y la base abierta, hasta que se repitan las fases de S1 en su proyecto. Ver [Pendientes](#pendientes).
+> **Estado al 2026-10-10:** **los 34 hallazgos están cerrados** (`npm test` 67/67 · `npm run test:firebase` 36/36). S6 se encontró y corrigió en la fase 8 (2026-10-09). **S1** quedó desplegado y verificado en el proyecto de simulación `wallacesys-dev-sandbox` (base desde cero, dueño creado, reglas cerradas: sin sesión todo responde "Permission denied"); **F17** se cerró por decisión comercial (planes iguales en ventanas). **En la empresa no hay nada desplegado:** su producción sigue con la versión original, con las contraseñas en texto plano y la base abierta, hasta que se repitan las fases de S1 en su proyecto. **Lo que falta no son hallazgos sin corregir sino pruebas con Firebase real, decisiones y el despliegue en la empresa**: ver [Pendientes](#pendientes) y la guía paso a paso [conexion-firebase](../-00-execution-protocol/conexion-firebase.md).
 
 ## Resumen
 
@@ -480,6 +480,21 @@ Hoy hay usuarios con contraseña guardada como hash; nadie conoce esas contrase�
 
 ## Pendientes
 
+### Por probar en el proyecto de simulación (antes de la empresa)
+
+Las pruebas automáticas cubren el modo local, los emuladores y Chrome de escritorio. Falta lo que necesita Firebase real, Render u otros dispositivos. Cada paso, con cómo saber que salió bien: [conexion-firebase](../-00-execution-protocol/conexion-firebase.md), sección 2.
+
+| De | Qué falta probar | Estado |
+|---|---|---|
+| Fase 8 | La interfaz en módulos ES contra Firebase real (`http://localhost:3000/` sin `?local`) | Pendiente |
+| S1, S4, S5 | Un usuario de cada rol con las reglas cerradas: cada uno ve y hace solo lo suyo | Pendiente (aún no hay negocios ni usuarios en el sandbox) |
+| D1, D2, D5 | Dos equipos a la vez (stock, números de factura, apertura de caja) y venta sin internet | Pendiente (solo probado con Firebase simulado) |
+| S1 | Restringir la clave web del sandbox a `localhost` y al sitio de Render | Pendiente (recomendado) |
+| Fase 8, S6 | Sitio de pruebas en Render: carga de módulos, `Cache-Control: no-cache` en `/src/*`, CSP en `Report-Only` | Pendiente |
+| S1 | Migración de cuentas viejas con el export real, en el emulador | Pendiente |
+| — | Celulares y otros navegadores (Safari, Firefox), impresoras térmicas reales, lector de código de barras | Pendiente |
+| Operación | Recuperar el acceso del único super-admin sin correo de recuperación ([conexion-firebase](../-00-execution-protocol/conexion-firebase.md), sección 5) | ✅ Hecho en el sandbox (2026-10-10) |
+
 ### Para llevar S1 a la producción de la empresa
 
 | ID | Qué falta | Quién | Cómo |
@@ -501,5 +516,6 @@ Hoy hay usuarios con contraseña guardada como hash; nadie conoce esas contrase�
 | F15 | Las ventas anteriores a la corrección no tienen `prodId`/`vendedorId`/`domiciliarioId` y se siguen agrupando por nombre | Ninguna; las nuevas ya llevan id |
 | R1 | Los negocios donde nadie ha entrado con la versión nueva no tienen resumen | Botón "📊 Calcular cifras" del panel |
 | S6 | Si en otro lugar faltara `escapeHtml`, HTML inyectado con `onerror`/`onload` todavía se ejecutaría (no hay CSP) | Activar la CSP ([csp.md](../-03-architecture/csp.md): probada en local con 0 violaciones; falta `Report-Only` en el sandbox con Firebase real y luego activarla) |
+| S1 | No hay "olvidé mi contraseña": las cuentas usan un correo interno que nadie recibe. Si el **único** super-admin la olvida, solo la recupera el dueño del proyecto desde la consola de Firebase | Tener siempre **dos super-admins dueños** (uno restablece al otro en Administradores). Procedimiento de consola: [conexion-firebase](../-00-execution-protocol/conexion-firebase.md), sección 5. Si se quiere recuperación por correo, habría que guardar un correo real por usuario (decisión del responsable) |
 | DOC1 | El historial de commits tiene mensajes genéricos | No se corrige sin reescribir el historial; los commits nuevos son descriptivos |
 | — | Una prueba de navegador ("empleado con contraseña corta") falló una vez de forma intermitente y no se reprodujo | Vigilar en próximas corridas de `npm run test:firebase` |

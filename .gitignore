@@ -18,3 +18,9 @@ CLAUDE.local.md
 
 # Capturas de regresión visual (scripts/capturas.mjs)
 capturas/
+
+# Archivo temporal de la recuperación de acceso de un super-admin (conexion-firebase.md, sección 5)
+perfil.json
+
+# Carpeta que se publica en Firebase Hosting del sandbox (scripts/publicar-sandbox.mjs)
+.publicar/

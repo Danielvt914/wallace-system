@@ -7,8 +7,19 @@ Complemento de [-00-execution-protocol](-00-execution-protocol.md). Explica cóm
 | Forma | Comando | Dirección | Datos | Login | Necesita |
 |---|---|---|---|---|---|
 | **Emuladores de Firebase** (recomendada) | `npm run emulador` | `http://localhost:3000/?emulador` | En memoria; se cargan de `importar-pruebas.json` si existe. Se borran al cerrar. | Firebase Authentication emulado (S1 completo: migración de cuentas, reglas) | Node 20+, Java 11+ |
-| **Modo local** (sin nube) | `npx serve -s . -l 3000` | `http://localhost:3000/` | En el `localStorage` de ese navegador. Persisten hasta borrar los datos del sitio. | Usuarios y contraseñas con hash guardados en el navegador (sin Firebase) | Solo Node |
-| **Proyecto de pruebas real** (más adelante) | `npx serve -s . -l 3000` | `http://localhost:3000/` | Firebase real (proyecto `wallace-system-pruebas`), compartidos entre equipos | Firebase Authentication real | Llenar `PRUEBAS` en `firebase-config.js` y `npx firebase login` |
+| **Modo local** (sin nube) | `npx serve -s . -l 3000` | `http://localhost:3000/?local` | En el `localStorage` de ese navegador. Persisten hasta borrar los datos del sitio. | Usuarios y contraseñas con hash guardados en el navegador (sin Firebase) | Solo Node |
+| **Proyecto de pruebas real** (`wallacesys-dev-sandbox`, listo) | `npx serve -s . -l 3000` | `http://localhost:3000/` | Firebase real, compartidos entre equipos | Firebase Authentication real (dueño `Admn-Wallacesys`) | Nada más: `PRUEBAS` ya está lleno. Siguientes pasos: [conexion-firebase](conexion-firebase.md) |
+
+### Enlaces y credenciales (resumen)
+
+En PowerShell, `npm.cmd`/`npx.cmd`. El servidor de la app se cierra con Ctrl+C.
+
+| Para | Arrancar | Abrir | Entrar con |
+|---|---|---|---|
+| Firebase real de pruebas (sandbox) | `npx.cmd serve -s . -l 3000` | http://localhost:3000/ | `Admn-Wallacesys` + la contraseña que se creó en la configuración inicial (no está escrita en ningún archivo; si se olvida: [conexion-firebase, sección 5](conexion-firebase.md#5-recuperar-el-acceso-de-un-super-admin-que-olvidó-su-contraseña)) |
+| Emuladores (Firebase simulado, se borra al cerrar) | `npm.cmd run emulador` | http://localhost:3000/?emulador | `dev` / `dev12345` (o los usuarios reales si existe `importar-pruebas.json`) |
+| Modo local (sin nube, en el navegador) | `npx.cmd serve -s . -l 3000` | http://localhost:3000/?local | La primera vez se crea el dueño (configuración inicial). Los demos creados desde el panel: `demo`, `demo2`… / `demo123` |
+| Diagnóstico de conexión | el mismo servidor | http://localhost:3000/prueba.html | Opcional (prueba un inicio de sesión) |
 
 **`localhost` nunca usa producción.** `firebase-config.js` solo usa producción en los dominios de `HOSTS_PRODUCCION` (vacío hasta que se defina el dominio público).
 

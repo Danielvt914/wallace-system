@@ -67,6 +67,8 @@ Totales generales: productos en efectivo, productos por banco, domicilios (efect
 
 ## 6. Modelo de datos
 
+> Diccionario completo de todas las tablas (formatos, campos nuevos y viejos): [modelo-de-datos](../-03-architecture/modelo-de-datos.md).
+
 ### `clientes`
 `id`, `nombre`, `tel`, `dir`, `barrio`, `ciudad`, `pedidos`, `totalComprado`, `creado`, `ultimoPedido`. (Los demos crean además `total:0`.)
 

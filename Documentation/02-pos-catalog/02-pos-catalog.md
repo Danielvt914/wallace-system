@@ -159,6 +159,8 @@ Devuelve stock si aplica y borra el registro con marca (`eliminarMisDatos`). Des
 
 ## 6. Modelo de datos — `ventas` (`data_<neg>_ventas`)
 
+> Diccionario completo de todas las tablas (formatos, campos nuevos y viejos): [modelo-de-datos](../-03-architecture/modelo-de-datos.md).
+
 | Campo | Descripción |
 |---|---|
 | `id`, `factura` (`F-00001`) | Identificación |

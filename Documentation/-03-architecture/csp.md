@@ -49,6 +49,8 @@ frame-ancestors 'none'
 
 **Lo que no hace falta permitir**: los emuladores (`localhost:9000/9099`) y el modo local no pasan por Render, donde se pone el encabezado.
 
+**`prueba.html`** (diagnóstico de conexión) también recibe la política, porque el encabezado va en `/*`. Su código está en `prueba.js` (sin `<script>` ni `onclick` en línea) desde el 2026-10-10; se comprobó que dibuja sus revisiones y que su botón responde con la CSP puesta.
+
 ## 3. Cómo se probó (2026-10-10)
 
 `scripts/probar-csp.mjs` hace lo siguiente sin desplegar nada y sin tocar `index.html`:

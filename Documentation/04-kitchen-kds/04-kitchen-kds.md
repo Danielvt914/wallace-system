@@ -65,6 +65,8 @@ Tirilla 80 mm en Courier: `*** COCINA ***`, número de factura grande, recuadro 
 
 ## 6. Modelo de datos (campos en `ventas`)
 
+> Diccionario completo de todas las tablas (formatos, campos nuevos y viejos): [modelo-de-datos](../-03-architecture/modelo-de-datos.md).
+
 `estadoCocina` (`''`/`pendiente`/`preparando`/`listo`/`entregado`), `horaPreparando`, `horaListo`, `horaEntregado`, `items[].obs`, `obs`, `tipo`, `mesa`, `cliNombre`, `cliDir`, `cliTel`, `domiciliario`.
 
 ## 7. Catálogo de funciones

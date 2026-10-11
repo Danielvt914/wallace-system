@@ -100,6 +100,8 @@ En el modal del plato (`recetaEditorHTML`): seleccionar insumo + cantidad por pl
 
 ## 7. Modelo de datos
 
+> Diccionario completo de todas las tablas (formatos, campos nuevos y viejos): [modelo-de-datos](../-03-architecture/modelo-de-datos.md).
+
 ### `productos` (campos de inventario)
 `stock` (`null` = no lleva inventario), `stockMin`, `usaLotes`, `lotes[]`, `receta[]{insumoId, cantidad}`, `esCombo`, `componentes[]{prodId, cantidad}`, `agotado` (bandera manual; no hay pantalla que la active).
 

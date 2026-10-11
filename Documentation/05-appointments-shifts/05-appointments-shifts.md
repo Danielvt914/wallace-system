@@ -56,6 +56,8 @@ Si tenía apartados descontados y no se convirtió en venta, los devuelve al sto
 
 ## 6. Modelo de datos — `citas` (`data_<neg>_citas`)
 
+> Diccionario completo de todas las tablas (formatos, campos nuevos y viejos): [modelo-de-datos](../-03-architecture/modelo-de-datos.md).
+
 | Campo | Descripción |
 |---|---|
 | `id`, `creado`, `por` | Identificación y autor |

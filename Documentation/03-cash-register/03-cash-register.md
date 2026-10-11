@@ -97,6 +97,8 @@ Concepto* y valor* (>0). Se agrega a `caja_actual.movimientos`. Un **gasto** ade
 
 ## 6. Modelo de datos
 
+> Diccionario completo de todas las tablas (formatos, campos nuevos y viejos): [modelo-de-datos](../-03-architecture/modelo-de-datos.md).
+
 ### `caja_actual` (tabla única) — array con 0 o 1 elemento
 `{id, base, apertura, cajero, movimientos:[{id, tipo:'gasto'|'retiro'|'entrada', concepto, valor, por, fecha}]}`
 

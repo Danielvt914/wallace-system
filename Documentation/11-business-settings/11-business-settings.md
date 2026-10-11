@@ -118,6 +118,8 @@ Los cambios se guardan en el registro global del negocio y llegan a todos los eq
 
 ## 10. Modelo de datos (campos de `negocios` configurables)
 
+> Diccionario completo de todas las tablas (formatos, campos nuevos y viejos): [modelo-de-datos](../-03-architecture/modelo-de-datos.md).
+
 `nombre, tipo, nit, tel, dir, ciudad, eslogan, logo, tema, colorTema, tipoFactura, pctDatafono, plan, precioMes, diaPago, vendedorId, vendedorNombre, notasComerciales, flujoPedido, ajusteCobro, tiposEntrega[], usaMesas, usaCocina, usaRecetas, usaCitas, usaCuentas, descontarAlPedir, usaPropina, usaDomicilios, esLogistica, usaCaja, usaClienteFijo, clienteFijoNombre, clienteFijoTel, usaCodBarras, verificarBanco, sonidos, alertaStock, alertaVence, diasAvisoVence, baseFija, palabraProducto, palabraProductos, palabraPedido, palabraPersonal, funciones[], sucursales[]{id,nombre}`.
 
 ## 11. Limitaciones conocidas

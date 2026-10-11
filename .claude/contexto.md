@@ -20,10 +20,11 @@
 - Hay usuarios de negocio con rol `dueno` que usan Mi Negocio (por eso las reglas usan `editaNegocio`, no `rol === 'admin'`).
 
 ## Pendientes que dependen del usuario
-1. Proyecto de simulación **`wallacesys-dev-sandbox`** listo (2026-10-08): `.firebaserc`, `PRUEBAS` en `firebase-config.js`, Authentication activo, dueño `Admn-Wallacesys`, **reglas cerradas** publicadas y verificadas sin sesión. Siguiente: probar el trabajo diario por rol en `http://localhost:3000/` (crear negocio/demo y usuarios).
-2. Dar el **dominio público de producción** para `HOSTS_PRODUCCION` en `firebase-config.js`. Sin eso ningún dominio usa producción: **llenarlo antes de unir este código al repositorio original**.
+1. Proyecto de simulación **`wallacesys-dev-sandbox`** listo (2026-10-08): `.firebaserc`, `PRUEBAS` en `firebase-config.js`, Authentication activo, dueño `Admn-Wallacesys`, **reglas cerradas** publicadas y verificadas sin sesión. Siguientes pasos (rol por rol, dos equipos, clave restringida, sitio en Render, CSP, ensayo de migración): `Documentation/-00-execution-protocol/conexion-firebase.md`.
+2. Dar el **dominio público de producción** para `HOSTS_PRODUCCION` en `firebase-config.js` (la base se elige por dominio: no se cambia ninguna referencia antes del commit; revisar Auto-Deploy y Blueprint del Render de la empresa: `-00/paso-a-produccion.md`). Sin eso ningún dominio usa producción: **llenarlo antes de unir este código al repositorio original**.
 3. Decidir: qué ve el super-admin vendedor (hoy, todo `data`); plazo de migración de cuentas; si el respaldo debe incluir `perfiles/` y `login/`.
-4. Pedir commit cuando quiera (hay mucho trabajo sin commit).
+4. **Repositorio original** (`roldan0411/wallace-system`) tiene un commit nuevo desde la base `15b243d`: `5425800` "Add notifications for new orders and cash changes" (solo `app.js`, +118/−34). Unir da **un conflicto** (`app.js` borrado aquí, modificado allá): hay que portarlo a mano a los módulos (adaptar a F1 caja por sucursal y F15 por id). Decidir cuándo portarlo; cada cambio nuevo al `app.js` original suma trabajo. Proceso: `Documentation/-00-execution-protocol/union-con-original.md`.
+5. Pedir commit cuando quiera (hay mucho trabajo sin commit).
 
 ## Próximos pasos sugeridos
 - Con el proyecto de pruebas listo: `node scripts/preparar-pruebas.mjs <export>` → `npx firebase database:import / importar-pruebas.json -P pruebas` → `npm run reglas:transicion` → protocolo de verificación (`-00`, sección 7) → `npm run reglas:cerradas` → pruebas B.9.
@@ -50,3 +51,13 @@
 - 2026-10-09: fase 8: estilos fuera de `index.html`, 221 `style` a clases, 250 manejadores a `data-*` (categoría con apóstrofo arreglada), interfaz en módulos ES (`cargarPedidoEnVenta`, `fijarX`, `window.WS`), `render.yaml` con `no-cache`, prueba estructural para módulos, `scripts/capturas.mjs`, doc -03 sección 11.
 - 2026-10-10: `-03-architecture/seguridad-interfaz.md` (ataques con `onclick`/`style` en línea, residual de `data-click`, CSP propuesta); S6 registrado en `-01` y `-02`; sección 11.6 (reglas de `CLAUDE.md`).
 - 2026-10-10: `-03-architecture/csp.md` (política directiva por directiva, despliegue por pasos en Render, problemas) y `scripts/probar-csp.mjs` (0 violaciones en 327 pantallas + 18 impresiones; la variante estricta detecta ~830).
+- 2026-10-10: `-00-execution-protocol/conexion-firebase.md` (pasos para seguir con Firebase); `prueba.html` sin código en línea (`prueba.js`, lista para la CSP); tabla de entornos al día.
+- 2026-10-10: README → tabla de archivos al día (raíz uno por uno, qué está fuera de Git); entornos-locales → enlaces y credenciales; -03 → carpetas de capturas; índice con conexion-firebase, seguridad-interfaz y csp.
+- 2026-10-10: protocolo para recuperar el acceso de un super-admin que olvidó su contraseña (`conexion-firebase.md`, sección 5): no hay correo de recuperación (correo interno); otro super-admin la restablece, o el dueño del proyecto por consola/CLI.
+- 2026-10-10: recuperación de acceso: dónde ver cada uid, revisar `perfil.json` y la pregunta de sobrescribir; `perfil.json` en `.gitignore`.
+- 2026-10-10: acceso del super-admin del sandbox recuperado con el procedimiento de consola; `-01` → Pendientes con lo que falta probar con Firebase real y el residual de recuperación de contraseña.
+- 2026-10-10: revisado el original: 1 commit nuevo (`5425800`, avisos de pedido nuevo y de caja); `git merge-tree` muestra un solo conflicto (`app.js` modify/delete).
+- 2026-10-10: `-00-execution-protocol/union-con-original.md` (revisar divergencia, portar `5425800` a los módulos con F1/F15/C2, requisitos antes del Pull Request).
+- 2026-10-10: `-00-execution-protocol/paso-a-produccion.md`: referencias Firebase (por dominio) y Render, no borrar la base de la empresa (S1 migra sobre ella), migración de cuentas al primer ingreso + contraseña temporal para pendientes (no importar las contraseñas en texto plano), lista de chequeo.
+- 2026-10-10: `-03-architecture/modelo-de-datos.md`: diccionario de las 21 tablas (estructura sacada del recorrido con los 18 demos, del export solo por nombres y del código), enlazado desde cada módulo.
+- 2026-10-10: Firebase Hosting del sandbox: `npm run publicar:sandbox` (`scripts/publicar-sandbox.mjs` arma `.publicar/` con lista blanca + `firebase.hosting.json`); comprobado que no expone `importar-pruebas.json` ni `perfil.json`. Aún no publicado (lo hace el usuario).

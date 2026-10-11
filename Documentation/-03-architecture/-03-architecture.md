@@ -312,3 +312,18 @@ Al cerrar la fase 8 se actualizaron las reglas estáticas de `CLAUDE.md`:
 - **Archivo nuevo de interfaz**: agregarlo a `ui/manifiesto.js` y correr `node scripts/mapa-interfaz.mjs`.
 - **Publicar**: subir `VERSION_UI` junto con el `?v=` de los estilos en `index.html` (la prueba exige que coincidan).
 - **Consola y pruebas**: usar `WS.<nombre>` (`WS.STATE`, `WS.render()`). Las pruebas y capturas abren con `?local`. Los cambios visuales se comprueban con `node scripts/capturas.mjs tomar <dir>` antes y después, y `comparar <A> <B>`.
+
+#### Carpetas de `capturas/`
+
+Cada `tomar <carpeta>` crea una carpeta con las fotos numeradas (`001-config-inicial.png`, `002-config-inicial-movil.png`…). El nombre lo elige quien la toma; en la fase 8 se usaron letras en orden de toma:
+
+| Carpeta | Qué es |
+|---|---|
+| `base` | **Referencia**: la versión anterior a la fase 8 (commit `62941a6`, servida desde un `git worktree` con `CAPTURAS_RAIZ`), con el juego completo de 121 fotos. |
+| `a`, `a2` | Dos tomas seguidas de la misma versión con el primer juego (87 fotos), para comprobar que el método es determinista (salieron idénticas). |
+| `b`, `c` | Primeros pasos (CSS fuera de `index.html`, `style` a clases) con ese primer juego. |
+| `d` | Estilos terminados, ya con las 121 fotos, comparado con `base`. |
+| `e` | Tras los eventos delegados (fase 8a). |
+| `f` | Tras los módulos ES (fase 8b): idéntica a `base`. |
+
+Solo `base` sirve para comparar cambios futuros (por ejemplo, el rediseño visual); las demás se pueden borrar. Si `base` se borra, se rehace tomando las fotos de la versión que se quiera usar de referencia. Para un cambio nuevo, la costumbre es: `tomar capturas/antes` → hacer el cambio → `tomar capturas/despues` → `comparar capturas/antes capturas/despues`.
