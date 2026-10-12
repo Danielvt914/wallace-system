@@ -68,7 +68,9 @@ Operaciones de ventas:
 
 ### 6.1 Pantalla Inventario (`inventario`, `ui/inventario/catalogo.js`)
 - **Modo restaurante** (`usaRecetas`): menú de platos con indicadores (platos, con receta, insumos), filtro por categoría, tarjetas con cantidad de insumos de la receta y botones "Receta" y "×".
-- **Modo normal**: indicadores (productos y unidades, valor a precio de venta, quedan pocos, agotados o lotes con alerta), últimos 8 movimientos, alertas de stock y vencimiento, tarjetas con insignias AGOTADO / SIN STOCK / POCOS, píldora del lote más próximo a vencer y botones "+ Stock", "− Salida", "📦 Lotes", "Editar", "×".
+- **Modo normal**: indicadores (productos y unidades, valor a precio de venta, quedan pocos, agotados o lotes con alerta), últimos 8 movimientos, alertas de stock y vencimiento, tarjetas con insignias AGOTADO / SIN STOCK / POCOS, píldora del lote más próximo a vencer y botones "+ Stock", "− Salida", "📦 Lotes", "Agotado" / "✓ Disponible", "Editar", "×".
+- **Agotado** (`alternarAgotado`, permiso `editarprod`): oculta el producto de Nueva Venta **sin tocar el stock** (p. ej. se acabó el plato del día) y deja una línea en la auditoría. El mismo botón lo vuelve a ofrecer.
+- **Foto** (formulario del producto, "📷 Foto" / "Quitar"): `reducirImagen` (`ui/nucleo/componentes.js`) la lleva a 200 px JPEG y se guarda en `imagen`. Todas las pantallas la dibujan con `fotoProducto(p)`, que solo acepta una imagen `data:` válida (`Dominio.inventario.imagenValida`, máx. ~60 KB); si no, muestra el ícono.
 - Los combos no aparecen aquí (van en Menú y Combos).
 
 ### 6.2 Entrada de stock (`entradaStock`, `ui/inventario/catalogo.js`)
@@ -103,7 +105,7 @@ En el modal del plato (`recetaEditorHTML`): seleccionar insumo + cantidad por pl
 > Diccionario completo de todas las tablas (formatos, campos nuevos y viejos): [modelo-de-datos](../-03-architecture/modelo-de-datos.md).
 
 ### `productos` (campos de inventario)
-`stock` (`null` = no lleva inventario), `stockMin`, `usaLotes`, `lotes[]`, `receta[]{insumoId, cantidad}`, `esCombo`, `componentes[]{prodId, cantidad}`, `agotado` (bandera manual; no hay pantalla que la active).
+`stock` (`null` = no lleva inventario), `stockMin`, `usaLotes`, `lotes[]`, `receta[]{insumoId, cantidad}`, `esCombo`, `componentes[]{prodId, cantidad}`, `agotado` (bandera manual; botón en la tarjeta), `imagen` (foto `data:` JPEG de 200 px o vacío).
 
 ### `insumos`
 `id`, `nombre`, `unidad`, `stock`, `costo`, `stockMin`, `creado`.
@@ -163,7 +165,9 @@ En el modal del plato (`recetaEditorHTML`): seleccionar insumo + cantidad por pl
 - `entradaStock`, `entradaInsumo` y `retirarLote` no auditan; tampoco los apartados de citas.
 - El valor del inventario y de las diferencias del conteo de productos se calcula a **precio de venta**, no a costo.
 - ~~Stock como valor absoluto~~: corregido con `cambiarStock` ([-02](../-02-corrections/-02-corrections.md)); editar el producto desde su formulario sí fija el valor.
-- La bandera `agotado` se respeta en la venta pero ninguna pantalla la activa.
 - El buscador del conteo en curso no filtra al escribir (no redibuja).
 
 Ver [-01-to-review](../-01-to-review/-01-to-review.md).
+
+## Cambios del 2026-10-12
+- **D8**: en el conteo físico, cada ítem se compara con el stock del momento en que se escribe su cantidad. Lo vendido mientras se cuenta ya no se resta dos veces.

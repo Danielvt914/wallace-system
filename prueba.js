@@ -1,22 +1,28 @@
 // Prueba de conexión (prueba.html): revisa si Firebase responde y qué reglas están
 // publicadas, sin escribir nada. Archivo aparte (no <script> en línea) para que
 // funcione con la Content-Security-Policy (Documentation/-03-architecture/csp.md).
+// Módulo ES: usa la misma elección de base que la app y el SDK modular de Firebase.
+import { elegirEntorno } from './firebase-config.js';
+import { cargarSdkFirebase } from './src/adaptadores/salida/firebase-sdk.js';
 const R=document.getElementById('resultados'), L=document.getElementById('log'), V=document.getElementById('veredicto');
-let FB=null, AUTH=null;
+let FB=null, AUTH=null, D=null, A=null;   // base, sesión y funciones del SDK modular
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function fila(k,v,clase){ R.insertAdjacentHTML('beforeend','<div class="fila"><span>'+esc(k)+'</span><strong class="'+(clase||'')+'">'+esc(v)+'</strong></div>'); }
 function log(t){ L.textContent += t+'\n'; }
 // Misma codificación que src/dominio/cuentas.js (claveUsuario)
 function claveUsuario(u){ return encodeURIComponent(String(u||'').trim()).replace(/\./g,'%2E'); }
 
-// 1) Librerías
-const hayApp=typeof firebase!=='undefined' && !!firebase.initializeApp;
-fila('Librería Firebase', hayApp?'cargada ✓':'NO CARGÓ', hayApp?'ok':'mal');
-fila('Inicio de sesión (Auth)', hayApp && typeof firebase.auth==='function'?'cargado ✓':'NO CARGÓ', hayApp && typeof firebase.auth==='function'?'ok':'mal');
-if(!hayApp) log('La librería de Firebase no se descargó. Puede ser el internet o un bloqueador.');
+// 1) Configuración y entorno (firebase-config.js elige la base según el dominio)
+const elegido=elegirEntorno(window.location);
+const cfg=elegido.config, entorno=elegido.entorno;
 
-// 2) Configuración y entorno (firebase-config.js elige la base según el dominio)
-const cfg=window.FIREBASE_CONFIG, entorno=window.FIREBASE_ENTORNO||'?';
+// 2) Librerías (SDK modular de Firebase; solo si hay base)
+const sdk=cfg ? await cargarSdkFirebase() : null;
+const hayApp=!!sdk;
+fila('Librería Firebase', hayApp?'cargada ✓':(cfg?'NO CARGÓ':'no hace falta (modo local)'), hayApp?'ok':(cfg?'mal':'esp'));
+fila('Inicio de sesión (Auth)', hayApp && sdk.auth?'cargado ✓':(cfg?'NO CARGÓ':'—'), hayApp && sdk.auth?'ok':(cfg?'mal':'esp'));
+if(cfg && !hayApp) log('La librería de Firebase no se descargó. Puede ser el internet o un bloqueador.');
+
 fila('Entorno', {produccion:'PRODUCCIÓN', pruebas:'PRUEBAS', emulador:'Emuladores locales', local:'Modo local (sin nube)'}[entorno]||entorno, entorno==='local'?'esp':'ok');
 if(!cfg){
   fila('Base de datos','sin configurar','esp');
@@ -28,20 +34,24 @@ if(!cfg){
 // 3) Conectar y averiguar qué reglas hay
 if(cfg && hayApp){
   try{
-    firebase.initializeApp(cfg);
-    FB=firebase.database(); AUTH=firebase.auth();
-    const em=window.FIREBASE_EMULADORES;
-    if(em){ const [h,p]=em.database.split(':'); FB.useEmulator(h,+p); AUTH.useEmulator('http://'+em.auth,{disableWarnings:true}); }
+    D=sdk.database; A=sdk.auth;
+    const app=sdk.app.initializeApp(cfg);
+    FB=D.getDatabase(app);
+    // Sesión solo en memoria: probar un usuario no deja sesión guardada en el navegador
+    AUTH=A.initializeAuth(app, {persistence:A.inMemoryPersistence});
+    const em=elegido.emuladores;
+    if(em){ const [h,p]=em.database.split(':'); D.connectDatabaseEmulator(FB,h,+p); A.connectAuthEmulator(AUTH,'http://'+em.auth,{disableWarnings:true}); }
+    const leer=r=>D.get(D.ref(FB, r));
     R.insertAdjacentHTML('beforeend','<div class="fila"><span>Estado en vivo</span><strong id="estado-con" class="esp">comprobando...</strong></div>');
-    FB.ref('.info/connected').on('value', s=>{
+    D.onValue(D.ref(FB, '.info/connected'), s=>{
       const el=document.getElementById('estado-con');
       if(el){ el.className=s.val()?'ok':'mal'; el.textContent=s.val()?'CONECTADO ✓':'DESCONECTADO'; }
     });
     // Una entrada del índice de login se puede leer sin sesión con las dos versiones de reglas
-    FB.ref('login/__diagnostico__').once('value').then(()=>{
+    leer('login/__diagnostico__').then(()=>{
       fila('Índice de inicio de sesión','responde ✓','ok');
       // ¿data abierto (transición) o cerrado (final)?
-      return FB.ref('data/migracion_s1').once('value').then(s=>{
+      return leer('data/migracion_s1').then(s=>{
         fila('Reglas publicadas','de TRANSICIÓN (data abierto)','esp');
         fila('Migración de tablas', s.exists()?'hecha ✓':'pendiente (la hace el primer ingreso)', s.exists()?'ok':'esp');
         log('Con las reglas de transición cualquiera con la URL puede leer data. Ciérralas cuando la migración de cuentas esté completa (Panel → 🔐 Cuentas).');
@@ -66,13 +76,12 @@ async function probarSesion(){
   const u=document.getElementById('u').value.trim(), p=document.getElementById('p').value;
   if(!u || !p){ log('Escribe usuario y contraseña.'); return; }
   try{
-    const ent=(await FB.ref('login/'+claveUsuario(u)).once('value')).val();
+    const ent=(await D.get(D.ref(FB, 'login/'+claveUsuario(u)))).val();
     if(!ent){ fila('Usuario '+u,'sin cuenta todavía (migra al entrar a la app)','esp'); return; }
-    await AUTH.setPersistence(firebase.auth.Auth.Persistence.NONE);
-    const c=await AUTH.signInWithEmailAndPassword(ent.correo, p);
-    const perfil=(await FB.ref('perfiles/'+c.user.uid).once('value')).val();
+    const c=await A.signInWithEmailAndPassword(AUTH, ent.correo, p);
+    const perfil=(await D.get(D.ref(FB, 'perfiles/'+c.user.uid))).val();
     fila('Usuario '+u, perfil?('entra ✓ · '+(perfil.rol==='superadmin'?'super-admin':perfil.rol+' de '+perfil.negocioId)+(perfil.activo===false?' · DESACTIVADO':'')):'cuenta SIN perfil', perfil&&perfil.activo!==false?'ok':'mal');
-    await AUTH.signOut();
+    await A.signOut(AUTH);
   }catch(e){
     fila('Usuario '+u, /password|credential/i.test(e.code||'')?'contraseña incorrecta':'error: '+(e.code||e.message), 'mal');
   }

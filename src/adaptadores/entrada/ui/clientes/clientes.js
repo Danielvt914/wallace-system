@@ -6,11 +6,25 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/07-customers-delivery/07-customers-delivery.md
 // ============================================================
 import { escapeHtml, fijarEscribiendo, fmtDate, fmtMoney, now } from '../nucleo/estado.js';
+import { BOTON, MSJ } from '../nucleo/textos.js';
 import { puedeVerPantalla } from '../nucleo/permisos.js';
 import { abrirModal, cerrarModal, confirmarModal, ic, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
 
 // ---------- CLIENTES AUTOMÁTICOS ----------
+// F22: al anular una venta cobrada se resta lo que sumó guardarClienteAuto
+export function revertirClienteAuto(venta){
+  const nombre=(venta.cliNombre||'').trim(), tel=(venta.cliTel||'').trim();
+  if(!nombre && !tel) return;
+  const cls=misDatos('clientes');
+  let ex=null;
+  if(tel) ex=cls.find(c=>c.tel && c.tel===tel);
+  if(!ex && nombre) ex=cls.find(c=>(c.nombre||'').toLowerCase()===nombre.toLowerCase());
+  if(!ex) return;
+  ex.pedidos=Math.max(0,(ex.pedidos||0)-1);
+  ex.totalComprado=Math.max(0,(ex.totalComprado||0)-(venta.total||0));
+  guardarMisDatos('clientes',[ex]);
+}
 export function guardarClienteAuto(venta){
   const nombre=(venta.cliNombre||'').trim();
   const tel=(venta.cliTel||'').trim();
@@ -75,8 +89,8 @@ export function clientes(){
           <td class="oro negrita">${fmtMoney(c.totalComprado||0)}</td>
           <td class="gris chico">${c.ultimoPedido?fmtDate(c.ultimoPedido):'—'}</td>
           <td class="acciones">
-            <button class="btn btn-sm" data-click="editarCliente('${c.id}')">Editar</button>
-            <button class="btn btn-sm btn-rojo" data-click="eliminarCliente('${c.id}')">×</button>
+            <button class="btn btn-sm" data-click="editarCliente('${escapeHtml(c.id)}')">Editar</button>
+            <button class="btn btn-sm btn-rojo" data-click="eliminarCliente('${escapeHtml(c.id)}')">×</button>
           </td>
         </tr>`).join('') : `<tr><td colspan="7" class="gris">${_cBusca?'No se encontraron.':'Sin clientes aún.'}</td></tr>`}
         </tbody>
@@ -84,10 +98,10 @@ export function clientes(){
     </div>`;
 }
 export function editarCliente(id){
-  if(!puedeVerPantalla('clientes')){ toast('No tienes acceso a Clientes','error'); return; }
+  if(!puedeVerPantalla('clientes')){ toast(MSJ.noTienesAccesoAClientes,'error'); return; }
   const cls=misDatos('clientes');
   const c=id?cls.find(x=>x.id===id):null;
-  abrirModal({titulo:(c?'Editar':'Nuevo')+' cliente', textoBoton:'Guardar', campos:[
+  abrirModal({titulo:(c?'Editar':'Nuevo')+' cliente', textoBoton:BOTON.guardar, campos:[
     {id:'nombre', label:'Nombre', valor:c?c.nombre:'', requerido:true},
     {id:'tel', label:'Teléfono', valor:c?c.tel:''},
     {id:'dir', label:'Dirección', valor:c?c.dir:''},
@@ -98,13 +112,13 @@ export function editarCliente(id){
     if(c){ const x=arr.find(y=>y.id===id); if(x) Object.assign(x,{nombre:d.nombre,tel:d.tel,dir:d.dir,barrio:d.barrio,ciudad:d.ciudad}); }
     else { arr.unshift({id:uid(), nombre:d.nombre, tel:d.tel, dir:d.dir, barrio:d.barrio, ciudad:d.ciudad, pedidos:0, totalComprado:0, creado:now()}); }
     guardarMisDatos('clientes',arr);
-    cerrarModal(); toast('Guardado','success'); render();
+    cerrarModal(); toast(MSJ.guardado,'success'); render();
   }});
 }
 export function eliminarCliente(id){
-  if(!puedeVerPantalla('clientes')){ toast('No tienes acceso a Clientes','error'); return; }
-  confirmarModal('¿Eliminar este cliente?',()=>{
-    eliminarMisDatos('clientes',id); toast('Eliminado','info'); render();
+  if(!puedeVerPantalla('clientes')){ toast(MSJ.noTienesAccesoAClientes,'error'); return; }
+  confirmarModal(MSJ.eliminarEsteCliente,()=>{
+    eliminarMisDatos('clientes',id); toast(MSJ.eliminado,'info'); render();
   },'Eliminar');
 }
 export function buscarClientes(v){ _cBusca=v; render(); }

@@ -2,7 +2,7 @@
 
 Qué es la CSP, la política propuesta directiva por directiva, cómo se probó, cómo activarla en Render y qué hacer cuando bloquea algo. Es la defensa que falta contra el código inyectado. Por qué hace falta: [seguridad-interfaz](seguridad-interfaz.md) y el residual de **S6** en [-01-to-review](../-01-to-review/-01-to-review.md).
 
-> **Estado (2026-10-10): propuesta y probada en local, NO activada.** Falta probarla con Firebase real en el sandbox (modo `Report-Only`) y después activarla.
+> **Estado (2026-10-10): probada en local; lista en modo `Report-Only` para el sitio del sandbox en Firebase Hosting (`firebase.hosting.json`), que se aplica al publicar con `npm run publicar:sandbox`. NO activada en ningún lado.** Falta revisar la consola con Firebase real y después activarla.
 
 ## 1. Qué es y qué resuelve
 
@@ -32,8 +32,8 @@ frame-ancestors 'none'
 | Directiva | Valor | Por qué |
 |---|---|---|
 | `default-src` | `'self'` | Lo que no tenga directiva propia solo puede venir del mismo sitio. |
-| `script-src` | `'self'` | `src/` (módulos), `firebase-config.js`, `logo.js`. **Sin `'unsafe-inline'` ni `'unsafe-eval'`**: es lo que bloquea el código inyectado. |
-| | `https://www.gstatic.com` | Los tres archivos de Firebase (`firebase-app-compat.js`, `-database-`, `-auth-`) que carga `index.html`. |
+| `script-src` | `'self'` | `src/` (módulos), `firebase-config.js`, `prueba.js`. **Sin `'unsafe-inline'` ni `'unsafe-eval'`**: es lo que bloquea el código inyectado. |
+| | `https://www.gstatic.com` | Los tres módulos del SDK de Firebase (`firebase-app.js`, `-database.js`, `-auth.js`) que importa `src/adaptadores/salida/firebase-sdk.js`. |
 | | `https://*.firebaseio.com` | Cuando no hay WebSocket (redes que lo bloquean), la base de Firebase cae a *long polling*, que carga scripts desde el servidor de la base. |
 | `style-src` | `'self'` | `ui/estilos/*.css`. |
 | | `'unsafe-inline'` | **Necesario por ahora**: los estilos calculados de las plantillas (alto de barras de los gráficos, anchos de porcentaje), los `<style>` de las ventanas de impresión y el mensaje de error de `src/arranque.js`. Ver sección 6. |
@@ -120,7 +120,7 @@ Render pone encabezados a un sitio estático con `headers` en `render.yaml`, igu
 
 **Nunca** "arreglar" un bloqueo agregando `'unsafe-inline'` o `'unsafe-eval'` a `script-src`, ni `*`: eso anula la protección.
 
-**Mantenimiento**: la política está escrita en dos lugares, `render.yaml` (la que vale) y `scripts/probar-csp.mjs` (la que se prueba). Cambiar una obliga a cambiar la otra. Al agregar cualquier recurso externo (fuente, librería, imagen, servicio), agregarlo a la política y correr `node scripts/probar-csp.mjs`.
+**Mantenimiento**: la política está escrita en **un solo lugar**, `scripts/csp-politica.mjs`. De ahí la toma `scripts/probar-csp.mjs`, y `tests/ui/estructura.test.mjs` (`npm test`) falla si `firebase.hosting.json`, o `render.yaml` cuando la lleve, tiene otra distinta. Para cambiarla: editar `csp-politica.mjs`, copiar el texto resultante (`POLITICA_ENCABEZADO`) a esos archivos y correr `npm test` y `node scripts/probar-csp.mjs`. Al agregar cualquier recurso externo (fuente, librería, imagen, servicio), agregarlo a la política y correr `node scripts/probar-csp.mjs`.
 
 ## 6. Mejora posterior: quitar `'unsafe-inline'` de `style-src`
 
@@ -131,3 +131,14 @@ El riesgo que deja `'unsafe-inline'` en estilos es menor: un CSS inyectado no ej
 - el mensaje de error de `src/arranque.js` pasa a una clase.
 
 `node scripts/probar-csp.mjs estricta` muestra cuántos bloqueos quedan; el objetivo es 0.
+
+## 7. En el sitio del sandbox (Firebase Hosting)
+
+El sandbox se publica con Firebase Hosting, no con Render, así que ahí la CSP va en `firebase.hosting.json` y no en `render.yaml`. Ya está puesta como **`Content-Security-Policy-Report-Only`**: el navegador no bloquea nada, solo avisa en la consola.
+
+1. Publicar: `npm.cmd run publicar:sandbox`.
+2. Comprobar que llega: `curl -I https://wallacesys-dev-sandbox.web.app/` debe mostrar `content-security-policy-report-only: …`.
+3. Abrir el sitio con la consola abierta (F12 → *Console*) y hacer el recorrido de la sección 4, paso 2. Buscar mensajes `[Report Only] Refused to …`.
+4. Si aparece alguno: corregir `scripts/csp-politica.mjs` (sección 5), copiar el texto a `firebase.hosting.json`, `npm test`, volver a publicar y repetir.
+5. Cuando la consola esté limpia, **activarla**: en `firebase.hosting.json`, cambiar la clave `Content-Security-Policy-Report-Only` por `Content-Security-Policy` (mismo valor) y volver a publicar.
+6. Para la empresa, lo mismo en `render.yaml` (sección 4).

@@ -4,6 +4,23 @@
 //  interfaz ni de la base. Documentation/11-business-settings.
 // ============================================================
 
+import { esImagenData } from './inventario.js';
+
+// Logo del negocio (S8): Mi Negocio lo reduce a 300 px. Solo se acepta una imagen
+// data: válida; cualquier otro texto se trata como "sin logo". El tope es el mismo
+// de las reglas (negocios_r/<id>/logo); los logos de producción miden hasta ~135 KB.
+export const LOGO_MAX_BYTES=400000;
+export function logoValido(s){ return esImagenData(s, LOGO_MAX_BYTES); }
+// Id de un registro como lo aceptan las reglas: sin comillas ni símbolos (S8)
+export const ID_SEGURO=/^[A-Za-z0-9_-]{1,64}$/;
+export function idSeguro(id){ return typeof id==='string' && ID_SEGURO.test(id); }
+// Copia de un negocio viejo lista para las reglas nuevas: un logo que no es imagen se quita
+export function negocioParaGuardar(n){
+  const x=JSON.parse(JSON.stringify(n||{}));
+  if(x.logo && !logoValido(x.logo)) x.logo='';
+  return x;
+}
+
 // Perfiles por tipo de negocio: el super-admin elige uno al crear y el
 // negocio queda configurado (vocabulario, mesas, cocina, citas, funciones).
 export const PERFILES = {

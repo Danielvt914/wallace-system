@@ -6,14 +6,15 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/12-invoice-printing/12-invoice-printing.md
 // ============================================================
 import { STATE, escapeHtml, fmtMoney } from '../nucleo/estado.js';
-import { toast } from '../nucleo/componentes.js';
+import { MSJ } from '../nucleo/textos.js';
+import { logoNegocio, toast } from '../nucleo/componentes.js';
 
 export function imprimirReporte(){
-  const d=window._repData; if(!d){ toast('Abre primero los reportes','error'); return; }
+  const d=window._repData; if(!d){ toast(MSJ.abrePrimeroLosReportes,'error'); return; }
   const neg=STATE.negocio;
   const html=`<div style="font-family:Arial,sans-serif;color:#000;max-width:800px;margin:0 auto;padding:18px;">
     <div style="text-align:center;border-bottom:2px solid #000;padding-bottom:10px;">
-      ${neg.logo?`<img src="${neg.logo}" style="max-height:70px;">`:''}
+      ${logoNegocio(neg,'style="max-height:70px;"')||''}
       <div style="font-size:22px;font-weight:800;">${escapeHtml(neg.nombre)}</div>
       <div style="font-size:16px;font-weight:700;margin-top:6px;">Reporte de Ventas</div>
       <div style="font-size:11px;color:#555;">Generado el ${new Date().toLocaleString('es-CO')}</div>
@@ -31,16 +32,16 @@ export function imprimirReporte(){
       Software por WALLACE COMPANY SYSTEM
     </div></div>`;
   const w=window.open('','_blank','width=850,height=680');
-  if(!w){ toast('Permite las ventanas emergentes','error'); return; }
+  if(!w){ toast(MSJ.permiteLasVentanasEmergentes,'error'); return; }
   w.document.write('<html><head><title>Reporte</title><meta charset="utf-8"><style>@page{size:letter;margin:12mm;}body{margin:0;}</style></head><body>'+html+'</body></html>');
   w.document.close(); setTimeout(()=>w.print(),400);
 }
 export function imprimirContable(){
-  const d=window._contData; if(!d){ toast('Abre primero el informe','error'); return; }
+  const d=window._contData; if(!d){ toast(MSJ.abrePrimeroElInforme,'error'); return; }
   const neg=STATE.negocio;
   const html=`<div style="font-family:Arial,sans-serif;color:#000;max-width:800px;margin:0 auto;padding:18px;">
     <div style="text-align:center;border-bottom:2px solid #000;padding-bottom:10px;">
-      ${neg.logo?`<img src="${neg.logo}" style="max-height:70px;">`:''}
+      ${logoNegocio(neg,'style="max-height:70px;"')||''}
       <div style="font-size:22px;font-weight:800;">${escapeHtml(neg.nombre)}</div>
       ${neg.nit?`<div style="font-size:12px;">NIT: ${escapeHtml(neg.nit)}</div>`:''}
       <div style="font-size:16px;font-weight:700;margin-top:6px;">Registro Contable — ${escapeHtml(d.nombreMes)}</div>
@@ -63,7 +64,7 @@ export function imprimirContable(){
       Generado el ${new Date().toLocaleString('es-CO')} · WALLACE COMPANY SYSTEM
     </div></div>`;
   const w=window.open('','_blank','width=850,height=680');
-  if(!w){ toast('Permite las ventanas emergentes','error'); return; }
+  if(!w){ toast(MSJ.permiteLasVentanasEmergentes,'error'); return; }
   w.document.write('<html><head><title>Contable</title><meta charset="utf-8"><style>@page{size:letter;margin:12mm;}body{margin:0;}</style></head><body>'+html+'</body></html>');
   w.document.close(); setTimeout(()=>w.print(),400);
 }

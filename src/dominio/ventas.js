@@ -53,6 +53,10 @@ export function esDelDomiciliario(v, dom){
 // cualquier equipo del negocio con sus ventas; como todos los equipos llegan al mismo
 // valor, no se pisan entre sí. Montos con propina y domicilio (total), como el panel.
 export const DIAS_RESUMEN=62;
+// F21: lo que vendió el negocio en una venta = sus productos (subtotal, ya con descuento).
+// Propina, recargo del datáfono y domicilio son de terceros y se muestran aparte.
+// Ventas viejas sin subtotal: su total.
+export function ventaDelNegocio(v){ return v ? (v.subtotal!=null ? v.subtotal : (v.total||0)) : 0; }
 export function resumenVentas(ventas, hoyStr){
   const r={total:0, pagadas:0, dias:{}, meses:{}};
   const h=new Date((hoyStr||new Date().toISOString().slice(0,10))+'T00:00:00');
@@ -61,7 +65,7 @@ export function resumenVentas(ventas, hoyStr){
   const limite=h.getFullYear()+'-'+p(h.getMonth()+1)+'-'+p(h.getDate());
   (ventas||[]).forEach(v=>{
     if(!v || v.estado!=='pagada') return;
-    const t=Math.round(v.total||0), d=jornadaDe(v);
+    const t=Math.round(ventaDelNegocio(v)), d=jornadaDe(v);
     r.total+=t; r.pagadas++;
     if(!d) return;
     if(d>=limite) r.dias[d]=(r.dias[d]||0)+t;

@@ -6,6 +6,7 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/05-appointments-shifts/05-appointments-shifts.md
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, fmtDate, fmtMoney, jornadaActual, now } from '../nucleo/estado.js';
+import { BOTON, MSJ } from '../nucleo/textos.js';
 import { cajaActual, exigirPermiso, puedeVerPantalla, sucursalActual, usaInventario } from '../nucleo/permisos.js';
 import { abrirModal, cerrarModal, confirmarModal, ic, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
@@ -66,10 +67,10 @@ export function citas(){
               :'<span class="pill pill-gold">Pendiente</span>'}</td>
           <td class="acciones">
             ${c.estado==='pendiente'?`
-              <button class="btn btn-sm btn-verde" data-click="marcarCita('${c.id}','atendida')" title="${ap.length?'Entregado (mantiene el descuento de inventario)':'Marcar atendida'}">${ap.length?'✓ Entregado':'✓'}</button>
-              ${ap.length?`<button class="btn btn-sm btn-rojo" data-click="marcarCita('${c.id}','no_recogio')" title="No se recogió (devuelve los productos al stock)">↩ No se recogió</button>`
-                :`<button class="btn btn-sm btn-rojo" data-click="marcarCita('${c.id}','cancelada')" title="Cancelar">✕</button>`}`:''}
-            <button class="btn btn-sm" data-click="eliminarCita('${c.id}')" title="Eliminar">🗑</button>
+              <button class="btn btn-sm btn-verde" data-click="marcarCita('${escapeHtml(c.id)}','atendida')" title="${ap.length?'Entregado (mantiene el descuento de inventario)':'Marcar atendida'}">${ap.length?'✓ Entregado':'✓'}</button>
+              ${ap.length?`<button class="btn btn-sm btn-rojo" data-click="marcarCita('${escapeHtml(c.id)}','no_recogio')" title="No se recogió (devuelve los productos al stock)">↩ No se recogió</button>`
+                :`<button class="btn btn-sm btn-rojo" data-click="marcarCita('${escapeHtml(c.id)}','cancelada')" title="Cancelar">✕</button>`}`:''}
+            <button class="btn btn-sm" data-click="eliminarCita('${escapeHtml(c.id)}')" title="Eliminar">🗑</button>
           </td>
         </tr>`;}).join('') : `<tr><td colspan="${usaInv?7:6}" class="gris">Nada agendado todavía.</td></tr>`}
         </tbody>
@@ -79,12 +80,12 @@ export function citas(){
 
 export let _apartTmp=[];   // productos que se están apartando en el modal de la cita
 export function nuevaCita(){
-  if(!puedeVerPantalla('citas')){ toast('No tienes acceso a la agenda','error'); return; }
+  if(!puedeVerPantalla('citas')){ toast(MSJ.noTienesAccesoALaAgenda,'error'); return; }
   const neg=STATE.negocio;
   const esServicio=(neg.palabraProducto||'')==='Servicio';
   const usaInv=(neg.funciones||[]).indexOf('inventario')>-1;
   _apartTmp=[];
-  abrirModal({titulo:'Nuevo agendamiento', textoBoton:'Agendar', campos:[
+  abrirModal({titulo:'Nuevo agendamiento', textoBoton:BOTON.agendar, campos:[
     {id:'cliente', label:'Cliente', requerido:true},
     {id:'tel', label:'Teléfono (opcional)'},
     {id:'fecha', label:'Fecha', tipo:'date', valor:today()},
@@ -143,7 +144,7 @@ export function apartadoEditorHTML(){
     <div id="apart-lista" class="m-10-0">${apartadoFilasHTML()}</div>
     <div class="d-flex gap-8 flex-wrap items-centro">
       <select id="apart-prod" class="campo flex-2 minw-130 m-0">
-        ${productos.map(p=>`<option value="${p.id}">${escapeHtml(p.nombre)} (stock ${p.stock})</option>`).join('')}
+        ${productos.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.nombre)} (stock ${p.stock})</option>`).join('')}
       </select>
       <input id="apart-cant" type="number" min="1" class="campo flex-1 minw-70 m-0" placeholder="Cant.">
       <button type="button" class="btn btn-verde btn-sm" data-click="agregarProdApartado()">+ Apartar</button>
@@ -155,16 +156,16 @@ export function apartadoFilasHTML(){
   return _apartTmp.map((x,idx)=>`<div class="c-row p-6-0">
       <span>${escapeHtml(x.nombre)}</span>
       <span><strong>×${x.cantidad}</strong>
-        <button type="button" class="mini-x" data-click="quitarProdApartado(${idx})">×</button></span>
+        <button type="button" class="mini-x" data-click="quitarProdApartado(${escapeHtml(idx)})">×</button></span>
     </div>`).join('');
 }
 export function agregarProdApartado(){
   const sel=document.getElementById('apart-prod');
   const cant=parseFloat((document.getElementById('apart-cant')||{}).value)||0;
-  if(!sel||!sel.value){ toast('Elige un producto','error'); return; }
-  if(cant<=0){ toast('Escribe la cantidad','error'); return; }
+  if(!sel||!sel.value){ toast(MSJ.eligeUnProducto,'error'); return; }
+  if(cant<=0){ toast(MSJ.escribeLaCantidad,'error'); return; }
   const p=misDatos('productos').find(y=>y.id===sel.value);
-  if(!p){ toast('Producto no encontrado','error'); return; }
+  if(!p){ toast(MSJ.productoNoEncontrado,'error'); return; }
   if(p.stock!=null && p.stock<cant){ toast('Solo quedan '+p.stock+' de '+p.nombre,'error'); return; }
   const ya=_apartTmp.find(x=>x.prodId===sel.value);
   if(ya){ ya.cantidad=cant; } else { _apartTmp.push({prodId:p.id, nombre:p.nombre, cantidad:cant, precio:p.precio||0}); }
@@ -192,7 +193,7 @@ export function devolverApartado(apartados, motivo){
   moverInventario(reqApartados(apartados), +1, motivo||'Devolución de apartado', true);
 }
 export function marcarCita(id,estado){
-  if(!puedeVerPantalla('citas')){ toast('No tienes acceso a la agenda','error'); return; }
+  if(!puedeVerPantalla('citas')){ toast(MSJ.noTienesAccesoALaAgenda,'error'); return; }
   const arr=misDatos('citas');
   const c=arr.find(x=>x.id===id); if(!c) return;
   const tieneApartados=(c.apartados||[]).length>0;
@@ -227,7 +228,7 @@ export function cobrarCitaEntregada(cita){
   // Igual que una venta: con caja, la caja debe estar abierta (F9)
   const cajaAbierta=cajaActual();
   if((neg.funciones||[]).indexOf('caja')>-1 && neg.usaCaja!==false && !cajaAbierta){
-    toast('Abre la caja antes de cobrar la entrega','error'); return;
+    toast(MSJ.abreLaCajaAntesDeCobrarLa,'error'); return;
   }
   const items=(cita.apartados||[]).map(x=>({prodId:x.prodId, nombre:x.nombre, precio:x.precio||0, qty:x.cantidad}));
   const bruto=items.reduce((a,i)=>a+i.precio*i.qty,0);
@@ -255,8 +256,18 @@ export function cobrarCitaEntregada(cita){
     logAudit('Cobró entrega de cita', (v.factura||'')+' · '+(cita.cliente||'')+' · '+fmtMoney(v.total));
   }});
 }
+// F22: al anular la venta de una entrega, la cita vuelve a pendiente. Si la anulación
+// devolvió los apartados al inventario, ya no están apartados (al cobrarla de nuevo se descuentan).
+export function reabrirCitaDeVenta(venta, stockDevuelto){
+  const arr=misDatos('citas');
+  const c=arr.find(x=>x.id===venta.origenCita && x.ventaId===venta.id); if(!c) return;
+  c.estado='pendiente'; c.ventaId=null; c.cerrada=null;
+  if(stockDevuelto) c.stockDescontado=false;
+  guardarMisDatos('citas',[c]);
+  logAudit('Reabrió cita por anulación', (venta.factura||'')+' · '+(c.cliente||''));
+}
 export function eliminarCita(id){
-  if(!puedeVerPantalla('citas')){ toast('No tienes acceso a la agenda','error'); return; }
+  if(!puedeVerPantalla('citas')){ toast(MSJ.noTienesAccesoALaAgenda,'error'); return; }
   const c=misDatos('citas').find(x=>x.id===id);
   const debeDevolver = c && (c.apartados||[]).length && c.stockDescontado && !c.ventaId;
   const advertir = debeDevolver
@@ -268,6 +279,6 @@ export function eliminarCita(id){
       devolverApartado(c.apartados, 'Cita eliminada · '+(c.cliente||''));
       logAudit('Eliminó cita con apartados', (c.cliente||'')+' · productos devueltos al stock');
     }
-    eliminarMisDatos('citas',id); toast('Eliminado','info'); render();
+    eliminarMisDatos('citas',id); toast(MSJ.eliminado,'info'); render();
   },'Eliminar');
 }

@@ -29,11 +29,12 @@
  * @property {() => Promise<{perfiles:Object, login:Object}>} leerIndice            Solo super-admin.
  * @property {() => Promise<{superadmins:Array, usuarios:Array}|null>} leerLegado   null = reglas cerradas.
  * @property {() => Promise<boolean>} necesitaDueno                                 Instalación sin super-admins.
+ * @property {(negId:string|null) => Promise<void>} fijarNegocioActivo           Vendedor: el negocio suyo cuyas tablas puede usar (reglas).
  */
 
 export const OPERACIONES_CUENTAS=['iniciar','disponible','alCambiarSesion','buscarLogin','entrar','salir',
   'leerPerfil','escucharPerfil','crearCuentaPropia','crearCuentaAjena','guardarCuenta','borrarCuenta',
-  'actualizarPerfil','cambiarMiPass','leerIndice','leerLegado','necesitaDueno'];
+  'actualizarPerfil','cambiarMiPass','leerIndice','leerLegado','necesitaDueno','fijarNegocioActivo'];
 
 export function verificarPuertoCuentas(adaptador){
   const faltan=OPERACIONES_CUENTAS.filter(op=>typeof (adaptador&&adaptador[op])!=='function');

@@ -44,6 +44,8 @@ Si `git log HEAD..upstream/main` no muestra nada, no hay nada que traer.
 
 ## 3. Qué trae el commit `5425800` y dónde va ahora
 
+> **Ya portado (2026-10-12).** Cada cambio está en su módulo (tabla 3.2). Falta solo la unión en Git (sección 4, que ahora es corta): así Git sabe que `5425800` ya está incluido y la próxima unión trae solo lo posterior.
+
 Ver el cambio completo: `git show 5425800 -- app.js`.
 
 | Cambio en el original (`app.js`) | Qué hace | Dónde va en el fork |
@@ -67,7 +69,33 @@ El código del original es anterior a varias correcciones del fork. Al portarlo 
 | Variables globales y llamadas por nombre | **Fase 8**: módulos ES | `import`/`export`; si otro módulo cambia una variable, `fijarX(v)` |
 | Adaptador que llama a la interfaz directamente | **Arquitectura**: el adaptador de datos no conoce la interfaz | Gancho en `arranque.js` → función exportada de la interfaz |
 
+### 3.2 Cómo quedó portado (2026-10-12)
+
+| Cambio | Dónde quedó |
+|---|---|
+| Detección de pedido nuevo | `firebase-datos.js`: gancho `alRegistroNuevo(tabla, valor, {inicial})`. "Nuevo" = no estaba en lo recibido ni en lo que este equipo subió; `inicial` = llegó en los primeros 2,5 s de sincronizar. No cambia el puerto (los ganchos no son operaciones) |
+| Detección de cambio de caja | `firebase-datos.js`: gancho `alCambiarTabla(tabla, nuevo, viejo, {inicial})` para las tablas enteras del negocio |
+| Avisos (toast + sonido) | `ui/nucleo/avisos-nube.js`: `registroNuevoDeNube` (compara `vendedorId`, F15; ignora otras sedes, F1) y `tablaCambioDeNube` (estado de la caja **de mi sede** con `cajaDe`, F1; refresco forzado). Conectados en `src/arranque.js` |
+| `campoDelicado`, `refrescarSiSePuede(forzar)`, revisión cada 20 s | `ui/nucleo/estado.js`. Con una ventana abierta nunca se redibuja: queda pendiente |
+| Nueva Venta no congela | `ui/ventas/nueva-venta.js`: "escribiendo" solo con productos en el pedido, editando o agregando a una cuenta |
+| `movId` en la copia del gasto de caja | `ui/caja/caja.js`; además la copia se guarda **solo si el movimiento entró** (D7: antes quedaba la copia aunque la caja ya no estuviera abierta) |
+| Cruce de gastos de caja en el Contable | Regla pura `Dominio.gastos.copiasSinMovimiento` (`src/dominio/gastos.js`), usada en `ui/gastos/contable.js` |
+| `mesDe` | Ya existía (`Dominio.fechas.mesDe`, F2): nada que portar |
+
+Pruebas: `tests/dominio/negocio.test.mjs` (cruce de gastos), `tests/integracion/s1-migracion.test.mjs` (otro equipo escribe en el emulador → el adaptador avisa; lo propio y la carga no), `tests/navegador/recorrido.test.mjs` ("5425800": textos de los avisos, otra sede, caja, Nueva Venta libre, `campoDelicado`; D7 con `movId`).
+
 ## 4. Paso a paso de la unión
+
+> **Con `5425800` ya portado**, los pasos 4 y 6 se reducen a: resolver el conflicto con `git rm app.js` y correr las pruebas. Comandos, después de hacer commit de lo pendiente:
+> ```
+> git remote add upstream https://github.com/roldan0411/wallace-system.git   (solo la primera vez)
+> git fetch upstream
+> git merge upstream/main          (conflicto en app.js: borrado aquí, modificado allá)
+> git rm app.js
+> npm.cmd test
+> git commit -m "Une el original (5425800): avisos de pedido nuevo y de caja ya portados a los módulos"
+> ```
+> No se hizo antes porque la unión termina en un commit y había trabajo preparado con `git add` que habría quedado mezclado en él.
 
 Todo se hace en la rama del fork. El original **no se toca** hasta el Pull Request.
 

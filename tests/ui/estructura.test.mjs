@@ -34,7 +34,7 @@ const NAVEGADOR=new Set(['window','document','localStorage','sessionStorage','na
  'setInterval','clearInterval','requestAnimationFrame','MutationObserver','Promise','JSON','Math','Date','Object','Array','String','Number',
  'Boolean','parseInt','parseFloat','isNaN','isFinite','Error','RegExp','Map','Set','encodeURIComponent','decodeURIComponent','escape','unescape',
  'alert','confirm','prompt','FileReader','Image','Blob','URL','AudioContext','webkitAudioContext','Infinity','NaN','undefined','performance',
- 'Intl','Symbol','Uint8Array','fetch','atob','btoa','getComputedStyle','screen','history','globalThis','structuredClone','arguments','crypto','firebase',
+ 'Intl','Symbol','Uint8Array','fetch','atob','btoa','getComputedStyle','screen','history','globalThis','structuredClone','arguments','crypto',
  'Event','Proxy']);
 
 // Declaraciones de nivel superior (exportadas o no) e importaciones de cada módulo
@@ -206,4 +206,118 @@ test('index.html carga todos los estilos de ui/estilos/, en orden y con la misma
   assert.deepEqual(enlazados.map(m=>m[1]), enDisco, 'cada archivo de estilos/ debe estar enlazado, en orden numérico');
   enlazados.forEach(m=>assert.equal(m[2], VERSION_UI, m[1]+' con ?v= distinto de VERSION_UI'));
   assert.ok(!/<style[\s>]/.test(html), 'index.html no debe volver a tener <style>');
+});
+
+test('la CSP publicada (firebase.hosting.json y render.yaml) es la de scripts/csp-politica.mjs', async ()=>{
+  const { POLITICA_ENCABEZADO } = await import('../../scripts/csp-politica.mjs');
+  const hosting=JSON.parse(readFileSync(new URL('../../firebase.hosting.json', import.meta.url),'utf8'));
+  const enc=hosting.hosting.headers.flatMap(h=>h.headers).filter(h=>/^Content-Security-Policy/.test(h.key));
+  assert.ok(enc.length, 'firebase.hosting.json debe llevar la CSP (Report-Only o activa)');
+  enc.forEach(h=>assert.equal(h.value, POLITICA_ENCABEZADO, 'firebase.hosting.json: '+h.key+' distinta de csp-politica.mjs'));
+  // render.yaml todavía no la lleva; cuando la lleve, debe ser la misma
+  const render=readFileSync(new URL('../../render.yaml', import.meta.url),'utf8');
+  const m=/name:\s*Content-Security-Policy(?:-Report-Only)?\s*\n\s*value:\s*"([^"]+)"/.exec(render);
+  if(m) assert.equal(m[1], POLITICA_ENCABEZADO, 'render.yaml: CSP distinta de csp-politica.mjs');
+});
+
+test('sin globales viejos ni Firebase -compat: index.html solo carga src/arranque.js', ()=>{
+  const html=readFileSync(new URL('../../index.html', import.meta.url),'utf8');
+  const scripts=[...html.matchAll(/<script\b[^>]*>/g)].map(m=>m[0]);
+  assert.deepEqual(scripts, ['<script type="module" src="src/arranque.js">'], 'index.html debe tener una sola entrada (módulo)');
+  assert.ok(!/-compat\.js/.test(html), 'nada de firebase-*-compat.js');
+  // Nadie lee los globales que dejaban los scripts clásicos de la raíz
+  const viejos=/window\.(firebase|FIREBASE_CONFIG|FIREBASE_ENTORNO|FIREBASE_EMULADORES|WALLACE_LOGO|LOGO_DEFAULT)\b/;
+  const fuentes=['../../src/arranque.js','../../prueba.js', ...ARCHIVOS_UI.map(a=>'../../src/adaptadores/entrada/ui/'+a),
+    '../../src/adaptadores/salida/firebase-datos.js','../../src/adaptadores/salida/firebase-cuentas.js'];
+  fuentes.forEach(f=>assert.ok(!viejos.test(readFileSync(new URL(f, import.meta.url),'utf8')), f+' usa un global viejo'));
+});
+
+test('el tema está centralizado: colores, tamaños de letra y radios solo en estilos/00-tokens.css', ()=>{
+  const sueltos=[];
+  readdirSync(new URL('estilos/', RAIZ)).filter(f=>f.endsWith('.css') && f!=='00-tokens.css').forEach(f=>{
+    const css=readFileSync(new URL('estilos/'+f, RAIZ),'utf8').replace(/\/\*[\s\S]*?\*\//g,'');
+    const linea=i=>css.slice(0,i).split('\n').length;
+    for(const m of css.matchAll(/#[0-9a-fA-F]{3,8}\b|rgba?\(\s*\d/g)) sueltos.push(f+':'+linea(m.index)+' color '+m[0]);
+    for(const m of css.matchAll(/font-size:\s*[\d.]+px/g)) sueltos.push(f+':'+linea(m.index)+' '+m[0]);
+    for(const m of css.matchAll(/border-radius:[^;}]*\d+px/g)) sueltos.push(f+':'+linea(m.index)+' '+m[0]);
+    for(const m of css.matchAll(/font-family:\s*'/g)) sueltos.push(f+':'+linea(m.index)+' fuente escrita a mano');
+  });
+  assert.deepEqual(sueltos, [], 'usar un token de estilos/00-tokens.css');
+  // El acento del negocio ya no se llama "verde" (tema.js lo cambia por negocio)
+  const viejos=[];
+  ARCH.forEach(f=>{ if(/--verde(-c|-o)?\b|--acc-(rgb|txt)\b/.test(f.src)) viejos.push(f.nombre); });
+  readdirSync(new URL('estilos/', RAIZ)).filter(f=>f.endsWith('.css')).forEach(f=>{ if(/--verde(-c|-o)?\b|--acc-(rgb|txt)\b/.test(readFileSync(new URL('estilos/'+f, RAIZ),'utf8'))) viejos.push(f); });
+  assert.deepEqual(viejos, [], 'usar --acento… (antes --verde…/--acc-…)');
+});
+test('catálogo de textos: mensajes fijos y botones de ventana solo en nucleo/textos.js, sin claves sobrantes ni inexistentes', async ()=>{
+  const { MSJ, BOTON }=await import('../../src/adaptadores/entrada/ui/nucleo/textos.js');
+  const fijo=n=>n && ((n.type==='Literal'&&typeof n.value==='string') || (n.type==='TemplateLiteral'&&!n.expressions.length));
+  const sueltos=[], usadas={MSJ:new Set(), BOTON:new Set()}, faltan=[];
+  let llamadas=0;
+  ARCH.forEach(f=>walk.simple(f.ast,{
+    CallExpression(n){
+      if(!['toast','confirmarModal','preguntarDespues'].includes(n.callee.name) || !n.arguments[0]) return;
+      llamadas++;
+      if(fijo(n.arguments[0])) sueltos.push(f.nombre+':'+n.loc.start.line+' '+(n.arguments[0].value||''));
+    },
+    Property(n){ if(n.key && n.key.name==='textoBoton' && fijo(n.value)) sueltos.push(f.nombre+':'+n.loc.start.line+' textoBoton'); },
+    MemberExpression(n){
+      if(n.object.type!=='Identifier' || !(n.object.name in usadas) || n.computed) return;
+      usadas[n.object.name].add(n.property.name);
+      if(!(n.property.name in (n.object.name==='MSJ'?MSJ:BOTON))) faltan.push(f.nombre+': '+n.object.name+'.'+n.property.name);
+    }
+  }));
+  assert.ok(llamadas>300, 'se revisaron '+llamadas+' llamadas');   // que no pase en vacío
+  assert.deepEqual(sueltos, [], 'Texto fijo fuera del catálogo: pasarlo a MSJ/BOTON (ui/nucleo/textos.js)');
+  assert.deepEqual(faltan, []);
+  assert.deepEqual(Object.keys(MSJ).filter(k=>!usadas.MSJ.has(k)).concat(Object.keys(BOTON).filter(k=>!usadas.BOTON.has(k))), [], 'Claves sin usar');
+});
+// S8: todo dato que va DENTRO del valor de un atributo HTML (src, value, title, data-click…)
+// pasa por escapeHtml, aunque sea un id: los ids y los campos del negocio los escribe
+// gente con sesión y las reglas no revisan todo. Solo se aceptan sin escapar las
+// expresiones que no pueden traer comillas (números, literales, fmtMoney…).
+const SEGURAS=new Set(['escapeHtml','Math.round','Math.floor','Math.ceil','Math.max','Math.min','Number','parseInt','parseFloat','fmtMoney','fmtNum','fmtK']);
+const nombreLlamada=c=>c.type==='Identifier'?c.name:(c.type==='MemberExpression'&&!c.computed&&c.object.type==='Identifier'?c.object.name+'.'+c.property.name:'');
+function sinComillas(e){
+  switch(e.type){
+    case 'Literal': return true;
+    case 'TemplateLiteral': return e.expressions.every(sinComillas);
+    case 'CallExpression': return SEGURAS.has(nombreLlamada(e.callee)) || (e.callee.type==='MemberExpression' && !e.callee.computed && e.callee.property.name==='toFixed');
+    case 'ConditionalExpression': return sinComillas(e.consequent) && sinComillas(e.alternate);
+    case 'LogicalExpression': return sinComillas(e.left) && sinComillas(e.right);
+    case 'BinaryExpression': return e.operator==='+' ? sinComillas(e.left) && sinComillas(e.right) : true;
+    case 'UnaryExpression': return true;
+    default: return false;
+  }
+}
+// Estado de cada ${…} en el HTML de la plantilla: texto, etiqueta o valor de atributo
+function estados(quasis){
+  const res=[]; let est='texto', q='';
+  quasis.forEach((t,k)=>{
+    for(let i=0;i<t.length;i++){
+      const ch=t[i];
+      if(est==='texto'){ if(ch==='<' && /[A-Za-z]/.test(t[i+1]||'')) est='etiqueta'; }
+      else if(est==='etiqueta'){ if(ch==='>') est='texto'; else if(ch==='"'||ch==="'"){ est='valor'; q=ch; } }
+      else if(ch===q) est='etiqueta';
+    }
+    if(k<quasis.length-1) res.push(est);
+  });
+  return res;
+}
+test('S8: los datos dentro de atributos HTML van escapados; el logo y las fotos solo como imagen válida', ()=>{
+  const sueltos=[]; let revisados=0;
+  ARCH.forEach(f=>walk.simple(f.ast,{TemplateLiteral(t){
+    if(!t.expressions.length) return;
+    const est=estados(t.quasis.map(q=>q.value.cooked==null?q.value.raw:q.value.cooked));
+    t.expressions.forEach((e,i)=>{ if(est[i]!=='valor') return; revisados++;
+      if(!sinComillas(e)) sueltos.push(f.nombre+':'+e.loc.start.line+' ${'+f.src.slice(e.start,e.end)+'}'); });
+  }}));
+  assert.ok(revisados>250, 'se revisaron '+revisados);   // que no pase en vacío (285 el 2026-10-12)
+  assert.deepEqual(sueltos, [], 'Usar escapeHtml(…) dentro del atributo');
+  // Concatenaciones '<img src="'+x+'"…': solo con escapeHtml
+  const concat=ARCH.flatMap(f=>(f.src.match(/src="'\s*\+\s*(?!escapeHtml\()[^+]+/g)||[]).map(m=>f.nombre+': '+m));
+  assert.deepEqual(concat, []);
+  // El logo solo lo dibuja logoNegocio (valida la imagen)
+  const logos=ARCH.filter(f=>f.nombre!=='nucleo/componentes.js' && /\$\{\s*neg\.logo\s*\}|'\s*\+\s*neg\.logo/.test(f.src)).map(f=>f.nombre);
+  assert.deepEqual(logos, []);
 });

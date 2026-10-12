@@ -6,18 +6,16 @@
 //   node scripts/probar-csp.mjs            la política propuesta → debe dar 0
 //   node scripts/probar-csp.mjs estricta   sin 'unsafe-inline' en style-src (ver qué falta)
 // No prueba las conexiones a Firebase (modo local): eso se ve en el sandbox con Report-Only.
-// La política de aquí y la de render.yaml deben ser la misma.
+// La política está en scripts/csp-politica.mjs (una sola para todo el proyecto).
 import { createServer } from 'node:http';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import puppeteer from 'puppeteer-core';
+import { POLITICA } from './csp-politica.mjs';
 const RAIZ=decodeURIComponent(new URL('..', import.meta.url).pathname).replace(/^\/([A-Za-z]:)/,'$1');
 const estricta=process.argv[2]==='estricta';
-const CSP=["default-src 'self'", "script-src 'self' https://www.gstatic.com https://*.firebaseio.com",
-  "style-src 'self' "+(estricta?'':"'unsafe-inline' ")+"https://fonts.googleapis.com", "font-src https://fonts.gstatic.com",
-  "img-src 'self' data: blob:",
-  "connect-src 'self' https://*.firebaseio.com wss://*.firebaseio.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com",
-  "frame-src https://*.firebaseapp.com", "object-src 'none'", "base-uri 'self'"].join('; ');
+// La política sale de scripts/csp-politica.mjs (la misma que publica firebase.hosting.json)
+const CSP=estricta ? POLITICA.replace(" 'unsafe-inline'", '') : POLITICA;
 const TIPOS={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json':'application/json','.png':'image/png','.svg':'image/svg+xml'};
 const srv=createServer((req,res)=>{
   let ruta=decodeURIComponent(req.url.split('?')[0]); if(ruta==='/') ruta='/index.html';

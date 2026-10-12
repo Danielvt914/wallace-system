@@ -74,3 +74,31 @@ test('diferencia del conteo físico', ()=>{
   assert.equal(inv.diferenciaConteo({contado:3, sistema:5}), -2);
   assert.equal(inv.diferenciaConteo({contado:0, sistema:0}), 0);
 });
+
+test('5425800: gastos de caja: la copia solo suma si su movimiento no aparece (por movId o, si es vieja, por concepto y valor)', ()=>{
+  const movs=[{id:'m1', tipo:'gasto', concepto:'Hielo', valor:3000}, {id:'m2', tipo:'gasto', concepto:'Bolsas', valor:1000},
+    {id:'m3', tipo:'retiro', concepto:'Dueño', valor:50000}];
+  const copias=[
+    {id:'g1', origen:'caja', movId:'m1', concepto:'Hielo', valor:3000},      // su movimiento está
+    {id:'g2', origen:'caja', movId:'mX', concepto:'Gas', valor:8000},        // su movimiento no está (cierre sin detalle)
+    {id:'g3', origen:'caja', concepto:'bolsas ', valor:1000},                // vieja sin movId: cruza con m2
+    {id:'g4', origen:'caja', concepto:'Bolsas', valor:1000},                 // otra igual: m2 ya se usó
+    {id:'g5', concepto:'Arriendo', valor:900000}                             // del negocio: no es copia
+  ];
+  assert.deepEqual(gs.copiasSinMovimiento(copias, movs).map(g=>g.id), ['g2','g4']);
+  assert.deepEqual(gs.copiasSinMovimiento([], movs), []);
+  assert.deepEqual(gs.copiasSinMovimiento(copias.slice(0,1), []).map(g=>g.id), ['g1']);
+});
+
+test('S8: el logo del negocio solo es válido como imagen data: (sin comillas) y con tope de tamaño', ()=>{
+  assert.equal(ng.logoValido('data:image/png;base64,iVBORw0KGgo='), true);
+  assert.equal(ng.logoValido('data:image/jpeg;base64,/9j/4AAQ'), true);
+  assert.equal(ng.logoValido(''), false);
+  assert.equal(ng.logoValido(null), false);
+  assert.equal(ng.logoValido('x" onerror="alert(1)'), false);
+  assert.equal(ng.logoValido('data:image/png;base64,AAA" onerror="alert(1)'), false);
+  assert.equal(ng.logoValido('data:image/png;base64,AAA" style="position:fixed'), false);
+  assert.equal(ng.logoValido('data:image/svg+xml;base64,PHN2Zz4='), false);       // un SVG puede llevar código
+  assert.equal(ng.logoValido('https://otro.sitio/logo.png'), false);              // ni imágenes de fuera (rastreo)
+  assert.equal(ng.logoValido('data:image/png;base64,'+'A'.repeat(ng.LOGO_MAX_BYTES)), false);
+});

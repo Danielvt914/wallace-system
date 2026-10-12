@@ -6,19 +6,23 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/01-super-admin-panel/01-super-admin-panel.md
 // ============================================================
 import { STATE, escapeHtml, now } from '../nucleo/estado.js';
+import { BOTON, MSJ } from '../nucleo/textos.js';
 import { esAdminSistema } from '../nucleo/permisos.js';
-import { abrirModal, cerrarModal, confirmarModal, toast } from '../nucleo/componentes.js';
+import { abrirModal, cerrarModal, confirmarModal, reportarError, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
 import { conCuentasFirebase, mensajeCuenta, ponerPass } from '../usuarios/sesion.js';
-import { borrarCuentasDeNegocio, crearCuentaPara } from '../usuarios/cuentas.js';
+import { borrarCuentasDeNegocio, crearCuentaPara, trabajarEn } from '../usuarios/cuentas.js';
+import { camposPruebaHTML, diasPruebaValidos, iniciarPruebaDe, leerCamposPrueba } from './pruebas.js';
 import { fijarFacturaReservada, reservarFactura } from '../ventas/nueva-venta.js';
 import { fijarResumenNeg } from '../reportes/resumen.js';
 
 
 // ---------- Crear negocio ----------
 export function nuevoNegocio(){
-  if(STATE.user&&STATE.user.rolSuper==='vendedor'){ toast('Como vendedor solo puedes crear demos','error'); return; }
-  abrirModal({titulo:'Crear negocio', textoBoton:'Crear', campos:[
+  // El vendedor solo crea negocios a prueba y quedan a su nombre (Dominio.prueba.puedeGestionarAlta)
+  const vendedor=!!(STATE.user&&STATE.user.rolSuper==='vendedor');
+  if(!Dominio.prueba.puedeGestionarAlta(STATE.user, null)){ toast(MSJ.noTienesPermisoParaCrearNegocios,'error'); return; }
+  abrirModal({titulo:'Crear negocio', textoBoton:BOTON.crear, campos:[
     {id:'nombre', label:'Nombre del negocio', requerido:true, placeholder:'Ej: MANILLASNET'},
     {id:'tipo', label:'Tipo de negocio', tipo:'select', opciones:Object.keys(PERFILES).map(t=>({valor:t,label:t}))},
     {id:'ciudad', label:'Ciudad'},
@@ -26,9 +30,9 @@ export function nuevoNegocio(){
     {id:'precio', label:'Precio mensual', tipo:'number', valor:'149900'},
     {id:'usuario', label:'Usuario del administrador', requerido:true, placeholder:'admin'},
     {id:'pass', label:'Contraseña', requerido:true, valor:'admin123'},
-    {id:'vendedor', label:'Vendedor a cargo', tipo:'select',
+    vendedor?null:{id:'vendedor', label:'Vendedor a cargo', tipo:'select',
       opciones:[{valor:'',label:'— Sin asignar —'}].concat((DB.get('superadmins')||[]).map(v=>({valor:v.id,label:v.nombre})))}
-  ], extraHTML:`<div class="m-row"><label>¿Cómo cobra este negocio?</label>
+  ].filter(Boolean), extraHTML:camposPruebaHTML(vendedor)+`<div class="m-row"><label>¿Cómo cobra este negocio?</label>
       <select id="m-flujo">
         <option value="directo">Cobro directo (tienda: se cobra al instante)</option>
         <option value="dos_pasos">Confirmar y luego cobrar (restaurante: se toma el pedido y se cobra después)</option>
@@ -36,12 +40,16 @@ export function nuevoNegocio(){
       <p class="nota">Esto se puede cambiar después en Configurar.</p>
     </div>`,
   onGuardar:(d)=>{
+    if(vendedor) d.vendedor=STATE.user.id;
+    const prueba=leerCamposPrueba();
+    if(vendedor && !prueba){ toast(MSJ.comoVendedorElNegocioQuedaA,'error'); return; }
+    if(!diasPruebaValidos(prueba)){ toast('Los días de prueba deben ser de 1 a '+Dominio.prueba.MAX_DIAS,'error'); return; }
     const perfil=JSON.parse(JSON.stringify(PERFILES[d.tipo]||PERFILES['Otro']));
     const flujo=(document.getElementById('m-flujo')||{}).value||perfil.flujoPedido;
     const existe=(DB.get('usuarios')||[]).some(u=>u.usuario===d.usuario)
               || (DB.get('superadmins')||[]).some(s=>s.usuario===d.usuario);
-    if(existe){ toast('Ese usuario ya existe','error'); return; }
-    if(conCuentasFirebase() && (d.pass||'').length<6){ toast('La contraseña debe tener al menos 6 caracteres','error'); return; }
+    if(existe){ toast(MSJ.eseUsuarioYaExiste,'error'); return; }
+    if(conCuentasFirebase() && (d.pass||'').length<6){ toast(MSJ.laContrasenaDebeTenerAlMenos6,'error'); return; }
     const negId=uid();
     const negocio={
       id:negId, nombre:d.nombre, tipo:d.tipo, ciudad:d.ciudad||'',
@@ -60,31 +68,41 @@ export function nuevoNegocio(){
       vendedorId:d.vendedor||null,
       vendedorNombre:((DB.get('superadmins')||[]).find(v=>v.id===d.vendedor)||{}).nombre||''
     };
+    // A prueba desde que nace (las reglas exigen que el negocio de un vendedor venza)
+    if(prueba) Object.assign(negocio, Dominio.prueba.nuevaPrueba(Date.now(), prueba.dias));
+    if(vendedor) negocio.vendedorNombre=STATE.user.nombre||'';
     const admin={id:uid(), negocioId:negId, nombre:'Administrador', usuario:d.usuario, rol:'admin', activo:true, creado:now()};
-    const guardarTodo=()=>{
-      const negocios=DB.get('negocios')||[]; negocios.push(negocio); DB.set('negocios',negocios);
+    const guardarNegocio=()=>{ const negocios=DB.get('negocios')||[]; negocios.push(negocio); DB.set('negocios',negocios); };
+    const guardarAdmin=()=>{
       const usuarios=DB.get('usuarios')||[]; usuarios.push(admin); DB.set('usuarios',usuarios);
       cerrarModal();
       toast('Negocio creado: '+d.nombre,'success');
+      iniciarPruebaDe(negId, prueba);
       render();
     };
     if(conCuentasFirebase()){
-      crearCuentaPara(admin, d.pass, false).then(c=>{ admin.uid=c.uid; guardarTodo(); })
-        .catch(e=>toast('No se pudo crear la cuenta del administrador: '+mensajeCuenta(e),'error'));
+      // Primero el negocio: las reglas del vendedor exigen que exista (y sea suyo) para crear su gente
+      guardarNegocio();
+      trabajarEn(negId).then(()=>crearCuentaPara(admin, d.pass, false)).then(c=>{ admin.uid=c.uid; guardarAdmin(); })
+        .catch(e=>{
+          DB.set('negocios', (DB.get('negocios')||[]).filter(n=>n.id!==negId));   // deshacer el alta
+          toast('No se pudo crear la cuenta del administrador: '+mensajeCuenta(e),'error');
+        });
       return;
     }
     ponerPass(admin, d.pass);
-    guardarTodo();
+    guardarNegocio();
+    guardarAdmin();
   }});
 }
 
 // Asignar o cambiar el vendedor a cargo de un negocio
 export function asignarVendedor(id){
-  if(!esAdminSistema()){ toast('No tienes permiso para asignar vendedores','error'); return; }
+  if(!esAdminSistema()){ toast(MSJ.noTienesPermisoParaAsignarVendedores,'error'); return; }
   const negocios=DB.get('negocios')||[];
   const n=negocios.find(x=>x.id===id); if(!n) return;
   const sas=DB.get('superadmins')||[];
-  abrirModal({titulo:'Vendedor a cargo de '+n.nombre, textoBoton:'Guardar', campos:[
+  abrirModal({titulo:'Vendedor a cargo de '+n.nombre, textoBoton:BOTON.guardar, campos:[
     {id:'vend', label:'Vendedor', tipo:'select', valor:n.vendedorId||'',
       opciones:[{valor:'',label:'— Sin asignar —'}].concat(sas.map(v=>({valor:v.id,label:v.nombre+(v.rolSuper==='vendedor'?' (vendedor)':'')})))},
     {id:'notas', label:'Notas comerciales (opcional)', valor:n.notasComerciales||''}
@@ -103,10 +121,10 @@ export function asignarVendedor(id){
 export function toggleNegocio(id){
   const negocios=DB.get('negocios')||[];
   const n=negocios.find(x=>x.id===id); if(!n) return;
-  if(!STATE.esSuperAdmin){ toast('No tienes permiso','error'); return; }
+  if(!STATE.esSuperAdmin){ toast(MSJ.noTienesPermiso,'error'); return; }
   // El vendedor solo pausa/activa SUS demos, nunca un negocio real
   if(STATE.user.rolSuper==='vendedor' && (!n.esDemo || (n.demoDe && n.demoDe!==STATE.user.id))){
-    toast('Como vendedor solo puedes pausar tus demos','error'); return;
+    toast(MSJ.comoVendedorSoloPuedesPausarTus,'error'); return;
   }
   n.activo=!n.activo;
   DB.set('negocios',negocios);
@@ -114,7 +132,7 @@ export function toggleNegocio(id){
   render();
 }
 export function eliminarNegocio(id){
-  if(STATE.user.rolSuper!=='dueno'){ toast('Solo el dueño del sistema puede eliminar empresas','error'); return; }
+  if(STATE.user.rolSuper!=='dueno'){ toast(MSJ.soloElDuenoDelSistemaPuede,'error'); return; }
   const negocios=DB.get('negocios')||[];
   const n=negocios.find(x=>x.id===id); if(!n) return;
   const nUsuarios=(DB.get('usuarios')||[]).filter(u=>u.negocioId===id).length;
@@ -123,11 +141,11 @@ export function eliminarNegocio(id){
     '⚠️ Vas a ELIMINAR la empresa "'+n.nombre+'".\n\nSe borrarán TODOS sus datos: '+nUsuarios+' usuario(s), productos, ventas, inventario, caja e historial. Esto NO se puede deshacer.\n\n¿Continuar?',
   ()=>{
     // Segunda confirmación: escribir el nombre
-    abrirModal({titulo:'Confirmar eliminación', textoBoton:'Eliminar definitivamente', campos:[
+    abrirModal({titulo:'Confirmar eliminación', textoBoton:BOTON.eliminarDefinitivamente, campos:[
       {id:'conf', label:'Escribe el nombre exacto de la empresa para confirmar', valor:'', requerido:true, placeholder:n.nombre}
     ], extraHTML:`<p class="nota rojo">Empresa a eliminar: <strong>${escapeHtml(n.nombre)}</strong></p>`,
     onGuardar:(d)=>{
-      if((d.conf||'').trim()!==n.nombre){ toast('El nombre no coincide. No se eliminó nada.','error'); return; }
+      if((d.conf||'').trim()!==n.nombre){ toast(MSJ.elNombreNoCoincideNoSe,'error'); return; }
       // Borrar las cuentas de acceso de sus usuarios (antes de perder la lista)
       if(conCuentasFirebase()) borrarCuentasDeNegocio(id);
       // Borrar la empresa
@@ -146,7 +164,7 @@ export function entrarComoNegocio(id){
   const neg=(DB.get('negocios')||[]).find(n=>n.id===id); if(!neg) return;
   // Seguridad: un vendedor solo puede entrar a DEMOS, nunca a negocios reales de clientes
   if(STATE.user.rolSuper==='vendedor' && !neg.esDemo){
-    toast('Como vendedor solo puedes entrar a negocios de demostración','error'); return;
+    toast(MSJ.comoVendedorSoloPuedesEntrarA,'error'); return;
   }
   STATE.negocio=neg;
   STATE._superUser=STATE.user;   // recordar quién es el super-admin (para volver con su rol)
@@ -155,9 +173,11 @@ export function entrarComoNegocio(id){
   STATE.modoSupervision=true;
   STATE.sucursal=(sucursalesDe(neg)[0]||{id:'principal'}).id;
   STATE.pageNeg='inicio';
-  fijarFacturaReservada(null); reservarFactura();
+  fijarFacturaReservada(null);
   // R1: con cuentas el panel no tiene los datos del negocio: se escuchan mientras se supervisa
-  if(conCuentasFirebase()) sincronizarNegocio(id);
+  // (el vendedor, después de fijar ese negocio como su negocio activo)
+  // La reserva de factura escribe en el negocio: también después del negocio activo
+  trabajarEn(id).then(()=>{ reservarFactura(); if(conCuentasFirebase()) sincronizarNegocio(id); }).catch(e=>reportarError('entrar al negocio', e));
   toast('Supervisando '+neg.nombre,'info');
   render();
 }

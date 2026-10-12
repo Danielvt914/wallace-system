@@ -18,7 +18,7 @@ En PowerShell, `npm.cmd`/`npx.cmd`. El servidor de la app se cierra con Ctrl+C.
 |---|---|---|---|
 | Firebase real de pruebas (sandbox) | `npx.cmd serve -s . -l 3000` | http://localhost:3000/ | `Admn-Wallacesys` + la contraseña que se creó en la configuración inicial (no está escrita en ningún archivo; si se olvida: [conexion-firebase, sección 5](conexion-firebase.md#5-recuperar-el-acceso-de-un-super-admin-que-olvidó-su-contraseña)) |
 | Emuladores (Firebase simulado, se borra al cerrar) | `npm.cmd run emulador` | http://localhost:3000/?emulador | `dev` / `dev12345` (o los usuarios reales si existe `importar-pruebas.json`) |
-| Modo local (sin nube, en el navegador) | `npx.cmd serve -s . -l 3000` | http://localhost:3000/?local | La primera vez se crea el dueño (configuración inicial). Los demos creados desde el panel: `demo`, `demo2`… / `demo123` |
+| Modo local (sin nube, en el navegador) | `npx.cmd serve -s . -l 3000` | http://localhost:3000/?local | La primera vez se crea el dueño (configuración inicial). Los demos creados desde el panel: `demo`, `demo2`… con una contraseña al azar que se muestra al crearlos |
 | Diagnóstico de conexión | el mismo servidor | http://localhost:3000/prueba.html | Opcional (prueba un inicio de sesión) |
 
 **`localhost` nunca usa producción.** `firebase-config.js` solo usa producción en los dominios de `HOSTS_PRODUCCION` (vacío hasta que se defina el dominio público).
@@ -87,13 +87,13 @@ La interfaz web de los emuladores (Emulator UI) está desactivada (`"ui": {"enab
 ### 3.3 Cómo la app se conecta al emulador en vez de a la nube
 
 1. Abres `http://localhost:3000/?emulador`.
-2. `firebase-config.js` ve `localhost` + `?emulador` y define:
-   - `FIREBASE_ENTORNO = 'emulador'`
-   - `FIREBASE_CONFIG` con el proyecto `demo-wallace` (la clave `demo-key` no es real)
-   - `FIREBASE_EMULADORES = { database:'127.0.0.1:9000', auth:'127.0.0.1:9099' }`
-3. `src/arranque.js` pasa `FIREBASE_EMULADORES` a los dos adaptadores.
-4. `src/adaptadores/salida/firebase-datos.js` → `iniciar()` llama `database().useEmulator('127.0.0.1', 9000)` antes de cualquier lectura.
-5. `src/adaptadores/salida/firebase-cuentas.js` → `iniciar()` llama `auth().useEmulator('http://127.0.0.1:9099')`; también la instancia secundaria "altas" con la que el super-admin crea cuentas.
+2. `src/arranque.js` llama `elegirEntorno(location)` de `firebase-config.js`, que ve `localhost` + `?emulador` y devuelve:
+   - `entorno: 'emulador'`
+   - `config` con el proyecto `demo-wallace` (la clave `demo-key` no es real)
+   - `emuladores: { database:'127.0.0.1:9000', auth:'127.0.0.1:9099' }`
+3. `src/arranque.js` carga el SDK modular de Firebase y pasa `emuladores` a los dos adaptadores.
+4. `src/adaptadores/salida/firebase-datos.js` → `iniciar()` llama `connectDatabaseEmulator(db, '127.0.0.1', 9000)` antes de cualquier lectura.
+5. `src/adaptadores/salida/firebase-cuentas.js` → `iniciar()` llama `connectAuthEmulator(auth, 'http://127.0.0.1:9099')`; también la sesión secundaria "altas" con la que el super-admin crea cuentas.
 
 Desde ahí la app funciona exactamente igual que con Firebase real: mismo SDK, mismas reglas de seguridad, mismo inicio de sesión. Lo único distinto es a qué dirección se conecta.
 
@@ -177,7 +177,7 @@ El navegador sí recuerda la sesión (Firebase Authentication la guarda en el na
 
 ### 5.1 Cuándo se activa
 
-`firebase-config.js` deja `FIREBASE_CONFIG = null` (y `FIREBASE_ENTORNO = 'local'`) en dos casos:
+`elegirEntorno` (`firebase-config.js`) devuelve `config: null` y `entorno: 'local'` en dos casos:
 
 - se abre con **`?local`** (`http://localhost:3000/?local`): fuerza el modo local aunque haya proyecto de pruebas. Es lo que usan las pruebas de navegador y `scripts/capturas.mjs`, para no escribir nunca en el proyecto de pruebas real;
 - el dominio no es de producción, no se pidió `?emulador` y `PRUEBAS` está vacío.
@@ -191,7 +191,7 @@ En la consola del navegador, las funciones y el estado de la interfaz están en 
 - `Datos.iniciar()` (`firebase-datos.js`) ve que no hay configuración y **no conecta nada**. Todas las tablas viven en el `localStorage` del navegador con prefijo `ws_` (`src/adaptadores/salida/almacen-local.js`): `ws_negocios`, `ws_superadmins`, `ws_usuarios`, `ws_data_<negocio>_ventas`…
 - No hay Firebase Authentication: el login compara la contraseña con el **hash con sal** guardado en el navegador (`dominio/contrasenas.js`), como antes de S1.
 - La primera vez no hay super-admins: aparece la **configuración inicial** para crear el dueño del sistema (contraseña de 8 o más caracteres).
-- Desde el panel se crean negocios y demos (`demo` / `demo123`).
+- Desde el panel se crean negocios y demos (usuario `demo`, `demo2`…; la contraseña al azar se muestra al crearlos).
 - No hay sincronización: lo que hagas en un navegador no lo ve otro.
 
 ### 5.3 Dónde quedan los datos y cómo borrarlos

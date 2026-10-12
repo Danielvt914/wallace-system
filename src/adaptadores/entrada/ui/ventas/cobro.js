@@ -6,15 +6,18 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/02-pos-catalog/02-pos-catalog.md
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, fmtMoney, now } from '../nucleo/estado.js';
+import { BOTON, MSJ } from '../nucleo/textos.js';
 import { cajaActual, exigirPermiso, tienePermiso } from '../nucleo/permisos.js';
-import { abrirModal, cerrarModal, confirmarModal, preguntarDespues, toast } from '../nucleo/componentes.js';
+import { abrirModal, cerrarModal, confirmarModal, preguntarDespues, reportarError, toast } from '../nucleo/componentes.js';
 import { sonidoVenta } from '../nucleo/sonidos.js';
 import { render } from '../nucleo/navegacion.js';
 import { logAudit } from '../usuarios/auditoria.js';
 import { _guardando, cargarPedidoEnVenta, fijarGuardando, limpiarPedido } from './nueva-venta.js';
+import { agregarMovimientoCaja, puedeRetirarJefe } from '../caja/caja.js';
 import { imprimirComanda } from '../cocina/comanda.js';
+import { reabrirCitaDeVenta } from '../citas/citas.js';
 import { avisarStockBajo, descontarStock, devolverStock } from '../inventario/motor.js';
-import { guardarClienteAuto } from '../clientes/clientes.js';
+import { guardarClienteAuto, revertirClienteAuto } from '../clientes/clientes.js';
 import { imprimirFactura } from '../impresion/facturas.js';
 
 
@@ -36,7 +39,7 @@ export function detallePagos(v){
 export function exigeVerificarBanco(){ return !!(STATE.negocio && STATE.negocio.verificarBanco); }
 export function ventasPorVerificar(lista){ return (lista||[]).filter(bancoPendiente); }
 export function marcarVerificada(id){
-  if(!(tienePermiso('cobrar')||tienePermiso('cambiarpago'))){ toast('No tienes permiso para verificar pagos','error'); return; }
+  if(!(tienePermiso('cobrar')||tienePermiso('cambiarpago'))){ toast(MSJ.noTienesPermisoParaVerificarPagos,'error'); return; }
   const v=misDatos('ventas').find(x=>x.id===id); if(!v) return;
   confirmarModal('¿Confirmas que la transferencia de '+fmtMoney(pagosDe(v).banco)+' de '+(v.factura||'')+' YA llegó a la cuenta?',()=>{
     const ventas=misDatos('ventas');
@@ -44,7 +47,7 @@ export function marcarVerificada(id){
     x.bancoVerificado=true; x.verificadoPor=STATE.user.nombre; x.verificadoEn=now();
     guardarMisDatos('ventas',ventas);
     logAudit('Verificó transferencia', (x.factura||'')+' · '+fmtMoney(pagosDe(x).banco));
-    toast('Pago verificado','success'); render();
+    toast(MSJ.pagoVerificado,'success'); render();
   },'Sí, ya llegó');
 }
 
@@ -52,8 +55,8 @@ export function marcarVerificada(id){
 export function cobrarPedido(id){
   if(!exigirPermiso('cobrar','No tienes permiso para cobrar')) return;
   const v=misDatos('ventas').find(x=>x.id===id);
-  if(!v){ toast('Pedido no encontrado','error'); return; }
-  if(v.estado==='pagada'){ toast('Ya fue cobrado','info'); return; }
+  if(!v){ toast(MSJ.pedidoNoEncontrado,'error'); return; }
+  if(v.estado==='pagada'){ toast(MSJ.yaFueCobrado,'info'); return; }
   abrirCobro(v,false);
 }
 
@@ -65,6 +68,8 @@ export function cobrarPedido(id){
 export function abrirCobro(v, esNuevo, opc){
   opc=opc||{};
   const neg=STATE.negocio;
+  // D6: con caja, se cobra con la caja abierta (si no, ese dinero no entraría en ningún cierre)
+  if(usaCajaNegocio() && !cajaActual()){ toast(MSJ.abreLaCajaAntesDeCobrar,'error'); return; }
   const base=v.subtotal||0;
   const dom=v.valorDom||0;
   const usaPropina=(neg.usaPropina!==undefined?neg.usaPropina:neg.usaCocina);
@@ -74,7 +79,7 @@ export function abrirCobro(v, esNuevo, opc){
   campos.push({id:'recargo', label:'Recargo del datáfono (lo cobra el banco)', tipo:'number', valor:'0'});
   const totalIni=base+dom;
 
-  abrirModal({titulo:'Cobrar '+(v.factura||'')+' · '+fmtMoney(totalIni), textoBoton:'Confirmar cobro',
+  abrirModal({titulo:'Cobrar '+(v.factura||'')+' · '+fmtMoney(totalIni), textoBoton:BOTON.confirmarCobro,
     campos,
     extraHTML:`<div class="cobro-caja">
       <div class="c-row"><span>${escapeHtml(neg.palabraProductos||'Productos')}</span><strong>${fmtMoney(v.subtotalBruto!==undefined?v.subtotalBruto:base)}</strong></div>
@@ -95,7 +100,7 @@ export function abrirCobro(v, esNuevo, opc){
       </div>
       <div class="form2 mt-6">
         <div class="m-row mb-8"><label>💵 Efectivo</label>
-          <input type="number" id="pg-efectivo" class="campo" value="${totalIni}" inputmode="decimal"></div>
+          <input type="number" id="pg-efectivo" class="campo" value="${escapeHtml(totalIni)}" inputmode="decimal"></div>
         <div class="m-row mb-8"><label>🏦 Transferencia / Banco</label>
           <input type="number" id="pg-banco" class="campo" value="0" inputmode="decimal"></div>
         <div class="m-row mb-8"><label>💳 Tarjeta / Datáfono</label>
@@ -154,7 +159,7 @@ export function abrirCobro(v, esNuevo, opc){
           if(yaEsta>-1) ventas[yaEsta]=venta; else ventas.unshift(venta);   // evita duplicados al editar
         } else {
           venta=ventas.find(x=>x.id===v.id);
-          if(!venta){ toast('El pedido ya no existe','error'); cerrarModal(); fijarGuardando(false); return; }
+          if(!venta){ toast(MSJ.elPedidoYaNoExiste,'error'); cerrarModal(); fijarGuardando(false); return; }
           venta.estado='pagada';
         }
         venta.pagos={efectivo:Math.round(pagos.efectivo), banco:Math.round(pagos.banco), tarjeta:Math.round(pagos.tarjeta)};
@@ -166,6 +171,8 @@ export function abrirCobro(v, esNuevo, opc){
         venta.total=total;
         venta.cambio=Math.round(cambio);
         venta.cobrado=now(); venta.cobradoPor=STATE.user.nombre;
+        // D6: el cobro cuenta en la caja abierta AHORA (un pedido de otro turno traía la de entonces)
+        const cajaCobro=cajaActual(); if(cajaCobro) venta.cajaId=cajaCobro.id;
         descontarStock(venta);                 // marca la venta como descontada
         guardarMisDatos('ventas',ventas);      // se guarda DESPUÉS, con la marca
         guardarClienteAuto(venta);
@@ -178,14 +185,16 @@ export function abrirCobro(v, esNuevo, opc){
         if(cambio>0) setTimeout(()=>toast('💵 Devuelve '+fmtMoney(cambio)+' de cambio','info'),500);
         if((neg.funciones||[]).indexOf('facturas')>-1){
           const fid=venta.id;
-          preguntarDespues('¿Imprimir factura?',()=>imprimirFactura(fid),'Imprimir');
+          preguntarDespues(MSJ.imprimirFactura,()=>imprimirFactura(fid),'Imprimir');
         }
         STATE.pageNeg=opc.pantalla||'pedidos';
         render();
-      }catch(e){ console.error(e); toast('Error al cobrar','error'); }
+      }catch(e){ reportarError('el cobro', e); }
       finally{ fijarGuardando(false); }
     }});
 }
+// ¿Este negocio trabaja con caja? (igual que Nueva Venta y la entrega de citas)
+export function usaCajaNegocio(){ const n=STATE.negocio; return !!(n && (n.funciones||[]).indexOf('caja')>-1 && n.usaCaja!==false); }
 export function leerPagos(){
   const n=id=>parseFloat((document.getElementById(id)||{}).value)||0;
   return {efectivo:n('pg-efectivo'), banco:n('pg-banco'), tarjeta:n('pg-tarjeta')};
@@ -218,38 +227,58 @@ export function pagoRapido(tipo){
 export function anularPedido(id){
   if(!exigirPermiso('anular','No tienes permiso para anular')) return;
   const v=misDatos('ventas').find(x=>x.id===id);
-  if(!v){ toast('Pedido no encontrado','error'); return; }
-  if(v.estado==='anulada'){ toast('Ya está anulado','info'); return; }
-  confirmarModal('¿Anular el pedido '+(v.factura||'')+' de '+fmtMoney(v.total)+'? Si ya estaba cobrado, se devuelve el stock.', ()=>{
+  if(!v){ toast(MSJ.pedidoNoEncontrado,'error'); return; }
+  if(v.estado==='anulada'){ toast(MSJ.yaEstaAnulado,'info'); return; }
+  // F20: una venta de una caja YA CERRADA cambia un cierre pasado. Solo admin o dueño,
+  // y el efectivo que se le devuelve al cliente sale como retiro de la caja abierta.
+  const cajaAb=cajaActual();
+  const deCajaCerrada = v.estado==='pagada' && !!v.cajaId && (!cajaAb || cajaAb.id!==v.cajaId);
+  const devolver = deCajaCerrada ? Math.round(pagosDe(v).efectivo) : 0;
+  if(deCajaCerrada){
+    if(!puedeRetirarJefe()){ toast(MSJ.esaVentaEsDeUnaCaja,'error'); return; }
+    if(!cajaAb){ toast(MSJ.abreLaCajaParaRegistrarLa,'error'); return; }
+  }
+  const aviso = deCajaCerrada
+    ? ' Es de una caja ya cerrada'+(devolver>0?': se registrará una salida de '+fmtMoney(devolver)+' en la caja abierta para devolverle el efectivo al cliente.':'.')
+    : ' Si ya estaba cobrado, se devuelve el stock.';
+  confirmarModal('¿Anular el pedido '+(v.factura||'')+' de '+fmtMoney(v.total)+'?'+aviso, ()=>{
     const ventas=misDatos('ventas');
     const venta=ventas.find(x=>x.id===id);
-    if(!venta){ toast('El pedido ya no existe','error'); return; }
+    if(!venta){ toast(MSJ.elPedidoYaNoExiste,'error'); return; }
     const teniaStock = venta.stockAplicado===true || (venta.stockAplicado===undefined && venta.estado==='pagada');
+    const estabaPagada = venta.estado==='pagada';
     venta.estado='anulada';
     venta.anulada=now();
     venta.anuladaPor=STATE.user.nombre;
     if(teniaStock) devolverStock(venta, 'Anulación del pedido '+(venta.factura||''));   // devuelve y deja constancia
     guardarMisDatos('ventas',ventas);
-    logAudit('Anuló pedido', (venta.factura||'')+' · '+fmtMoney(venta.total));
-    toast('Pedido anulado','info');
+    if(estabaPagada) revertirClienteAuto(venta);                                      // F22: las cifras del cliente
+    if(venta.origenCita) reabrirCitaDeVenta(venta, teniaStock);                       // F22: la cita vuelve a pendiente
+    if(deCajaCerrada && devolver>0){
+      agregarMovimientoCaja({id:uid(), tipo:'retiro', concepto:'Devolución por anulación '+(venta.factura||''), valor:devolver, por:STATE.user.nombre, fecha:now()})
+        .then(ok=>{ if(!ok) toast(MSJ.noSePudoRegistrarLaDevolucion,'error'); render(); })
+        .catch(e=>reportarError('la devolución en caja', e));
+    }
+    logAudit('Anuló pedido', (venta.factura||'')+' · '+fmtMoney(venta.total)+(deCajaCerrada?' · de una caja cerrada (devolución '+fmtMoney(devolver)+')':''));
+    toast(MSJ.pedidoAnulado,'info');
     render();
   },'Sí, anular');
 }
 
 // ---------- EDITAR PEDIDO ----------
 export function editarPedido(id){
-  if(!tienePermiso('editar')){ toast('No tienes permiso para editar pedidos','error'); return; }
+  if(!tienePermiso('editar')){ toast(MSJ.noTienesPermisoParaEditarPedidos,'error'); return; }
   const v=misDatos('ventas').find(x=>x.id===id);
-  if(!v){ toast('Pedido no encontrado','error'); return; }
-  if(v.estado==='anulada'){ toast('No se puede editar un pedido anulado','error'); return; }
+  if(!v){ toast(MSJ.pedidoNoEncontrado,'error'); return; }
+  if(v.estado==='anulada'){ toast(MSJ.noSePuedeEditarUnPedido,'error'); return; }
   // Una venta de una caja YA CERRADA no se toca: descuadraría ese cierre
   const cajaAb=cajaActual();
   if(v.estado==='pagada' && v.cajaId && (!cajaAb || cajaAb.id!==v.cajaId)){
-    toast('Ese pedido es de una caja ya cerrada. Para corregirlo, anúlalo y haz uno nuevo.','error');
+    toast(MSJ.esePedidoEsDeUnaCaja,'error');
     return;
   }
   if(v.estado==='pagada' && !cajaAb){
-    toast('Abre la caja antes de editar un pedido ya cobrado','error'); return;
+    toast(MSJ.abreLaCajaAntesDeEditar,'error'); return;
   }
   STATE._itemsAntes=JSON.parse(JSON.stringify(v.items||[]));
   STATE._totalAntes=v.total||0;
@@ -272,7 +301,7 @@ export function modoAjusteCobro(){
 }
 export function ajustarPagoVenta(id, modoForzado){
   const v=misDatos('ventas').find(x=>x.id===id);
-  if(!v){ toast('Pedido no encontrado','error'); return; }
+  if(!v){ toast(MSJ.pedidoNoEncontrado,'error'); return; }
   const p=pagosDe(v);
   const pagado=Math.round(p.efectivo+p.banco+p.tarjeta);
   const total=Math.round(v.total||0);
@@ -283,7 +312,7 @@ export function ajustarPagoVenta(id, modoForzado){
   // No habla de deudas: muestra el total nuevo y el cajero lo cobra completo.
   // El pago anterior se REEMPLAZA, así que la caja no cuenta nada dos veces.
   if(modo==='total' || dif===0){
-    abrirModal({titulo:'Cobrar '+(v.factura||'')+' · '+fmtMoney(total), textoBoton:'Confirmar cobro', campos:[],
+    abrirModal({titulo:'Cobrar '+(v.factura||'')+' · '+fmtMoney(total), textoBoton:BOTON.confirmarCobro, campos:[],
       extraHTML:`<div class="cobro-caja">
         <div class="c-row"><span>${escapeHtml((STATE.negocio.palabraProductos)||'Productos')}</span><span>${fmtMoney(v.subtotal||0)}</span></div>
         ${(v.valorDom||0)>0?`<div class="c-row"><span>Domicilio</span><span>${fmtMoney(v.valorDom)}</span></div>`:''}
@@ -301,12 +330,12 @@ export function ajustarPagoVenta(id, modoForzado){
           <button type="button" class="btn btn-sm btn-ghost" data-click="pagoRapido('mitad')">Mitad y mitad</button>
         </div>
         <div class="form2 mt-6">
-          <div class="m-row mb-8"><label>💵 Efectivo</label><input type="number" id="pg-efectivo" class="campo" value="${total}"></div>
+          <div class="m-row mb-8"><label>💵 Efectivo</label><input type="number" id="pg-efectivo" class="campo" value="${escapeHtml(total)}"></div>
           <div class="m-row mb-8"><label>🏦 Banco</label><input type="number" id="pg-banco" class="campo" value="0"></div>
           <div class="m-row mb-8"><label>💳 Tarjeta</label><input type="number" id="pg-tarjeta" class="campo" value="0"></div>
           <div class="m-row mb-8"><label>Falta / sobra</label><div class="campo d-flex items-centro fw-800" id="pg-estado">$ 0</div></div>
         </div>
-        ${dif!==0?`<button type="button" class="btn btn-ghost btn-sm mt-6" data-click="ajustarPagoDesdeModal('${id}','diferencia')">↔ Cobrar solo la diferencia (${fmtMoney(Math.abs(dif))})</button>`:''}
+        ${dif!==0?`<button type="button" class="btn btn-ghost btn-sm mt-6" data-click="ajustarPagoDesdeModal('${escapeHtml(id)}','diferencia')">↔ Cobrar solo la diferencia (${fmtMoney(Math.abs(dif))})</button>`:''}
         <div class="c-nota" id="c-nota"></div>
       </div>`,
     onAbrir:()=>{
@@ -343,12 +372,12 @@ export function ajustarPagoVenta(id, modoForzado){
         <button type="button" class="btn btn-sm" data-click="pagoRapido('tarjeta')">Todo con tarjeta</button>
       </div>
       <div class="form2 mt-6">
-        <div class="m-row mb-8"><label>💵 Efectivo${cobra?'':' (pagado: '+fmtMoney(tope.efectivo)+')'}</label><input type="number" id="pg-efectivo" class="campo" value="${monto}"></div>
+        <div class="m-row mb-8"><label>💵 Efectivo${cobra?'':' (pagado: '+fmtMoney(tope.efectivo)+')'}</label><input type="number" id="pg-efectivo" class="campo" value="${escapeHtml(monto)}"></div>
         <div class="m-row mb-8"><label>🏦 Banco${cobra?'':' (pagado: '+fmtMoney(tope.banco)+')'}</label><input type="number" id="pg-banco" class="campo" value="0"></div>
         <div class="m-row mb-8"><label>💳 Tarjeta${cobra?'':' (pagado: '+fmtMoney(tope.tarjeta)+')'}</label><input type="number" id="pg-tarjeta" class="campo" value="0"></div>
         <div class="m-row mb-8"><label>Falta / sobra</label><div class="campo d-flex items-centro fw-800" id="pg-estado">$ 0</div></div>
       </div>
-      <button type="button" class="btn btn-ghost btn-sm mt-6" data-click="ajustarPagoDesdeModal('${id}','total')">↔ Mejor repartir el total completo</button>
+      <button type="button" class="btn btn-ghost btn-sm mt-6" data-click="ajustarPagoDesdeModal('${escapeHtml(id)}','total')">↔ Mejor repartir el total completo</button>
       <div class="c-nota" id="c-nota"></div>
     </div>`,
   onAbrir:()=>{
@@ -365,7 +394,7 @@ export function ajustarPagoVenta(id, modoForzado){
                banco:Math.round(p.banco+signo*d.banco),
                tarjeta:Math.round(p.tarjeta+signo*d.tarjeta)};
     if(fin.efectivo<0||fin.banco<0||fin.tarjeta<0){
-      toast('No puedes devolver por una forma más de lo que se pagó por ella','error'); return;
+      toast(MSJ.noPuedesDevolverPorUnaForma,'error'); return;
     }
     guardarAjusteCobro(id, fin, (cobra?'Cobró ':'Devolvió ')+fmtMoney(monto));
   }});
@@ -390,13 +419,13 @@ export function guardarAjusteCobro(id, pagos, detalleExtra){
 
 // ---------- CAMBIAR FORMA DE PAGO (después de cobrado) ----------
 export function cambiarFormaPago(id){
-  if(!tienePermiso('cambiarpago')){ toast('No tienes permiso para cambiar la forma de pago','error'); return; }
+  if(!tienePermiso('cambiarpago')){ toast(MSJ.noTienesPermisoParaCambiarLa,'error'); return; }
   const v=misDatos('ventas').find(x=>x.id===id);
-  if(!v){ toast('Pedido no encontrado','error'); return; }
-  if(v.estado!=='pagada'){ toast('Solo aplica a pedidos ya cobrados','error'); return; }
+  if(!v){ toast(MSJ.pedidoNoEncontrado,'error'); return; }
+  if(v.estado!=='pagada'){ toast(MSJ.soloAplicaAPedidosYaCobrados,'error'); return; }
   const p=pagosDe(v);
   const total=v.total||0;
-  abrirModal({titulo:'Corregir la forma de pago', textoBoton:'Guardar', campos:[],
+  abrirModal({titulo:'Corregir la forma de pago', textoBoton:BOTON.guardar, campos:[],
     extraHTML:`<p class="nota">Total cobrado: <strong>${fmtMoney(total)}</strong>. Reparte ese valor entre las formas de pago reales.</p>
     <div class="cobro-caja">
       <div class="form2">
@@ -427,29 +456,29 @@ export function cambiarFormaPago(id){
     x.pagoEditadoPor=STATE.user.nombre; x.pagoEditadoEn=now();
     guardarMisDatos('ventas',ventas);
     logAudit('Cambió forma de pago', (x.factura||'')+': '+antes+' → '+detallePagos(x));
-    cerrarModal(); toast('Forma de pago actualizada','success'); render();
+    cerrarModal(); toast(MSJ.formaDePagoActualizada,'success'); render();
   }});
 }
 
 // ---------- REIMPRIMIR COMANDA (cocina) ----------
 export function reimprimirComanda(id){
-  if(!tienePermiso('comanda')){ toast('No tienes permiso para imprimir comandas','error'); return; }
+  if(!tienePermiso('comanda')){ toast(MSJ.noTienesPermisoParaImprimirComandas,'error'); return; }
   const v=misDatos('ventas').find(x=>x.id===id);
-  if(!v){ toast('Pedido no encontrado','error'); return; }
+  if(!v){ toast(MSJ.pedidoNoEncontrado,'error'); return; }
   imprimirComanda(v);
 }
 
 // ---------- ELIMINAR DEFINITIVAMENTE ----------
 export function eliminarDefinitivo(id){
-  if(!tienePermiso('eliminar')){ toast('No tienes permiso para eliminar','error'); return; }
+  if(!tienePermiso('eliminar')){ toast(MSJ.noTienesPermisoParaEliminar,'error'); return; }
   const v=misDatos('ventas').find(x=>x.id===id);
-  if(!v){ toast('Pedido no encontrado','error'); return; }
+  if(!v){ toast(MSJ.pedidoNoEncontrado,'error'); return; }
   confirmarModal('⚠️ Eliminar PERMANENTEMENTE '+(v.factura||'este pedido')+' ('+fmtMoney(v.total)+'). Se descuenta de ventas, caja y reportes. No se puede deshacer. ¿Continuar?', ()=>{
     const teniaStock = v.stockAplicado===true || (v.stockAplicado===undefined && v.estado==='pagada');
     if(teniaStock) devolverStock(v, 'Eliminación del pedido '+(v.factura||''));
     eliminarMisDatos('ventas',id);
     logAudit('Eliminó definitivamente', (v.factura||'')+' · '+fmtMoney(v.total));
-    toast('Pedido eliminado por completo','error'); render();
+    toast(MSJ.pedidoEliminadoPorCompleto,'error'); render();
   },'Sí, eliminar');
 }
 // Botones dentro de un modal que abren el ajuste de cobro (fase 8: antes eran onclick compuestos)

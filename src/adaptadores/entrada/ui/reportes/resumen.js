@@ -8,6 +8,7 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/08-sales-reports/08-sales-reports.md
 // ============================================================
 import { STATE } from '../nucleo/estado.js';
+import { MSJ } from '../nucleo/textos.js';
 import { esAdminSistema } from '../nucleo/permisos.js';
 import { reportarError, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
@@ -41,9 +42,9 @@ export function resumenDe(negId){
 // Panel: calcula y publica el resumen de los negocios que todavía no lo tienen
 // (negocios en los que nadie ha entrado desde la versión nueva)
 export async function calcularResumenes(){
-  if(!esAdminSistema()){ toast('No tienes permiso','error'); return; }
+  if(!esAdminSistema()){ toast(MSJ.noTienesPermiso,'error'); return; }
   const faltan=(DB.get('negocios')||[]).filter(n=>!DB.get(claveDe(n.id,'resumen')));
-  if(!faltan.length){ toast('Todos los negocios tienen sus cifras al día','info'); return; }
+  if(!faltan.length){ toast(MSJ.todosLosNegociosTienenSusCifras,'info'); return; }
   toast('Calculando cifras de '+faltan.length+' negocio(s)…','info');
   for(const n of faltan){
     try{
@@ -51,6 +52,6 @@ export async function calcularResumenes(){
       DB.set(claveDe(n.id,'resumen'), Dominio.ventas.resumenVentas(datosDe(n.id,'ventas'), today()));
     }catch(e){ reportarError('el cálculo de cifras de '+n.nombre, e); }
   }
-  toast('Cifras calculadas','success');
+  toast(MSJ.cifrasCalculadas,'success');
   render();
 }

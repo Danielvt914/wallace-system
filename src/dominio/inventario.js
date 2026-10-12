@@ -177,3 +177,15 @@ export function valorInventario(productos){
   });
   return r;
 }
+
+// ---------- Foto del producto ----------
+// Se guarda en el producto como data: URL (JPEG reducido, como el logo del negocio).
+// Solo se acepta una imagen de verdad: cualquier otro texto no se dibuja nunca en el HTML.
+export const FOTO_MAX_PX=200;
+export const FOTO_MAX_BYTES=60000;      // ~45 KB de imagen: la tabla de productos se sincroniza a todos los equipos
+export function imagenValida(s){ return esImagenData(s, FOTO_MAX_BYTES); }
+// Una imagen guardada como texto: data: de PNG, JPEG o WebP en base64 y de tamaño acotado.
+// Sin comillas, espacios ni "<": nunca puede salirse de un atributo src (S8).
+// Las reglas de la base validan el logo con la misma expresión (database.rules*.json).
+export const IMAGEN_DATA=/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
+export function esImagenData(s, max){ return typeof s==='string' && s.length<=max && IMAGEN_DATA.test(s); }

@@ -28,6 +28,36 @@ export const ICONS = {
   plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
   history:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><polyline points="12 7 12 12 15 15"/></svg>'
 };
+// Foto del producto si es una imagen válida (dominio/inventario.js); si no, su ícono
+export function fotoProducto(p, icono){
+  return (p && Dominio.inventario.imagenValida(p.imagen)) ? '<img src="'+escapeHtml(p.imagen)+'" alt="">' : ic(icono||'box');
+}
+// Logo del negocio como <img>, solo si es una imagen válida (S8); si no, '' (el que llama pone
+// su alternativa con ||). atributos: texto FIJO del código (clases, estilos de impresión).
+export function logoNegocio(neg, atributos){
+  if(!neg || !Dominio.negocio.logoValido(neg.logo)) return '';
+  return '<img src="'+escapeHtml(neg.logo)+'"'+(atributos?' '+atributos:'')+'>';
+}
+// Lee un archivo de imagen y lo reduce a "max" px de ancho/alto como JPEG (data: URL)
+export function reducirImagen(archivo, max, calidad){
+  return new Promise((ok, mal)=>{
+    if(!archivo || !/^image\//.test(archivo.type||'')){ mal(new Error('El archivo no es una imagen')); return; }
+    const lector=new FileReader();
+    lector.onerror=()=>mal(new Error('No se pudo leer la imagen'));
+    lector.onload=e=>{
+      const img=new Image();
+      img.onerror=()=>mal(new Error('La imagen no se pudo abrir'));
+      img.onload=()=>{
+        let w=img.width, h=img.height; const k=Math.min(1, max/Math.max(w,h)); w=Math.round(w*k); h=Math.round(h*k);
+        const lienzo=document.createElement('canvas'); lienzo.width=w; lienzo.height=h;
+        const cx=lienzo.getContext('2d'); cx.fillStyle='#ffffff'; cx.fillRect(0,0,w,h); cx.drawImage(img,0,0,w,h);
+        ok(lienzo.toDataURL('image/jpeg', calidad||0.72));
+      };
+      img.src=e.target.result;
+    };
+    lector.readAsDataURL(archivo);
+  });
+}
 export function ic(n){ return ICONS[n]||ICONS.dashboard; }
 
 // ---- Vocabulario dinámico por negocio ----
@@ -64,14 +94,14 @@ export function abrirModal(cfg){
   const campos=(cfg.campos||[]).map(c=>{
     if(c.tipo==='select'){
       return `<div class="m-row"><label>${escapeHtml(c.label)}</label>
-        <select id="m-${c.id}">${(c.opciones||[]).map(o=>`<option value="${escapeHtml(o.valor)}" ${o.valor===c.valor?'selected':''}>${escapeHtml(o.label)}</option>`).join('')}</select></div>`;
+        <select id="m-${escapeHtml(c.id)}">${(c.opciones||[]).map(o=>`<option value="${escapeHtml(o.valor)}" ${o.valor===c.valor?'selected':''}>${escapeHtml(o.label)}</option>`).join('')}</select></div>`;
     }
     if(c.tipo==='textarea'){
       return `<div class="m-row"><label>${escapeHtml(c.label)}</label>
-        <textarea id="m-${c.id}" rows="3" placeholder="${escapeHtml(c.placeholder||'')}">${escapeHtml(c.valor||'')}</textarea></div>`;
+        <textarea id="m-${escapeHtml(c.id)}" rows="3" placeholder="${escapeHtml(c.placeholder||'')}">${escapeHtml(c.valor||'')}</textarea></div>`;
     }
     return `<div class="m-row"><label>${escapeHtml(c.label)}</label>
-      <input id="m-${c.id}" type="${c.tipo||'text'}" value="${escapeHtml(c.valor||'')}" placeholder="${escapeHtml(c.placeholder||'')}"></div>`;
+      <input id="m-${escapeHtml(c.id)}" type="${escapeHtml(c.tipo||'text')}" value="${escapeHtml(c.valor||'')}" placeholder="${escapeHtml(c.placeholder||'')}"></div>`;
   }).join('');
   cont.innerHTML=`<div class="modal-fondo" data-click="cerrarModal()"></div>
     <div class="modal">

@@ -93,7 +93,7 @@ Antes era un arreglo en `data/negocios`. Con S1 cada negocio vive en `data/negoc
 | `id` 🔒 | texto | Identificador (sin `_`) |
 | `nombre`, `tipo` | texto | Nombre y tipo (plantilla: restaurante, barbería, tienda…) |
 | `nit`, `tel`, `dir`, `ciudad`, `eslogan` | texto | Datos que salen en la factura |
-| `logo` | texto | Imagen como `data:` URL (PNG). Es lo que más pesa del registro |
+| `logo` | texto | Imagen como `data:` URL (PNG, o JPEG si pesa mucho), ≤ 400.000 caracteres. Es lo que más pesa del registro. **Las reglas solo aceptan** `data:image/(png|jpeg|webp);base64,…` o vacío, y la app solo dibuja uno válido (`logoNegocio`, S8) |
 | `activo` 🔒 | booleano | `false` = suspendido (control de pago) |
 | `plan` 🔒, `precioMes` 🔒, `diaPago` 🔒 | texto / número | Plan comercial (Básico, Profesional, Premium) |
 | `vendedorId` 🔒, `vendedorNombre` 🔒, `notasComerciales` 🔒 | texto | Super-admin vendedor que lo trajo |
@@ -101,6 +101,7 @@ Antes era un arreglo en `data/negocios`. Con S1 cada negocio vive en `data/negoc
 | `creado` 🔒 | momento | Alta |
 | `funciones` 🔒 | arreglo de texto | Ventanas habilitadas (`ventas`, `caja`, `inventario`, `citas`…) |
 | `sucursales` 🔒 | arreglo `{id, nombre}` | Sedes (F1). Vacío o una sola = sin sucursales |
+| `pruebaDesde` 🔒, `pruebaHasta` 🔒 | número (ms) | Periodo de prueba, o vencimiento de una demo (`dominio/prueba.js`). Con `pruebaHasta` vencido el negocio queda en solo lectura (reglas). Sin estos campos = negocio pagado |
 | `flujoPedido` | texto | `directo` (cobrar al vender) o `dos_pasos` (pedido y luego cobro) |
 | `tiposEntrega` | arreglo de texto | `mesa`, `llevar`, `domicilio`, `envio` |
 | `usaMesas`, `usaCocina`, `usaRecetas`, `usaCitas`, `usaCuentas`, `usaCaja`, `usaPropina`, `usaDomicilios`, `usaCodBarras`, `usaClienteFijo`, `esLogistica`, `descontarAlPedir`, `verificarBanco` | booleano | Funciones operativas (ver [11](../11-business-settings/11-business-settings.md)) |
@@ -162,6 +163,7 @@ Lista en `data/superadmins`.
 | `editaNegocio` | booleano | Puede editar los datos de su negocio (Mi Negocio). Se calcula en `src/dominio/cuentas.js` |
 | `migradoEn`, `reemplazadaEn` | momento | Cuándo se creó o se reemplazó la cuenta |
 | `creadoPor` | texto | uid del super-admin que la creó |
+| `negocioActivo` | texto | Solo super-admin **vendedor**: el negocio suyo cuyas tablas puede usar en este momento (lo escribe él mismo al entrar a una demo, crear un negocio o borrar una demo; las reglas exigen que sea suyo). Ver [01-super-admin-panel](../01-super-admin-panel/01-super-admin-panel.md), sección 12 |
 
 ### 3.5 `migracion_s1`
 `{negocios, usuarios, negociosCopiados, usuariosCopiados}`: momento y cantidad de la conversión de las tablas globales. La hace **el primer ingreso de cualquiera** con la versión nueva, una sola vez.
@@ -212,8 +214,9 @@ Ventas, pedidos y cuentas abiertas. La crea `armarVenta` (`ui/ventas/nueva-venta
 | `precio` | número | Precio de venta |
 | `costo` | número | Costo (opcional) |
 | `codBarras` | texto | Código de barras |
-| `imagen` | texto | Imagen o emoji |
+| `imagen` | texto | Foto `data:image/jpeg;base64,…` de 200 px (unos 10–30 KB), subida desde el formulario del producto. Vacía = ícono. Solo se dibuja si pasa `Dominio.inventario.imagenValida` |
 | `agotado` | booleano | Oculto en Nueva Venta (bandera manual) |
+| `ejemplo` | booleano | Producto de ejemplo (demos y periodo de prueba); `Pruebas.borrarEjemplos` los quita de una vez |
 | `creado` | momento | Alta |
 | `stock` | número o `null` | `null` = no lleva inventario. **Nunca se fija como valor**: se cambia con `cambiarStock`/`moverInventario`, que dejan movimiento y auditoría (D2, F11) |
 | `stockMin` | número o `null` | Aviso de stock bajo |

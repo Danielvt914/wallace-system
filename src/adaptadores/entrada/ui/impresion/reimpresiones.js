@@ -45,8 +45,8 @@ export function reimpresiones(){
           <td>${v.estado==='pagada'?'<span class="pill pill-verde">Pagada</span>':'<span class="pill pill-gold">Por cobrar</span>'}</td>
           <td class="gris chico">${fmtDate(v.fecha)}</td>
           <td class="acciones">
-            <button class="btn btn-sm" data-click="imprimirFactura('${v.id}')" title="${v.estado==='pagada'?'Factura':'Cuenta (cobro pendiente)'}">${v.estado==='pagada'?'🧾 Factura':'🧾 Cuenta'}</button>
-            ${neg.usaCocina?`<button class="btn btn-sm" data-click="reimprimirComanda('${v.id}')" title="Comanda de cocina">👨‍🍳</button>`:''}
+            <button class="btn btn-sm" data-click="imprimirFactura('${escapeHtml(v.id)}')" title="${v.estado==='pagada'?'Factura':'Cuenta (cobro pendiente)'}">${v.estado==='pagada'?'🧾 Factura':'🧾 Cuenta'}</button>
+            ${neg.usaCocina?`<button class="btn btn-sm" data-click="reimprimirComanda('${escapeHtml(v.id)}')" title="Comanda de cocina">👨‍🍳</button>`:''}
           </td>
         </tr>`).join(''):'<tr><td colspan="7" class="gris">No hay pedidos para reimprimir.</td></tr>'}</tbody>
       </table></div>

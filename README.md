@@ -63,7 +63,7 @@ npm run emulador         # la app completa contra emuladores locales → http://
 
 ## Desplegar
 
-1. Sitio estático: `index.html`, `src/`, `firebase-config.js`, `logo.js` (y `prueba.html` para diagnóstico).
+1. Sitio estático: `index.html`, `src/` y `firebase-config.js` (y `prueba.html` + `prueba.js` para diagnóstico).
 2. `git push` → Render lo publica solo (`render.yaml`).
 3. Reglas de la base: `npm run reglas:transicion` / `npm run reglas:cerradas` (proyecto de pruebas; ver `Documentation/-00-execution-protocol`).
 

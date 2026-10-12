@@ -6,7 +6,7 @@ Cada hallazgo corregido tiene debajo su **Solución aplicada** y lo que queda pe
 
 **Severidad**: 🔴 Alta (seguridad o pérdida/corrupción de datos) · 🟠 Media (resultado incorrecto visible) · 🟡 Baja (inconsistencia, deuda técnica).
 
-> **Estado al 2026-10-10:** **los 34 hallazgos están cerrados** (`npm test` 67/67 · `npm run test:firebase` 36/36). S6 se encontró y corrigió en la fase 8 (2026-10-09). **S1** quedó desplegado y verificado en el proyecto de simulación `wallacesys-dev-sandbox` (base desde cero, dueño creado, reglas cerradas: sin sesión todo responde "Permission denied"); **F17** se cerró por decisión comercial (planes iguales en ventanas). **En la empresa no hay nada desplegado:** su producción sigue con la versión original, con las contraseñas en texto plano y la base abierta, hasta que se repitan las fases de S1 en su proyecto. **Lo que falta no son hallazgos sin corregir sino pruebas con Firebase real, decisiones y el despliegue en la empresa**: ver [Pendientes](#pendientes) y la guía paso a paso [conexion-firebase](../-00-execution-protocol/conexion-firebase.md).
+> **Estado al 2026-10-12:** de la primera revisión, **los 34 hallazgos están cerrados**. La **segunda revisión** (2026-10-12, sección [Segunda revisión](#segunda-revisión-2026-10-12)) encontró 10 nuevos (uno grave de dinero en caja, D6): **los 10 corregidos el mismo día**, cada uno con su prueba. **S8** (logo del negocio sin validar, 🔴), encontrado después: corregido el mismo día. Primera revisión: (`npm test` 67/67 · `npm run test:firebase` 36/36). S6 se encontró y corrigió en la fase 8 (2026-10-09). **S1** quedó desplegado y verificado en el proyecto de simulación `wallacesys-dev-sandbox` (base desde cero, dueño creado, reglas cerradas: sin sesión todo responde "Permission denied"); **F17** se cerró por decisión comercial (planes iguales en ventanas). **En la empresa no hay nada desplegado:** su producción sigue con la versión original, con las contraseñas en texto plano y la base abierta, hasta que se repitan las fases de S1 en su proyecto. **Lo que falta no son hallazgos sin corregir sino pruebas con Firebase real, decisiones y el despliegue en la empresa**: ver [Pendientes](#pendientes) y la guía paso a paso [conexion-firebase](../-00-execution-protocol/conexion-firebase.md).
 
 ## Resumen
 
@@ -46,6 +46,17 @@ Cada hallazgo corregido tiene debajo su **Solución aplicada** y lo que queda pe
 | C2 | 🟡 | Código | Errores de pantalla atrapados y ocultos | ✅ Corregido |
 | R2 | 🟡 | Rendimiento | Sumar gastos por concepto relee el catálogo por cada gasto | ✅ Corregido |
 | DOC1 | 🟡 | Documentación | README raíz y `prueba.html` desactualizados | ✅ Corregido (salvo historial de commits) |
+| D6 | 🔴 | Datos | Un pedido de un turno anterior (o cobrado con la caja cerrada) no entra en ningún cierre de caja | ✅ Corregido (2026-10-12) |
+| D7 | 🟠 | Datos | Gastos, retiros y entradas de caja se guardan sin transacción: dos equipos a la vez pierden uno | ✅ Corregido (2026-10-12) |
+| D8 | 🟠 | Datos | Conteo físico: lo vendido mientras se cuenta se descuenta dos veces al aplicar el ajuste | ✅ Corregido (2026-10-12) |
+| F19 | 🟠 | Funcional | Cerrar la caja no avisa de pedidos o cuentas sin cobrar, y en el turno siguiente desaparecen de Pedidos y Cuentas | ✅ Corregido (2026-10-12) |
+| F20 | 🟠 | Funcional | Se puede anular una venta de una caja ya cerrada (editarla no): cambia las cifras de un cierre pasado | ✅ Corregido (2026-10-12) |
+| F21 | 🟠 | Funcional | Cada pantalla suma distinto: Historial y el panel usan el total con propina, recargo y domicilio; Reportes y Contable, el subtotal | ✅ Corregido (2026-10-12) |
+| F22 | 🟡 | Funcional | Anular la venta de una cita deja la cita "atendida" y no revierte las cifras del cliente | ✅ Corregido (2026-10-12) |
+| F23 | 🟡 | Funcional | Las líneas y brillos (--linea, --glow) no siguen el color del negocio: quedan verdes | ✅ Corregido (2026-10-12) |
+| C3 | 🟡 | Código | Errores tragados en flujos importantes: falla al imprimir la comanda (la cocina no se entera) y al cobrar no queda en auditoría | ✅ Corregido (2026-10-12) |
+| S7 | 🟡 | Seguridad | Algunas acciones no validan permiso propio (guardar edición de pedido, conceptos de gasto, cuentas abiertas) | ✅ Corregido (2026-10-12) |
+| S8 | 🔴 | Seguridad | El logo del negocio (y otros datos dentro de atributos HTML) se metían sin validar ni escapar: quien edita el negocio podía ejecutar código en la sesión del super-admin | ✅ Corregido (2026-10-12) |
 
 ---
 
@@ -146,6 +157,8 @@ Qué hace cada parte:
 
 ##### Cambios necesarios en `app.js`
 
+> Propuesta original, escrita con el SDK *compat* de Firebase. Lo implementado está en [-02 → S1](../-02-corrections/-02-corrections.md); desde el 2026-10-11 los adaptadores usan el SDK **modular** (`ref`, `get`, `signInWithEmailAndPassword(auth, …)`) y no existe el objeto global `firebase`.
+
 1. **Cargar el SDK de Auth** en `index.html`, junto a los otros dos de Firebase:
    ```html
    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -213,8 +226,14 @@ Hoy hay usuarios con contraseña guardada como hash; nadie conoce esas contrase�
 ##### Cómo comprobar que quedó resuelto
 
 1. **Sin sesión no se lee nada**: abrir en el navegador `https://<proyecto>-default-rtdb.firebaseio.com/data.json`. Debe responder `"Permission denied"`. Hoy responde con todos los datos.
-2. **Un negocio no ve otro**: iniciar sesión como empleado de N1 y, en la consola del navegador, ejecutar `firebase.database().ref('data/data_N2_ventas_r').once('value')`. Debe fallar con *permission denied*.
-3. **Un empleado no ve credenciales**: `firebase.database().ref('data/usuarios').once('value')` debe fallar.
+2. **Un negocio no ve otro**: iniciar sesión como empleado de N1 y, en la consola del navegador, preparar el lector:
+   ```js
+   // En la consola (F12), con la sesión iniciada: el mismo SDK que cargó la app
+   const {database:D, app:A}=(await import('/src/adaptadores/salida/firebase-sdk.js')).sdkCargado();
+   const leer=r=>D.get(D.ref(D.getDatabase(A.getApp()), r));
+   ```
+   Luego `await leer('data/data_N2_ventas_r')`: debe fallar con *permission denied*.
+3. **Un empleado no ve credenciales**: `await leer('data/usuarios')` debe fallar.
 4. **Un empleado no se sube de rango**: intentar escribir en `perfiles/<su uid>/rol` debe fallar.
 5. **Simulador de reglas** de la consola (*Realtime Database → Reglas → Simulador*): probar cada caso anterior con distintos `auth.uid`.
 6. Repetir el [protocolo de verificación](../-00-execution-protocol/-00-execution-protocol.md#7-protocolo-de-verificación-smoke-test) completo con roles distintos.
@@ -222,7 +241,7 @@ Hoy hay usuarios con contraseña guardada como hash; nadie conoce esas contrase�
 ##### Decisiones que debe tomar el dueño del sistema
 
 - ~~¿Se activa el plan Blaze para Cloud Functions?~~ **Decidido: de momento no.** Se sigue el [Plan B, sin pago por uso](../-02-corrections/-02-corrections.md#plan-b--sin-pago-por-uso-plan-spark-gratuito--elegido-de-momento).
-- ¿Qué puede ver un super-admin **vendedor**? Con las reglas de arriba un super-admin ve todo; si el vendedor solo debe ver sus demos, hay que darle un rol distinto (`perfiles/<uid>/rol = 'vendedor'`) y reglas que lo limiten a los negocios con `demoDe` igual a su uid.
+- ~~¿Qué puede ver un super-admin **vendedor**?~~ **Decidido (2026-10-12): solo sus negocios** (los que tienen su `vendedorId` y sus demos, `demoDe`), en las reglas. Ver [01-super-admin-panel](../01-super-admin-panel/01-super-admin-panel.md), sección 12.
 - ¿Puede el **admin de un negocio** crear empleados (hoy solo el super-admin puede)? Si sí, la Cloud Function debe permitirlo para su propio `negocioId`.
 
 ##### Qué se gana
@@ -478,6 +497,226 @@ Hoy hay usuarios con contraseña guardada como hash; nadie conoce esas contrase�
 - `prueba.html`: prueba la lectura sobre el nodo `posu` (no `data`) y deja escrito `prueba_conexion`.
 - Historial de commits con mensajes genéricos ("Add files via upload", "Update print statement…") que no describen los cambios.
 
+## Segunda revisión (2026-10-12)
+
+Revisión de los flujos completos (vender, cobrar, anular, editar, caja, inventario, citas, reportes, demos y prueba) con dos métodos:
+- un análisis automático de los 48 módulos de la interfaz: reglas de `CLAUDE.md`, acciones que escriben sin validar permiso, errores tragados, texto de usuario sin escapar en HTML, stock fijado como valor y código sin uso;
+- la lectura del código de cada flujo.
+
+**Lo que salió bien**:
+- ningún texto de usuario sin escapar en el HTML (después de S6);
+- todos los cambios de stock pasan por `cambiarStock` con movimiento;
+- no hay fechas UTC usadas como día;
+- no hay preguntas diferidas con `setTimeout`.
+
+### D6 🔴 Un pedido de otro turno (o cobrado sin caja) no entra en ningún cierre — ✅ Corregido
+- **Dónde**:
+  - `abrirCobro` (`ui/ventas/cobro.js`) cambia el estado a pagada, pero **no actualiza `cajaId`**, que se fijó al **crear** el pedido (`armarVenta`, `ui/ventas/nueva-venta.js`);
+  - `ventasJornada` (`ui/ventas/pedidos.js`) elige las ventas del cierre así: `cajaId === caja abierta` **o** fecha posterior a la apertura;
+  - `cobrarPedido` no exige caja abierta (Nueva Venta sí).
+- **Qué pasa**:
+  - **Pedido de un turno anterior**: un pedido (o cuenta de mesa) creado en el turno de ayer y cobrado hoy conserva el `cajaId` de ayer y su fecha es anterior a la apertura de hoy. **No entra en el cierre de hoy.** Tampoco entró en el de ayer, porque entonces no estaba pagado.
+  - **Cobro con la caja cerrada**: pasa lo mismo con un pedido cobrado con la caja cerrada.
+- **Impacto**: ese dinero **no aparece en ningún cierre**. El cajón queda con un sobrante "inexplicable", y Contable lo cuenta en las ventas (por jornada), pero ningún cierre lo cuadra. Con mesas y cuentas abiertas entre turnos es frecuente.
+- **Propuesta**:
+  1. Al cobrar, poner `cajaId` (y `sucursalId`) de la caja abierta en ese momento.
+  2. Si el negocio usa caja, exigir caja abierta para cobrar (como en Nueva Venta).
+  3. Una prueba en el recorrido: pedido creado, caja cerrada, caja nueva, cobro → aparece en el cierre nuevo.
+
+- **Solución aplicada** (2026-10-12):
+  1. `abrirCobro` (`ui/ventas/cobro.js`) pone en la venta el `cajaId` de la caja abierta **al cobrar**.
+  2. Si el negocio usa caja, no deja cobrar sin caja abierta (`usaCajaNegocio`), igual que Nueva Venta y la entrega de citas.
+  3. Con F19, el pedido de otro turno sigue a la vista para cobrarlo.
+- **Probado**: `tests/navegador/recorrido.test.mjs` → "D6/F19". Pedido sin cobrar, se cierra la caja, sin caja no se cobra, se abre otra caja, se cobra: queda en la caja nueva y entra en su cierre. Con el código anterior la prueba falla.
+### D7 🟠 Movimientos de caja sin transacción — ✅ Corregido
+- **Dónde**: `movimientoCaja` (`ui/caja/caja.js`) guarda con `guardarCajaActual`, que reescribe toda la tabla única `caja_actual`. Abrir y cerrar sí usan `transaccionUnica` (D5).
+- **Qué pasa**: si dos equipos registran un gasto, retiro o entrada casi a la vez, gana el último y **se pierde el otro movimiento**. El gasto sigue en Gastos del negocio, pero no en el cajón.
+- **Impacto**: descuadre en el cierre.
+- **Propuesta**: agregar el movimiento dentro de `transaccionUnica('caja_actual', …)` sobre el valor real del servidor, como en D5.
+
+- **Solución aplicada** (2026-10-12): `agregarMovimientoCaja` (`ui/caja/caja.js`) agrega el gasto, retiro o entrada con `transaccionUnica('caja_actual', …)` sobre la caja real del servidor, como abrir y cerrar (D5). La usan `movimientoCaja` y la devolución de F20.
+- **Probado**: el recorrido ("D7") comprueba que el movimiento queda en la caja y en Gastos del negocio. El choque entre dos equipos no se puede reproducir en modo local; lo evita la misma transacción de D5.
+### D8 🟠 Conteo físico: lo vendido mientras se cuenta se descuenta dos veces — ✅ Corregido
+- **Dónde**: `iniciarConteo` (`ui/inventario/conteo.js`) guarda `sistema` = stock **al empezar**. Al aplicar, suma `contado − sistema` al stock **actual**.
+- **Ejemplo**:
+  - sistema 10 al empezar;
+  - se venden 2 mientras se cuenta (stock real 8);
+  - se cuentan 8 → diferencia −2;
+  - el stock actual (8) baja a **6**.
+
+  El mensaje de confirmación dice "El stock del sistema quedará igual a lo que contaste", y no es así.
+- **Propuesta**: al aplicar, recalcular `sistema` con el stock de ese momento (y avisar si cambió durante el conteo), o fijar el stock al valor contado menos lo vendido desde el inicio del conteo.
+
+- **Solución aplicada** (2026-10-12): `contarItem` y "lo demás está igual" (`ui/inventario/conteo.js`) toman el stock **del momento en que se cuenta cada ítem** (`stockActualDe`), no el del inicio del conteo. La columna Sistema se actualiza al escribir.
+- **Probado**: recorrido ("D8"). Se empieza el conteo, se venden 2, se cuenta lo que hay y se aplica: el stock queda igual a lo contado. Con el código anterior quedaba 2 menos.
+### F19 🟠 Cerrar la caja no avisa de pedidos y cuentas sin cobrar — ✅ Corregido
+- **Dónde**:
+  - `cerrarCaja` (`ui/caja/caja.js`) solo revisa las ventas con pago descuadrado;
+  - las pantallas Pedidos y Cuentas (`ui/ventas/pedidos.js`, `ui/ventas/cuentas-abiertas.js`) muestran `ventasJornada`: la caja abierta y desde su apertura.
+- **Qué pasa**: se puede cerrar con pedidos o mesas sin cobrar. Al abrir la caja siguiente, esos pedidos **ya no se ven** en Pedidos ni en Cuentas y quedan "abiertos" para siempre (solo aparecen en Historial).
+- **Impacto**:
+  - ventas que nunca se cobran;
+  - "Por cobrar" del Dashboard inflado;
+  - si se cobran desde otro lado, caen en D6.
+- **Propuesta**:
+  1. Al cerrar, listar lo pendiente y pedir qué hacer: cobrar, anular o dejarlo para el turno siguiente.
+  2. En Pedidos y Cuentas, mostrar también lo pendiente de turnos anteriores.
+  3. Con D6 resuelto, cobrarlo lo asigna a la caja nueva.
+
+- **Solución aplicada** (2026-10-12):
+  - `ventasJornada` (`ui/ventas/pedidos.js`) incluye siempre lo que sigue **abierto**, de cualquier turno: Pedidos y Cuentas lo muestran hasta cobrarlo o anularlo;
+  - `cerrarCaja` avisa cuántos pedidos o cuentas quedan sin cobrar y por cuánto ("no entran en este cierre; siguen en Pedidos");
+  - al cobrarlos, D6 los asigna a la caja abierta.
+- **Probado**: recorrido ("D6/F19").
+### F20 🟠 Anular una venta de una caja ya cerrada — ✅ Corregido
+- **Dónde**: `anularPedido` (`ui/ventas/cobro.js`) solo exige el permiso `anular`. `editarPedido`, en cambio, bloquea las ventas de una caja cerrada ("anúlalo y haz uno nuevo").
+- **Qué pasa**: anular una venta de días pasados:
+  - devuelve el stock;
+  - cambia las ventas de esa jornada y de ese mes;
+  - pero el cierre de esa caja ya quedó guardado con otras cifras.
+- **Impacto**: los reportes y el cierre de ese día dejan de coincidir, sin dejar rastro en la caja actual de que se devolvió dinero.
+- **Propuesta**: para ventas de una caja cerrada, exigir rol dueño o admin y registrar la devolución como **salida en la caja abierta** (con motivo), o bloquearlo como editar.
+
+- **Solución aplicada** (2026-10-12): para anular una venta pagada de una caja ya cerrada, `anularPedido` (`ui/ventas/cobro.js`):
+  - exige administrador o dueño (`puedeRetirarJefe`) y la caja abierta;
+  - avisa en la confirmación;
+  - registra en la caja abierta un **retiro** "Devolución por anulación F-…" por el efectivo que pagó el cliente, así el cierre de hoy cuadra con el dinero devuelto;
+  - lo anota en la auditoría.
+- **Probado**: recorrido ("F20"): venta de una caja cerrada → anulada → retiro por su efectivo en la caja nueva.
+### F21 🟠 Cada pantalla suma las ventas distinto — ✅ Corregido
+- **Dónde**:
+  - **suman `subtotal`** (solo productos): Reportes (`ui/reportes/reportes.js`), Dashboard y Contable (`ui/gastos/contable.js`);
+  - **suman `total`** (más propina, recargo del datáfono y domicilio): Historial (`ui/reportes/historial.js`, total pagado) y el **resumen del panel del super-admin** (`resumenVentas`, `src/dominio/ventas.js`).
+- **Impacto**: el mismo día muestra cifras distintas según la pantalla, y el panel del super-admin (facturación por negocio) incluye dinero que no es del negocio (propinas, recargos, domicilios).
+- **Propuesta**:
+  - una función en el dominio, `ventaDelNegocio(v)` = `subtotal`, usada en todas las pantallas;
+  - mostrar los terceros (propina, recargo, domicilio) aparte;
+  - en el panel, decidir si se quiere ver el cobrado total o la venta del negocio, y decirlo en el título.
+
+- **Solución aplicada** (2026-10-12): `ventaDelNegocio(v)` en `src/dominio/ventas.js` (subtotal; total en ventas viejas sin subtotal) es la única definición, y la usan:
+  - Reportes, Dashboard y Contable;
+  - Historial: "Ventas del negocio", y aparte lo "cobrado con propinas, recargos y domicilios" cuando es distinto;
+  - el resumen del panel (`resumenVentas`).
+
+  Los resúmenes ya publicados se recalculan solos cuando alguien del negocio entra (R1).
+- **Probado**: `tests/dominio/ventas.test.mjs` → "F21".
+### F22 🟡 Anular la venta de una cita no actualiza la cita ni al cliente — ✅ Corregido
+- **Dónde**: `anularPedido` no mira `origenCita`, y `guardarClienteAuto` (al cobrar) suma `pedidos` y `totalComprado` del cliente.
+- **Qué pasa**:
+  - la cita queda "atendida" con `ventaId` de una venta anulada;
+  - el cliente conserva el pedido y el monto en sus estadísticas.
+- **Propuesta**: al anular, devolver la cita a "pendiente" (o marcarla), y restar del cliente lo que sumó esa venta.
+
+- **Solución aplicada** (2026-10-12): al anular una venta pagada:
+  - `revertirClienteAuto` (`ui/clientes/clientes.js`) resta del cliente el pedido y su monto;
+  - si la venta vino de una cita, `reabrirCitaDeVenta` (`ui/citas/citas.js`) la devuelve a **pendiente**, sin `ventaId`. Si la anulación devolvió los apartados al inventario, quedan sin apartar: al cobrarla otra vez se descuentan normal.
+- **Probado**: recorrido ("F22"): cita con apartado → cobrada → anulada: cita pendiente, stock de vuelta, el cliente con un pedido menos.
+### F23 🟡 Las líneas y brillos no siguen el color del negocio — ✅ Corregido
+- **Dónde**: `--linea`, `--glow` y `--glow-txt` se definen en `:root` con `--acento-rgb` (`ui/estilos/00-tokens.css`), pero `tema.js` cambia `--acento-rgb` en `<body>`.
+- **Qué pasa**: esos tres se calculan una vez con el verde por defecto. Las líneas y brillos quedan verdes en un negocio con otro color.
+- **Propuesta**: declararlos también en `body` (una línea en `00-tokens.css`). Cambia el aspecto de los negocios con color propio: verificar con capturas. Detalle en [tema.md](../-03-architecture/tema.md).
+
+- **Solución aplicada** (2026-10-12): `--linea`, `--glow` y `--glow-txt` se recalculan también en `body` (`ui/estilos/00-tokens.css`), donde `tema.js` pone el color del negocio.
+- **Probado**: capturas (los demos usan el verde por defecto, así que no cambian); el cambio solo se ve en negocios con color propio.
+### C3 🟡 Errores tragados en flujos importantes — ✅ Corregido
+- **Dónde**:
+  - `try{ imprimirComanda(venta); }catch(e){}` al confirmar un pedido (`ui/ventas/nueva-venta.js`) y al abrir o agregar a una cuenta (`ui/ventas/cuentas-abiertas.js`, dos veces);
+  - el `catch` del cobro (`abrirCobro`) hace `console.error` + "Error al cobrar" sin `reportarError`;
+  - `logAudit` traga sus propios errores.
+- **Impacto**:
+  - si la impresión de la comanda falla, **la cocina no recibe el pedido** y nadie se entera;
+  - un error al cobrar no queda en la auditoría ("Error del sistema"), así que no se puede investigar.
+- **Propuesta**: `reportarError('la comanda', e)` y `reportarError('el cobro', e)` (regla C2 de `CLAUDE.md`). Para la comanda, además, un aviso visible: "No se imprimió la comanda: reimprimir".
+
+- **Solución aplicada** (2026-10-12):
+  - `imprimirComandaSegura` (`ui/cocina/comanda.js`) reemplaza los tres `try{ imprimirComanda(…) }catch(e){}`: si falla, `reportarError` (queda en la auditoría) y avisa "No se imprimió la comanda: reimprímela desde Pedidos";
+  - el error de cobro usa `reportarError('el cobro', e)`;
+  - `logAudit` escribe en la consola en vez de callar (no puede usar `reportarError`, que lo llama a él).
+- **Probado**: recorrido ("C3"): con la impresión fallando, el pedido se guarda y el error queda en la auditoría.
+### S8 🔴 Código inyectable por el logo del negocio — ✅ Corregido
+- **Encontrado** (2026-10-12) al corregir la foto del producto, que tenía el mismo error.
+- **Dónde está**: el campo `logo` del negocio se pega tal cual dentro de `<img src="${neg.logo}">`, sin `escapeHtml` ni validación:
+
+| Archivo | Línea | Dónde se ve | Quién lo abre |
+|---|---|---|---|
+| `ui/nucleo/navegacion.js` | 197 | Barra lateral de **todas** las pantallas del negocio | Todos los empleados; el super-admin al **supervisar** |
+| `ui/super-admin/reporte-mensual.js` | 85 | Informe mensual en PDF | El super-admin desde el panel ("📄 Informe"), **sin entrar al negocio** |
+| `ui/configuracion/mi-negocio.js` | 39 | Mi Negocio | Quien edita el negocio |
+| `ui/configuracion/config-negocio.js` | 64 | Configurar negocio | El super-admin |
+| `ui/caja/caja.js` | 349 | Impresión del cierre de caja | Quien cierra la caja |
+| `ui/impresion/facturas.js` | 50, 90, 151 | Facturas y tickets | Quien cobra o reimprime |
+| `ui/impresion/reportes.js` | 17, 44 | Reportes impresos | Administración |
+
+- **Qué pasa**: la pantalla Mi Negocio solo pone en `logo` una imagen que ella misma reduce (`elegirLogo`), pero **las reglas aceptan cualquier texto** en `negocios_r/<id>/logo`: es un campo que el negocio puede editar (`editaNegocio`) y no tiene `.validate`. Quien tiene una sesión válida puede escribirlo **sin pasar por la pantalla** (desde la consola del navegador con el SDK de Firebase, o con la API REST y su token). Un valor con comillas cierra el atributo `src` y agrega atributos propios, por ejemplo un `onerror` que se ejecuta porque la imagen no carga.
+- **Impacto**: XSS almacenado, con **escalada de privilegios**. Ver el detalle de los ataques en [seguridad-interfaz](../-03-architecture/seguridad-interfaz.md), sección 7.
+  - **Quién puede atacar**: cualquier cuenta con `editaNegocio` (el administrador o el dueño de un negocio cliente) y el **super-admin vendedor** en sus propios negocios y demos.
+  - **A quién**: al dueño o al ayudante del sistema cuando supervisa ese negocio o saca su informe mensual. El código corre con **su** sesión: lee todos los negocios, crea cuentas, cambia `perfiles/<uid>/rolSuper` (un vendedor se haría dueño y anularía la restricción de la sección 12 de [01-super-admin-panel](../01-super-admin-panel/01-super-admin-panel.md)), suspende o borra negocios.
+  - También a los demás empleados del mismo negocio (menos grave: el atacante ya administra ese negocio).
+- **Lo que hoy lo frenaría**: nada en producción. La CSP propuesta ([csp.md](../-03-architecture/csp.md)) **no** tiene `'unsafe-inline'` en `script-src` y bloquearía el `onerror`; pero está solo en `Report-Only` en el sandbox y no está activa en Render. Aun con la CSP, la inyección de atributos `style` (sí permitidos) deja disfrazar la pantalla (sección 7.3 de seguridad-interfaz).
+- **Error menor del mismo lugar**: `navegacion.js:197` pone sin escapar la **primera letra** del nombre del negocio cuando no hay logo. Un solo carácter no alcanza para inyectar etiquetas, pero un `<` o `&` se ve mal. Escaparla igual.
+- **Propuesta** (como la foto del producto):
+  1. Regla pura `Dominio.negocio.logoValido(s)`: solo `data:image/(png|jpeg|webp);base64,…` y un tope de tamaño (el logo se reduce a 300 px: unos 30–150 KB). Un logo inválido se trata como "sin logo".
+  2. Una función `logoNegocio(neg, clases)` en `ui/nucleo/componentes.js` que dibuje la etiqueta solo si es válido, usada en los 10 lugares. Una prueba estructural que falle si vuelve `${neg.logo}` en una plantilla.
+  3. **En las reglas**, `.validate` en `negocios_r/$negId/logo` con la misma forma (`newData.val().matches(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+\/=]+$/)` y largo máximo), para que ni la consola ni la API puedan guardar otra cosa. Antes de publicarla, revisar con `scripts/preparar-pruebas.mjs` que los logos de producción cumplan (solo forma y tamaños, sin mostrar valores).
+  4. Activar la CSP (ya planeado) como segunda barrera.
+- **Solución aplicada** (2026-10-12). Se corrigió la **clase de error** completa, no solo el logo:
+  1. **El logo** solo se dibuja con `logoNegocio(neg, atributos)` (`ui/nucleo/componentes.js`), que exige `Dominio.negocio.logoValido`: `data:image/(png|jpeg|webp);base64,…` de hasta 400.000 caracteres (los de producción miden hasta ~135 KB y los 3 cumplen). Un logo inválido = "sin logo". Los 10 lugares lo usan. Mi Negocio y Configurar solo guardan un logo válido; si el PNG pesa mucho, se pasa a JPEG.
+  2. **Todos los datos dentro de atributos HTML** pasan por `escapeHtml`: **151** interpolaciones envueltas automáticamente (con acorn), entre ellas los ids de los `data-click`, `pctDatafono`, `baseFija`, `diasAvisoVence`, `precioMes` y `diaPago` de los formularios del negocio, `valorDom` de las cuentas abiertas y `contado` del conteo. Todos eran el mismo hueco: datos que escribe gente con sesión y que podían cerrar el atributo.
+  3. La inicial del nombre (`navegacion.js:197`) y las vistas previas de la foto, escapadas.
+  4. **Reglas** (cerradas y de transición):
+     - `logo` solo como imagen `data:` válida (o vacío);
+     - `id` de cada registro con letras, números, `_` y `-` (máx. 64);
+     - id del negocio sin símbolos.
+
+     Con eso ni la consola ni la API REST pueden guardar otra cosa, tampoco el super-admin.
+  5. **Migración**: lo viejo que no cumpla no frena la migración. Un logo inválido se quita; un registro con id inválido no se copia, con aviso en consola (`Dominio.negocio.negocioParaGuardar`, `idSeguro`). En los datos de producción: 0 casos (955 ids revisados).
+- **Probado**:
+  - `tests/ui/estructura.test.mjs` falla si cualquier `${…}` dentro de un atributo no está escapado (revisa 285), si hay `src="'+x` sin `escapeHtml` o si una plantilla usa `neg.logo` directo.
+  - `tests/dominio/negocio.test.mjs`: comillas, SVG, URL externa y tamaño.
+  - `tests/reglas/reglas.test.mjs`: logo y ids maliciosos rechazados para el admin, el vendedor y el super-admin, también con las reglas de transición.
+  - Recorrido: el **ataque de verdad** (logo, `pctDatafono`, `diasAvisoVence` e id de producto maliciosos), revisando la barra lateral, Inicio, Venta, Inventario, Mi Negocio, Configurar, una factura y el informe mensual: ningún atributo inyectado y nada ejecutado. Con la línea vieja de la barra lateral la prueba **falla** (aparece el `onerror` en 5 pantallas).
+  - Integración: la migración limpia un logo inválido y sigue.
+  - Capturas: 121 idénticas.
+- **Residual**: los textos **fuera** de atributos ya se escapaban (revisión de S6). La CSP sigue pendiente como segunda barrera ([csp.md](../-03-architecture/csp.md)).
+
+### S7 🟡 Acciones sin validación de permiso propia — ✅ Corregido
+- **Dónde** (todas escriben datos sin `exigirPermiso` al inicio):
+  - `guardarEdicionPedido` (`ui/ventas/nueva-venta.js`): confía en que `editarPedido` ya lo validó;
+  - `agregarConceptoGasto` y `quitarConcepto` (`ui/gastos/gastos.js`);
+  - `renombrarCuenta`, `abrirCuentaNueva` y `agregarACuenta` (`ui/ventas/cuentas-abiertas.js`).
+
+  Las demás que marcó el análisis sí validan, con su propia función (`puedeRetirarJefe`, `puedeGestionarUsuarios`).
+- **Impacto**: bajo, porque las pantallas ya filtran. Pero la regla del proyecto es que toda acción sensible valide al inicio ("esconder el botón no basta").
+- **Propuesta**: `exigirPermiso('editar')` en guardar edición; decidir quién administra los conceptos de gasto (¿solo admin y dueño?); para las cuentas, el permiso de vender.
+
+- **Solución aplicada** (2026-10-12):
+  - `guardarEdicionPedido` exige `editar`;
+  - `agregarConceptoGasto` exige acceso a Gastos, y `quitarConcepto` además el permiso `eliminar`;
+  - `abrirCuentaNueva`, `agregarACuenta` y `renombrarCuenta` exigen acceso a Ventas o Cuentas (`puedeUsarCuentas`).
+- **Probado**: `npm test` y el recorrido completo (los roles con acceso siguen pudiendo).
+### Flujos a medias y mejoras (no son fallas)
+
+| Qué | Estado | Dónde está |
+|---|---|---|
+| ~~Pantalla del **periodo de prueba**~~ | **Hecho (2026-10-12)**: crear a prueba (con o sin ejemplos; el vendedor, a su nombre), pastilla de días, aviso dentro del negocio, tarjeta "por vencer" con más días / pasar a pago, borrar ejemplos | [01-super-admin-panel](../01-super-admin-panel/01-super-admin-panel.md), sección 11 |
+| ~~Aviso de **demos vencidas**~~ | **Hecho (2026-10-12)**: salen en "Pruebas y demos por vencer" con 🗑️ y "+ Días" | Ídem |
+| ~~**Avisos del repositorio original** (`5425800`)~~ | **Portado (2026-10-12)** a los módulos con F1/F15/C2 y pruebas; falta solo `git merge` + `git rm app.js` después del próximo commit | [union-con-original](../-00-execution-protocol/union-con-original.md), 3.2 y 4 |
+| ~~Bandera **`agotado`** del producto~~ | **Hecho (2026-10-12)**: botón "Agotado" / "✓ Disponible" en cada tarjeta del inventario (`alternarAgotado`, permiso `editarprod`, con auditoría) | `ui/inventario/catalogo.js` |
+| ~~**Foto del producto** (`imagen`)~~ | **Hecho (2026-10-12)**: "📷 Foto" en el formulario del producto; se reduce a 200 px JPEG y se guarda en la base. Solo se dibuja si es una imagen `data:` válida (`Dominio.inventario.imagenValida`): antes se metía sin escapar en 4 pantallas | [realtime-vs-storage](../-03-architecture/realtime-vs-storage.md) |
+| ~~**Catálogo de textos**~~ | **Hecho (2026-10-12)**: `ui/nucleo/textos.js` con 199 mensajes fijos (`MSJ`) y 17 botones (`BOTON`); prueba que lo exige. Los mensajes con datos y las plantillas siguen en su módulo | [tema.md](../-03-architecture/tema.md), sección 6 |
+| **Modo claro por componente** y 26 tamaños de letra | Para el rediseño | [tema.md](../-03-architecture/tema.md), sección 4 |
+| ~~**Lo que ve el super-admin vendedor**~~ | **Hecho (2026-10-12)**: las reglas cerradas lo limitan a sus negocios y sus demos; el panel le trae solo esos (consulta por su id); pruebas de reglas y del navegador | [01-super-admin-panel](../01-super-admin-panel/01-super-admin-panel.md), sección 12 |
+| **Herramienta de capturas** que se detuvo 2 de unas 8 veces | Ahora dice dónde se detiene; vigilar | [-03-architecture](../-03-architecture/-03-architecture.md), 11.7 |
+
+### Orden sugerido
+
+1. **D6 y F19** juntos: dinero sin cuadrar y pedidos que se pierden entre turnos.
+2. **D7** (es como D5) y **C3** (comanda).
+3. **F21** (una sola definición de "venta").
+4. **F20, D8, F22, S7, F23.**
+
+Cada uno con su prueba en el recorrido o en el dominio antes de cerrarlo.
+
 ## Pendientes
 
 ### Por probar en el proyecto de simulación (antes de la empresa)
@@ -502,7 +741,7 @@ Las pruebas automáticas cubren el modo local, los emuladores y Chrome de escrit
 | S1 | ~~Crear el proyecto de pruebas~~ → hecho: `wallacesys-dev-sandbox` (cuenta personal del desarrollador; simula producción). Base desde cero, reglas de transición → dueño creado → **reglas cerradas** publicadas y verificadas (2026-10-08) | — | [-00 → 3.1](../-00-execution-protocol/-00-execution-protocol.md#31-qué-significa-cerrar-la-base) |
 | S1 | Ensayar la **migración de cuentas viejas** con datos reales (en el emulador: `npm run emulador`; o en un proyecto de la empresa con su permiso) | Desarrollo | [-02 → S1 → Despliegue paso a paso](../-02-corrections/-02-corrections.md#s1--base-de-datos-sin-autenticación-ni-reglas--implementado-falta-desplegar) |
 | S1 | Dar el dominio público de producción (`HOSTS_PRODUCCION` en `firebase-config.js`); sin él, producción arrancaría en modo local | Responsable del proyecto | Antes de unir el código al repositorio original |
-| S1 | Decidir qué ve el super-admin vendedor, el plazo de migración de cuentas y si el respaldo incluye `perfiles/` y `login/` | Responsable del proyecto | — |
+| S1 | Decidir el plazo de migración de cuentas y si el respaldo incluye `perfiles/` y `login/` (lo del vendedor ya se decidió: solo sus negocios) | Responsable del proyecto | — |
 | S1 | Desplegar en producción por fases, con respaldo antes de cada una | Desarrollo + responsable | [-02 → B.8](../-02-corrections/-02-corrections.md#b8-fases-de-despliegue-con-lista-de-chequeo) |
 
 ### Riesgos residuales (de hallazgos ya corregidos)

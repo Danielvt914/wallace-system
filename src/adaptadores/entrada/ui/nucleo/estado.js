@@ -5,6 +5,7 @@
 //  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/13-multitenant-isolation/13-multitenant-isolation.md
 // ============================================================
+import { MSJ } from './textos.js';
 import { cajaActual } from './permisos.js';
 import { reportarError, toast } from './componentes.js';
 import { render } from './navegacion.js';
@@ -21,24 +22,28 @@ export function mostrarConexion(estado){
   else { el.className='fb-dot off'; el.title='Sin conexión'; }
 }
 
-// Refresca la pantalla salvo que el usuario esté ocupado
-export function refrescarSiSePuede(){
+// ¿El campo enfocado perdería lo escrito si redibujamos? Los buscadores no:
+// su texto vive en una variable y render() los restaura. Los formularios sí:
+// ahí se espera a que el usuario termine (el teclado del celular no se cierra).
+export function campoDelicado(a){
+  if(!a) return false;
+  const tag=(a.tagName||'').toLowerCase();
+  if(tag!=='input' && tag!=='textarea' && tag!=='select' && !a.isContentEditable) return false;
+  if(a.classList && (a.classList.contains('busca')||a.classList.contains('busca-grande'))) return false;
+  return true;
+}
+function modalAbierto(){ const m=document.getElementById('modal-container'); return !!(m && m.classList.contains('activo')); }
+// Refresca la pantalla salvo que el usuario esté ocupado. Lo que no se pinta
+// queda pendiente y se pinta al soltar el campo o en la red de seguridad.
+// forzar = cambios que el usuario TIENE que ver ya (otro equipo abrió o cerró la caja)
+export function refrescarSiSePuede(forzar){
   if(!STATE.user) return;
-  // Si el usuario está escribiendo en CUALQUIER campo (texto, número, select
-  // abierto, textarea), NO refrescamos: redibujar destruiría el campo y se
-  // perdería el foco / el teclado en móvil. Esperamos a que termine.
-  const a=document.activeElement;
-  if(a){
-    const tag=(a.tagName||'').toLowerCase();
-    if(tag==='input'||tag==='textarea'||tag==='select'||a.isContentEditable){
-      _refrescoPendiente=true;   // recordamos que hay cambios sin pintar
-      return;
-    }
+  if(modalAbierto()){ _refrescoPendiente=true; return; }   // ventana abierta: nunca se tapa
+  if(forzar!==true){
+    if(campoDelicado(document.activeElement)){ _refrescoPendiente=true; return; }
+    // Solo se frena si hay un pedido a medio armar en la pantalla de venta
+    if(ESCRIBIENDO && STATE.pageNeg==='ventas'){ _refrescoPendiente=true; return; }
   }
-  // Solo se evita refrescar mientras se ARMA una venta (pantalla 'ventas')
-  if(ESCRIBIENDO && STATE.pageNeg==='ventas') return;
-  const modal=document.getElementById('modal-container');
-  if(modal && modal.classList.contains('activo')) return;   // modal abierto
   _refrescoPendiente=false;
   try{ render(); }catch(e){ reportarError('el refresco de pantalla', e); }
 }
@@ -46,22 +51,21 @@ export let _refrescoPendiente=false;
 // Cuando el usuario deja de escribir (quita el foco), pintamos lo que llegó
 document.addEventListener('focusout', function(){
   setTimeout(function(){
-    if(!_refrescoPendiente) return;
-    const a=document.activeElement;
-    const tag=a?(a.tagName||'').toLowerCase():'';
-    if(tag==='input'||tag==='textarea'||tag==='select'||(a&&a.isContentEditable)) return;
-    _refrescoPendiente=false;
+    if(!_refrescoPendiente || campoDelicado(document.activeElement)) return;
     refrescarSiSePuede();
   },150);
 }, true);
+// Red de seguridad: cada 20 s, si quedó algo sin pintar (p. ej. se cerró una
+// ventana sin tocar ningún campo), se pinta cuando el usuario no esté ocupado
+setInterval(function(){ if(_refrescoPendiente) refrescarSiSePuede(); }, 20000);
 
 // Botón "Actualizar": fuerza traer de la nube lo que corresponda
 export function refrescarDeLaNube(){
-  if(!FB_READY){ toast('Sin conexión a la nube','error'); return; }
-  toast('Actualizando...','info');
+  if(!FB_READY){ toast(MSJ.sinConexionALaNube,'error'); return; }
+  toast(MSJ.actualizando,'info');
   Datos.recargar({superAdmin:!!STATE.esSuperAdmin, negId:STATE.negocio?STATE.negocio.id:null})
-    .then(()=>{ toast('Actualizado','success'); render(); })
-    .catch(()=>toast('No se pudo actualizar','error'));
+    .then(()=>{ toast(MSJ.actualizado,'success'); render(); })
+    .catch(()=>toast(MSJ.noSePudoActualizar,'error'));
 }
 
 

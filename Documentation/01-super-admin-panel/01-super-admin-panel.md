@@ -32,9 +32,9 @@ Los super-admins viven en la tabla global `superadmins` con un campo `rolSuper`:
 |---|---|---|
 | `dueno` | Todo: crear/eliminar negocios, gestionar administradores, respaldo, informes | Eliminarse a sí mismo; dejar el sistema sin ningún dueño |
 | `ayudante` | Panel completo, crear/configurar/suspender negocios, respaldo, informes | Ver "👥 Administradores", eliminar negocios |
-| `vendedor` | Panel de ventas: crear/entrar/pausar/borrar **sus** demos, ver sus clientes reales (solo lectura) | Crear negocios reales (`nuevoNegocio` lo bloquea), entrar a negocios reales (`entrarComoNegocio` lo bloquea), borrar demos de otros vendedores |
+| `vendedor` | Panel de ventas: crear/entrar/pausar/borrar **sus** demos, crear negocios **a prueba** (quedan a su nombre), dar más días a sus pruebas, ver sus clientes reales (solo lectura) | Crear negocios sin prueba, pasar a pago, entrar a negocios reales (`entrarComoNegocio` lo bloquea), borrar demos de otros vendedores |
 
-Las restricciones se aplican en el cliente: se ocultan botones y algunas funciones validan `rolSuper` al ejecutarse (ver tabla de funciones).
+Las restricciones se aplican en el cliente (se ocultan botones y las funciones validan `rolSuper` al ejecutarse) y, desde el 2026-10-12, **las del vendedor también en las reglas de la base** (sección 12).
 
 ## 4. Flujos principales
 
@@ -44,6 +44,7 @@ Las restricciones se aplican en el cliente: se ocultan botones y algunas funcion
 3. Copia el perfil del tipo (`PERFILES`, ver [11](../11-business-settings/11-business-settings.md)) al negocio: vocabulario, `usaMesas/usaCocina/usaRecetas/usaCitas`, `tiposEntrega`, `funciones`, `usaCaja`, `esLogistica`.
 4. Valores por defecto: `tipoFactura:'pos'`, `pctDatafono:0`, `sonidos:true`, `tema:'claro'`, `sucursales:[]`, `activo:true`.
 5. Crea el usuario `rol:'admin'` del negocio.
+6. **Periodo de prueba** (campos del final del formulario, sección 11): "A prueba" o "Sin prueba (ya paga)", días (30 por defecto) y "Cargar productos de ejemplo". Si queda a prueba, después de guardar llama a `Pruebas.iniciar`. El vendedor no ve "Sin prueba" ni "Vendedor a cargo": el negocio queda a prueba y a su nombre.
 
 ### 4.2 Suspender / activar (`toggleNegocio`, `ui/super-admin/negocios.js`)
 Invierte `activo`. Un negocio suspendido no deja iniciar sesión a sus usuarios ("Este negocio está suspendido. Contacta al proveedor."). Los usuarios ya conectados siguen dentro hasta salir.
@@ -55,12 +56,29 @@ Doble confirmación (aviso + escribir el nombre exacto). Borra el registro del n
 Guarda el super-admin en `STATE._superUser` y entra con un usuario sintético `{nombre:'Supervisor', rol:'admin', esSupervisor:true}` (todos los permisos). Muestra un banner "Modo supervisión" con "← Volver al panel" (`volverSuperAdmin`, `ui/super-admin/negocios.js`), que restaura el usuario original con su `rolSuper`. Un vendedor solo puede supervisar demos.
 
 ### 4.5 Demos
-- `crearNegocioDemo` (`ui/super-admin/demos.js`) abre el selector de plantilla; `crearVariosDemos` (`ui/super-admin/demos.js`) crea 5 variados de una vez.
-- `crearDemoDeTipo` (`ui/super-admin/demos.js`) crea: negocio `esDemo:true` con `demoDe` = id de quien lo creó, ciudad Bucaramanga, plan Premium; usuario admin `demo`, `demo2`… con contraseña `demo123`; productos y clientes de la plantilla; **caja abierta** con base 50.000; ventas pagadas aleatorias de los últimos 10 días (3–6 diarias entre semana, 5–8 fines de semana, 1–3 ítems, métodos con predominio de efectivo); movimientos de inventario de entrada escalonados.
-- Los demos **no cuentan** en las métricas reales del panel.
-- `eliminarDemoVendedor` (`ui/super-admin/demos.js`) solo borra negocios `esDemo`; un vendedor solo los suyos.
 
-Plantillas disponibles (`DEMO_PLANTILLAS`, `ui/super-admin/demos.js`): Restaurante, Tienda / Accesorios, Barbería / Salón, Cafetería, Panadería, Ferretería, Logística / Bodega, Papelería, Droguería / Farmacia, Miscelánea / Variedades, Heladería, Pizzería, Boutique / Ropa, Tecnología / Celulares, Licorera, Fruver / Verdulería, Veterinaria / Mascotas, Floristería. Cada una mapea a un perfil base de `PERFILES` (`tipo`).
+Organización (desde el 2026-10-12):
+
+| Pieza | Archivo | Qué hace |
+|---|---|---|
+| Datos de ejemplo | `src/dominio/ejemplos.js` (`PLANTILLAS`) | Los 18 catálogos de ejemplo: productos `[nombre, precio, categoría, stock]` y clientes. Es un archivo **solo de datos y reglas**, separado de la pantalla; también lo usa el periodo de prueba (sección 11) |
+| Armado | `src/dominio/ejemplos.js` (`armarDemo`) | Arma el negocio, su administrador, productos, clientes, caja abierta, ventas de los últimos 10 días y movimientos, **sin guardar**. Recibe el azar y los ids como parámetros: con el mismo azar da los mismos datos (lo usan las pruebas y las capturas) |
+| Pantalla | `ui/super-admin/demos.js` | `crearNegocioDemo` (elegir plantilla), `crearVariosDemos` (5 de una vez), `crearDemoDeTipo` (guardar), `mostrarAccesosDemo`, `eliminarDemoVendedor` |
+
+- **Qué crea** `crearDemoDeTipo`:
+  - un negocio `esDemo:true` con `demoDe` = id de quien lo creó, ciudad Bucaramanga y plan Premium;
+  - un usuario admin `demo`, `demo2`…;
+  - productos (marcados `ejemplo:true`) y clientes de la plantilla;
+  - una **caja abierta** con base 50.000 (misma forma que `abrirCaja`);
+  - ventas pagadas al azar de los últimos 10 días (3–6 diarias entre semana, 5–8 los fines de semana, 1–3 ítems, con predominio de efectivo), con `vendedorId` y `sucursalId`;
+  - movimientos de inventario de entrada escalonados.
+- **Contraseña propia al azar** (10 caracteres sin letras que se confundan, `Cripto.claveAleatoria`). Se muestra **una sola vez** en una ventana (`mostrarAccesosDemo`) para que el vendedor la anote y se la dé al cliente. Antes todas las demos usaban `demo123`, y cualquiera que lo supiera entraba a cualquier demo.
+- **Vencen en 15 días** (`Dominio.prueba.DIAS_DEMO`, campo `pruebaHasta`): después quedan en **solo lectura**, con el mismo mecanismo del periodo de prueba (sección 11). El aviso en el panel para borrarlas llega con la pantalla del periodo de prueba.
+- **Se guarda registro por registro** (`Datos.guardarEn`), como el resto de la app. Antes escribía cada tabla entera (formato viejo): con Firebase, la app la convertía después y dejaba copias `_bk` sin uso en la base.
+- Los demos **no cuentan** en las métricas reales del panel.
+- **Quién**: dueño y ayudante crean y borran cualquiera; un vendedor crea las suyas y solo borra las suyas (`Dominio.prueba.puedeGestionarAlta`).
+
+Plantillas disponibles (`Dominio.ejemplos.PLANTILLAS`; la interfaz las expone como `DEMO_PLANTILLAS`): Restaurante, Tienda / Accesorios, Barbería / Salón, Cafetería, Panadería, Ferretería, Logística / Bodega, Papelería, Droguería / Farmacia, Miscelánea / Variedades, Heladería, Pizzería, Boutique / Ropa, Tecnología / Celulares, Licorera, Fruver / Verdulería, Veterinaria / Mascotas, Floristería. Cada una mapea a un perfil base de `PERFILES` (`tipo`).
 
 ### 4.6 Asignar vendedor (`asignarVendedor`, `ui/super-admin/negocios.js`)
 Guarda `vendedorId`, `vendedorNombre` y `notasComerciales` en el negocio. Alimenta la tarjeta "Cartera por vendedor" (negocios, activos y facturación mensual por vendedor) y el filtro del listado.
@@ -147,3 +165,73 @@ Clases de `index.html`: `.topbar`, `.sa-emblema`, `.sa-marca`, `.stats/.stat` (v
 - No hay restauración de respaldo desde la app.
 
 Ver [-01-to-review](../-01-to-review/-01-to-review.md).
+
+## 11. Periodo de prueba (2026-10-12)
+
+Un negocio **real** que el cliente usa con sus datos por un tiempo limitado. Al vencer queda en **solo lectura** hasta que pague (pasa a pago) o le den más días. Es distinto de la demo (sección 4.5), que tiene datos inventados para mostrar.
+
+**Decisiones (2026-10-12)**:
+- 30 días por defecto, cambiables por negocio (1 a 365);
+- al vencer, solo lectura;
+- lo crean el dueño, el ayudante y los vendedores (estos, solo las suyas);
+- quien la crea elige si empieza con productos de ejemplo de su tipo, que se pueden borrar después con un botón.
+
+| Pieza | Archivo | Qué hace |
+|---|---|---|
+| Reglas | `src/dominio/prueba.js` | `nuevaPrueba`, `estadoPrueba` (días restantes, vencida, demo o prueba), `extenderPrueba`, `camposConvertirAPago`, `soloLectura`, `puedeGestionarAlta`, `puedeBorrarEjemplos`, `porVencer`. Constantes: `DIAS_PRUEBA` = 30, `DIAS_DEMO` = 15, `MAX_DIAS` = 365 |
+| Casos de uso | `src/aplicacion/servicios/pruebas.js` (en la interfaz: `Pruebas`) | `iniciar(negId, {dias, conEjemplos})`, `extender(negId, dias)`, `convertirAPago(negId)`, `borrarEjemplos(negId)`, `estado(negId)`, `porVencer(dias)`. Devuelven `{ok:true, …}` o `{ok:false, motivo}` (`permiso`, `no_existe`, `dias`, `es_demo`, `no_es_prueba`) |
+| Bloqueo | `database.rules.json` | Con `pruebaHasta` vencido (hora del servidor, `now`), nadie del negocio escribe sus tablas ni los datos del negocio. **Leer sí**. El super-admin sí puede (para extender o pasar a pago) |
+| Datos | `negocios_r/<id>` | `pruebaDesde`, `pruebaHasta` (milisegundos). **Campos reservados**: están en `CAMPOS_NEGOCIO_RESERVADOS` y en las reglas, y una prueba exige que las dos listas coincidan |
+
+**Pantalla** (`ui/super-admin/pruebas.js`):
+
+| Dónde | Qué se ve | Función |
+|---|---|---|
+| Crear negocio (panel; el vendedor tiene "Negocio a prueba") | "Periodo de prueba", días, "Cargar productos de ejemplo" | `camposPruebaHTML`, `leerCamposPrueba`, `iniciarPruebaDe` |
+| Lista de negocios del panel y del vendedor | Pastilla "PRUEBA · N días" (roja si quedan 3 o menos) o "VENCIDA"; en demos, "N días" | `pillPrueba` |
+| Arriba del panel (dueño, ayudante y vendedor) | Tarjeta "⏳ Pruebas y demos por vencer" (próximos 7 días o vencidas) con "+ Días", "Pasar a pago" (no el vendedor) y 🗑️ para demos | `tarjetaPorVencer`, `darMasDias`, `pasarAPago`, `borrarDemoVencida` |
+| Dentro del negocio, bajo la barra de supervisión | "⏳ Periodo de prueba: te quedan N días (hasta …)"; vencida: "🔒 … solo lectura" | `bannerPrueba` (en `nucleo/navegacion.js`) |
+| Inventario del negocio | "Tienes N productos de ejemplo" + "Borrar ejemplos y empezar con los míos" (quien tenga permiso `eliminar`) | `avisoEjemplos`, `borrarEjemplos` (con auditoría) |
+
+Las demos usan lo mismo: vencen a los 15 días, muestran el aviso y aparecen en "por vencer" para darles más días o borrarlas.
+
+**Solo lectura**: el aviso explica que no se puede vender ni cambiar datos; el bloqueo real es de las reglas (con Firebase y reglas finales). En modo local no hay reglas: solo se ve el aviso.
+
+**Límites**:
+- **Con las reglas de transición no hay bloqueo**: durante la migración de cuentas, `data` está abierto. El bloqueo funciona con las reglas finales.
+- **El cliente no puede registrarse solo**: crear negocios y cuentas exige ser super-admin (Plan B, sin servidor). El autoregistro necesitaría Cloud Functions (plan Blaze).
+- **Que un vendedor vea solo lo suyo lo controla hoy la app** (`puedeGestionarAlta`), no las reglas: el super-admin vendedor todavía puede leer todo `data` (decisión pendiente, -01).
+
+**Pruebas**:
+- `tests/dominio/prueba.test.mjs` (reglas, datos de ejemplo y las dos listas de campos reservados);
+- `tests/aplicacion/pruebas.test.mjs` (casos de uso con un doble del puerto);
+- `tests/reglas/reglas.test.mjs` (vigente escribe; vencida solo lee; los campos de prueba solo el super-admin; el super-admin la reactiva);
+- `tests/navegador/recorrido.test.mjs` → "periodo de prueba": crea un negocio a prueba con ejemplos desde el formulario, pastilla en el panel, aviso de días, borrar ejemplos, más días, vencida (tarjeta y aviso de solo lectura) y pasar a pago.
+
+## 12. Super-admin vendedor: solo sus negocios (2026-10-12)
+
+**Decisión**: el vendedor ve y toca **solo sus negocios**: los que tienen `vendedorId` = su id (sus clientes y negocios a prueba) y sus demos (`demoDe` = su id). Antes las reglas le dejaban leer y escribir todo `data`, `perfiles` y `login`, como al dueño; la app solo escondía botones.
+
+**Reglas** (`database.rules.json`; en las de **transición** `data` sigue abierto, como el bloqueo de pruebas vencidas):
+
+| Qué | Dueño y ayudante | Vendedor |
+|---|---|---|
+| `data` completo, tablas globales (`superadmins`, `usuarios`…), `perfiles` y `login` completos | Leen y escriben | Nada |
+| Lista de negocios | `data/negocios_r` entero | Solo con la consulta `orderByChild('vendedorId' o 'demoDe').equalTo(<su id>)` (índices `.indexOn`) |
+| Un negocio `negocios_r/<id>` | Todo | Leer y escribir si es suyo. Crear: a su nombre y **con vencimiento** (`pruebaHasta`, máx. 1 año); no puede quitar la prueba (pasar a pago), cambiar el vendedor ni volverlo demo o real. Borrar: sus demos, o un negocio suyo creado hace menos de 1 hora (deshacer un alta que falló) |
+| Tablas del negocio `data_<id>_*` | Todas | Solo las de su **negocio activo** (`perfiles/<su uid>/negocioActivo`), y solo si ese negocio es suyo. Lo fija él mismo antes de escribir (`Cuentas.fijarNegocioActivo`); un negocio a la vez |
+| Cuentas (`perfiles/<uid>` + `login/<usuario>`) | Todas | Crear y borrar las de la gente de sus negocios; nunca super-admins, su propio perfil (salvo `negocioActivo`) ni entradas de `login` que ya existan |
+
+Sin `rolSuper` en el perfil se trata como dueño (perfiles anteriores). El rango sale de `perfiles/<uid>/rolSuper`, que solo escriben el dueño y el ayudante.
+
+**En la app**:
+- `Datos.configurarSesion({…, vendedor:<su id>})`: el panel escucha las dos consultas en vez de todo (`escucharNegociosVendedor`, `firebase-datos.js`); no carga usuarios, resúmenes ni `superadmins`, ni hace la migración de tablas o contraseñas viejas.
+- `trabajarEn(negId)` (`ui/usuarios/cuentas.js`) fija el negocio activo antes de escribir: al entrar a una demo, al crear una demo o un negocio a prueba (con sus ejemplos) y al borrar una demo. Para el dueño y el ayudante no hace nada.
+- Orden de las altas: **primero el negocio**, después la cuenta de su administrador (las reglas piden que el negocio exista y sea suyo). Si la cuenta falla, el negocio se borra.
+- Bajas de demos: primero sus datos y cuentas, **al final** el negocio.
+- Demos del vendedor: usuario `demo-xxxxx` al azar (no ve los usuarios de los demás para elegir uno libre).
+- Sigue sin poder entrar a los negocios **reales** de sus clientes (`entrarComoNegocio`), aunque las reglas se lo permitirían fijándolos como negocio activo.
+
+**Pruebas**: `tests/reglas/reglas.test.mjs` (5 casos del vendedor: lectura, negocio activo, altas con vencimiento, bajas, cuentas) y `tests/navegador/s1-navegador.test.mjs` → "vendedor con reglas cerradas" (panel solo con lo suyo, negocio a prueba con ejemplos y su administrador, entrar y borrar su demo, **ninguna operación negada**).
+
+**Para el sandbox**: `npm run reglas:cerradas` publica las reglas nuevas. Los perfiles de vendedor ya tienen `rolSuper:'vendedor'` (`perfilDesdeSuperAdmin`).

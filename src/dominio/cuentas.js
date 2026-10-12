@@ -14,7 +14,8 @@ export const PASS_MIN_CUENTA=6;
 export const CAMPOS_PASS=['pass','passHash','passSal','passIter'];
 // Campos del negocio que solo cambia el super-admin (las reglas los bloquean al admin del negocio)
 export const CAMPOS_NEGOCIO_RESERVADOS=['id','activo','plan','precioMes','diaPago','funciones','vendedorId',
-  'vendedorNombre','notasComerciales','esDemo','demoDe','creado','sucursales'];
+  'vendedorNombre','notasComerciales','esDemo','demoDe','creado','sucursales',
+  'pruebaDesde','pruebaHasta'];   // periodo de prueba (dominio/prueba.js)
 
 // Firebase no admite . $ # [ ] / en las claves. Se codifica conservando mayúsculas.
 export function claveUsuario(usuario){

@@ -23,6 +23,7 @@
 //     (CACHE.usuarios_legado, solo super-admin).
 // ============================================================
 import { CAMPOS_PASS, CAMPOS_NEGOCIO_RESERVADOS } from '../../dominio/cuentas.js';
+import { idSeguro, negocioParaGuardar } from '../../dominio/negocio.js';
 
 // Tablas de cada negocio: data_<negocio>_<tabla>
 export const TABLAS=['usuarios','productos','insumos','ventas','clientes','cierres',
@@ -39,24 +40,40 @@ const SRV_NEG='__negocios';   // REG_SRV de negocios_r
 /**
  * @param {Object} opc
  * @param {Object} opc.local      adaptador de almacenamiento local (almacen-local.js)
- * @param {Object} [opc.firebase] SDK compat de Firebase (window.firebase)
- * @param {Object} [opc.config]   configuración de Firebase (window.FIREBASE_CONFIG)
- * @param {Object} [opc.emuladores] {database:'host:puerto'} para desarrollo local (window.FIREBASE_EMULADORES)
- * @param {Object} opc.ganchos    {negocioActual():negocio|null, alCambiar(), alEstadoConexion(estado), alCargarTabla(tabla)}
+ * @param {Object} [opc.sdk]      SDK MODULAR de Firebase: {app, database} (firebase-sdk.js en el navegador;
+ *                                los paquetes firebase/app y firebase/database en las pruebas)
+ * @param {Object} [opc.config]   configuración de Firebase (firebase-config.js → elegirEntorno)
+ * @param {Object} [opc.emuladores] {database:'host:puerto'} para desarrollo local
+ * @param {string} [opc.entorno]  produccion | pruebas | emulador | local (la interfaz lo muestra en el login)
+ * @param {Object} opc.ganchos    {negocioActual():negocio|null, alCambiar(), alEstadoConexion(estado), alCargarTabla(tabla),
+ *        alRegistroNuevo(tabla, valor, {inicial}), alCambiarTabla(tabla, nuevo, viejo, {inicial})}
+ *        inicial = llegó en los primeros segundos de sincronizar (carga, no un cambio de otro equipo)
  */
 export function crearAdaptadorFirebase(opc){
   const local=opc.local;
-  const g=Object.assign({negocioActual:()=>null, alCambiar(){}, alEstadoConexion(){}, alCargarTabla(){}, alCambiarNegocio(){}}, opc.ganchos||{});
+  const g=Object.assign({negocioActual:()=>null, alCambiar(){}, alEstadoConexion(){}, alCargarTabla(){}, alCambiarNegocio(){},
+    alRegistroNuevo(){}, alCambiarTabla(){}}, opc.ganchos||{});
+  const ESPERA_INICIAL=2500;   // ms: lo que llega antes es la carga, no un aviso
+  let inicioSinc=0;
+  const aviso=(fn)=>{ try{ fn({inicial:Date.now()-inicioSinc<ESPERA_INICIAL}); }catch(e){ console.warn('Aviso de datos',e); } };
   const CACHE={};
   const REG_SRV={};        // clave -> {id: JSON del último estado recibido}
   const REG_BORRADOS={};   // clave -> {id: fecha}
   const estado={listo:false, nubeLista:false, globalesLeidas:false, cuentas:false};
   let sesion={superAdmin:false, negId:null};
-  let FB=null;
-  let listenersNeg=[], sincTodoOn=false, globalesOn=false, refNegPropio=null;
+  let FB=null, D=null;   // FB = la base (getDatabase); D = funciones del SDK modular (ref, get, onValue…)
+  // Los escuchadores se guardan como la función que los quita (el SDK modular la devuelve)
+  let listenersNeg=[], sincTodoOn=false, globalesOn=false, quitarNegPropio=null, quitarTodo=null;
   let refsPanel=[], negPanel={};   // R1: lo que escucha el panel del super-admin
   const migrando={};
   const COLA='ws_cola_reg';
+
+  // Atajos del SDK modular de Firebase
+  const nodo=r=>D.ref(FB, r);
+  const leerNodo=r=>D.get(nodo(r)).then(sn=>sn.val());
+  const actualizar=(r,u)=>D.update(nodo(r), u);
+  const transaccion=(r,fn)=>D.runTransaction(nodo(r), fn);
+  const escuchar=(r,fn,err)=>D.onValue(nodo(r), fn, err);   // devuelve la función que deja de escuchar
 
   const esTablaRegistros=t=>TABLAS_UNICAS.indexOf(t)<0;
   const claveDe=(negId,tabla)=>'data_'+negId+'_'+tabla;
@@ -81,7 +98,7 @@ export function crearAdaptadorFirebase(opc){
   function configurarSesion(s){
     s=s||{};
     estado.cuentas=!!s.cuentas;
-    sesion={superAdmin:!!s.superAdmin, negId:s.negId||null};
+    sesion={superAdmin:!!s.superAdmin, negId:s.negId||null, vendedor:s.vendedor||null};   // vendedor = su superId
   }
 
   // ---------- Lectura/escritura de claves completas ----------
@@ -103,7 +120,7 @@ export function crearAdaptadorFirebase(opc){
       try{
         // Firebase RECHAZA objetos con campos undefined: el viaje por JSON los quita
         const limpio=(v===undefined||v===null)?null:JSON.parse(JSON.stringify(v));
-        const p=FB.ref('data/'+k).set(limpio);
+        const p=D.set(nodo('data/'+k), limpio);
         if(p && p.catch) p.catch(e=>{ console.warn('FB set (nube)',k,e&&e.message); conexion('error'); });
       }catch(e){ console.warn('FB set',k,e&&e.message); conexion('error'); }
     }
@@ -164,7 +181,7 @@ export function crearAdaptadorFirebase(opc){
     }
     soloLocal('negocios', ordenarNegocios(lista.slice()));
     if(!Object.keys(u).length) return;
-    const pr=FB.ref('data').update(u);
+    const pr=actualizar('data', u);
     if(pr&&pr.catch) pr.catch(e=>{ console.warn('FB negocios',e&&e.message); conexion('error'); if(!esPermisoNegado(e)) encolar(u); });
   }
   // Rearma negocios (y el respaldo de usuarios viejos) desde una foto de data/
@@ -194,12 +211,10 @@ export function crearAdaptadorFirebase(opc){
   function cargarNegocioPropio(n){
     if(!estado.listo || !FB || !n) return Promise.resolve(null);
     detenerNegocioPropio();
-    const ref=FB.ref('data/negocios_r/'+n);
-    return ref.once('value').then(s=>{
-      const neg=s.val();
+    const ruta='data/negocios_r/'+n;
+    return leerNodo(ruta).then(neg=>{
       if(neg && neg.id) aceptarNegocio(neg);
-      refNegPropio=ref;
-      ref.on('value', sv=>{
+      quitarNegPropio=escuchar(ruta, sv=>{
         const v=sv.val();
         if(v && v.id && aceptarNegocio(v)){ try{ g.alCambiarNegocio(v); }catch(e){} g.alCambiar(); }
       }, ()=>{});
@@ -207,7 +222,7 @@ export function crearAdaptadorFirebase(opc){
     });
   }
   function detenerNegocioPropio(){
-    if(refNegPropio){ try{ refNegPropio.off('value'); }catch(e){} refNegPropio=null; }
+    if(quitarNegPropio){ try{ quitarNegPropio(); }catch(e){} quitarNegPropio=null; }
   }
   // Una sola vez (fase 2 del Plan B): data/negocios (array) -> data/negocios_r/<id> y
   // data/usuarios -> data_<negocio>_usuarios_r/<id> SIN contraseñas. data/usuarios se
@@ -215,11 +230,15 @@ export function crearAdaptadorFirebase(opc){
   // Solo funciona con las reglas de transición o como super-admin.
   function migrarTablasGlobales(){
     if(!estado.listo || !FB) return Promise.resolve({hecho:false, motivo:'sin_nube'});
-    const leer=r=>FB.ref('data/'+r).once('value').then(x=>x.val());
+    const leer=r=>leerNodo('data/'+r);
     return leer('migracion_s1').then(m=>{
       if(m && m.negocios) return {hecho:false, motivo:'ya_migrado'};
       return Promise.all([leer('negocios'), leer('usuarios'), leer('negocios_r')]).then(([negsCrudo, usCrudo, yaR])=>{
-        const negs=aLista(negsCrudo).filter(n=>n.id), us=aLista(usCrudo).filter(x=>x.id&&x.negocioId);
+        // S8: las reglas validan logo e ids; lo viejo que no cumpla se limpia o se deja (con aviso), sin frenar todo
+        const todos=aLista(negsCrudo).filter(n=>n.id);
+        const negs=todos.filter(n=>/^[A-Za-z0-9-]{1,64}$/.test(n.id)).map(negocioParaGuardar);
+        if(negs.length<todos.length) console.warn('Migración: '+(todos.length-negs.length)+' negocio(s) con id inválido no se copiaron');
+        const us=aLista(usCrudo).filter(x=>x.id&&x.negocioId&&idSeguro(x.id));
         const ids={}; negs.forEach(n=>{ ids[n.id]=1; }); Object.keys(yaR||{}).forEach(id=>{ ids[id]=1; });
         const negIds=Object.keys(ids);
         return Promise.all(negIds.map(id=>leer(claveReg(id,'usuarios')).then(v=>[id, v||{}]))).then(pares=>{
@@ -231,9 +250,9 @@ export function crearAdaptadorFirebase(opc){
             if(!ids[x.negocioId] || (yaUs[x.negocioId]||{})[x.id]) return;
             u[claveReg(x.negocioId,'usuarios')+'/'+x.id]=sinPass(x); nu++;
           });
-          if(negsCrudo){ u['negocios']=null; u['negocios_bk']=limpiar(negsCrudo); }
+          if(negsCrudo){ u['negocios']=null; u['negocios_bk']=negs; }
           u['migracion_s1']={negocios:ahora, usuarios:ahora, negociosCopiados:nn, usuariosCopiados:nu};
-          return FB.ref('data').update(u).then(()=>({hecho:true, negocios:nn, usuarios:nu}));
+          return actualizar('data', u).then(()=>({hecho:true, negocios:nn, usuarios:nu}));
         });
       });
     }).catch(e=>({hecho:false, motivo:esPermisoNegado(e)?'permiso':'error', error:e&&e.message}));
@@ -241,13 +260,13 @@ export function crearAdaptadorFirebase(opc){
   // Lee un registro directo de la nube (p. ej. el usuario de un negocio al migrar su cuenta)
   function leerRegistro(n, tabla, id){
     if(!estado.listo || !FB || !n || !id) return Promise.resolve(null);
-    return FB.ref('data/'+claveReg(n,tabla)+'/'+id).once('value').then(s=>s.val());
+    return leerNodo('data/'+claveReg(n,tabla)+'/'+id);
   }
   // data/usuarios del esquema viejo (con hash): solo para quitar o actualizar cuentas
   // aún no migradas. fn recibe la lista y devuelve la nueva (o undefined = no tocar).
   function modificarUsuariosLegado(fn){
     if(!estado.listo || !FB) return Promise.resolve({committed:false});
-    return FB.ref('data/usuarios').transaction(cur=>{
+    return transaccion('data/usuarios', cur=>{
       if(cur===null) return cur;
       const nv=fn(aLista(cur)); return nv===undefined?undefined:limpiar(nv);
     }).then(res=>{ guardarLocal('usuarios_legado', aLista(res.snapshot.val())); return {committed:res.committed}; });
@@ -261,11 +280,11 @@ export function crearAdaptadorFirebase(opc){
     if(!estado.listo || !FB) return;
     let cola={}; try{ cola=JSON.parse(local.leerCrudo(COLA)||'{}'); }catch(e){}
     if(!Object.keys(cola).length){ local.borrarCrudo(COLA); return; }
-    FB.ref('data').update(cola).then(()=>local.borrarCrudo(COLA)).catch(e=>{
+    actualizar('data', cola).then(()=>local.borrarCrudo(COLA)).catch(e=>{
       console.warn('Cola de registros:',e&&e.message);
       if(!esPermisoNegado(e)) return;
       // Una ruta negada por las reglas bloquearía toda la cola: se sube una por una y se descarta lo negado
-      Promise.all(Object.keys(cola).map(k=>{ const u={}; u[k]=cola[k]; return FB.ref('data').update(u).catch(()=>{}); }))
+      Promise.all(Object.keys(cola).map(k=>{ const u={}; u[k]=cola[k]; return actualizar('data', u).catch(()=>{}); }))
         .then(()=>local.borrarCrudo(COLA));
     });
   }
@@ -292,7 +311,7 @@ export function crearAdaptadorFirebase(opc){
     });
     if(!Object.keys(updates).length) return;
     if(estado.listo && FB){
-      const pr=FB.ref('data').update(updates);
+      const pr=actualizar('data', updates);
       if(pr&&pr.catch) pr.catch(e=>{ console.warn('FB registros',tabla,e&&e.message); conexion('error'); if(!esPermisoNegado(e)) encolar(updates); });
     } else encolar(updates);
   }
@@ -345,7 +364,7 @@ export function crearAdaptadorFirebase(opc){
     soloLocal(clave,(CACHE[clave]||[]).filter(x=>x&&x.id!==id));
     const u={}; u[claveReg(n,tabla)+'/'+id]=null; u[claveBorr(n,tabla)+'/'+id]=Date.now();
     if(estado.listo && FB){
-      const pr=FB.ref('data').update(u);
+      const pr=actualizar('data', u);
       if(pr&&pr.catch) pr.catch(e=>{ console.warn('FB borrar',e&&e.message); if(!esPermisoNegado(e)) encolar(u); });
     } else encolar(u);
   }
@@ -366,7 +385,7 @@ export function crearAdaptadorFirebase(opc){
     if(!(estado.listo && FB && srv && srv[id])){ guardar(tabla,[rec]); return rec; }   // sin nube o aún no subido
     soloLocal(clave, arr);
     srv[id]=JSON.stringify(limpiar(rec));       // un guardado posterior no reenvía el valor fijo
-    FB.ref('data/'+claveReg(n,tabla)+'/'+id).transaction(cur=>{
+    transaccion('data/'+claveReg(n,tabla)+'/'+id, cur=>{
       if(cur===null) return null;               // sin copia local: Firebase reintenta con el valor real
       fn(cur); return limpiar(cur);
     }).catch(e=>{ console.warn('Transacción',tabla,id,e&&e.message); conexion('error'); });
@@ -380,7 +399,7 @@ export function crearAdaptadorFirebase(opc){
       set(clave,nv);
       return Promise.resolve({committed:true, valor:nv});
     }
-    return FB.ref('data/'+clave).transaction(cur=>fn(cur)).then(res=>{
+    return transaccion('data/'+clave, cur=>fn(cur)).then(res=>{
       const v=res.snapshot.val(); guardarLocal(clave,v);
       return {committed:res.committed, valor:v};
     });
@@ -392,7 +411,7 @@ export function crearAdaptadorFirebase(opc){
   // Reserva el próximo consecutivo de factura: max(contador, minimoLocal)+1. null si no hay nube.
   function reservarConsecutivo(n, minimoLocal){
     if(!(estado.listo && FB) || !n) return Promise.resolve(null);
-    return FB.ref('data/'+claveDe(n,'factura_seq')).transaction(cur=>Math.max(parseInt(cur)||0, minimoLocal||0)+1)
+    return transaccion('data/'+claveDe(n,'factura_seq'), cur=>Math.max(parseInt(cur)||0, minimoLocal||0)+1)
       .then(res=>res.committed?(parseInt(res.snapshot.val())||null):null);
   }
 
@@ -404,33 +423,39 @@ export function crearAdaptadorFirebase(opc){
     try{
       const cfg=opc.config;
       if(!cfg || !cfg.databaseURL || cfg.apiKey==='TU_API_KEY') return false;
-      if(!opc.firebase || !opc.firebase.initializeApp) return false;
-      opc.firebase.initializeApp(cfg);
-      FB=opc.firebase.database();
+      const S=opc.sdk;
+      if(!S || !S.app || !S.database) return false;
+      const app=S.app.getApps().length ? S.app.getApp() : S.app.initializeApp(cfg);
+      D=S.database; FB=D.getDatabase(app);
       if(opc.emuladores && opc.emuladores.database){
         const [h,p]=String(opc.emuladores.database).split(':');
-        FB.useEmulator(h, parseInt(p,10));
+        D.connectDatabaseEmulator(FB, h, parseInt(p,10));
       }
       estado.listo=true;
-      try{ FB.ref('.info/connected').on('value', s=>conexion(s.val()?'ok':'off')); }catch(e){}
+      try{ escuchar('.info/connected', s=>conexion(s.val()?'ok':'off')); }catch(e){}
       return true;
     }catch(e){
       console.error('Firebase no disponible:',e);
-      FB=null; estado.listo=false;
+      FB=null; D=null; estado.listo=false;
       return false;
     }
   }
-  function aceptarDeNube(k,v){
+  function aceptarDeNube(k,v,tabla){
     const nuevo=JSON.stringify(v===undefined?null:v);
     const viejo=JSON.stringify(CACHE[k]===undefined?null:CACHE[k]);
-    if(nuevo!==viejo){ guardarLocal(k,v); g.alCambiar(); }
+    if(nuevo===viejo) return;
+    const antes=CACHE[k];
+    guardarLocal(k,v);
+    if(tabla) aviso(o=>g.alCambiarTabla(tabla, v, antes, o));
+    g.alCambiar();
   }
-  function escucharClave(k){ const ref=FB.ref('data/'+k); ref.on('value', s=>aceptarDeNube(k, s.val())); return ref; }
+  // tabla: solo en las del negocio (para el gancho alCambiarTabla)
+  function escucharClave(k, tabla){ return escuchar('data/'+k, s=>aceptarDeNube(k, s.val(), tabla)); }   // devuelve la función que deja de escuchar   // devuelve la función que deja de escuchar
 
   // Carga inicial: SOLO las tablas globales, para poder entrar
   function cargarGlobales(cb){
     if(!estado.listo || !FB){ estado.nubeLista=true; cb(); return; }
-    Promise.all(TABLAS_GLOBALES.map(k=>FB.ref('data/'+k).once('value').then(s=>guardarLocal(k,s.val()))))
+    Promise.all(TABLAS_GLOBALES.map(k=>leerNodo('data/'+k).then(v=>guardarLocal(k,v))))
     .then(()=>{
       estado.nubeLista=true; estado.globalesLeidas=true;
       conexion('ok'); cb(); escucharGlobales();
@@ -451,38 +476,45 @@ export function crearAdaptadorFirebase(opc){
   function sincronizarNegocio(n){
     if(!estado.listo || !FB || !n) return;
     detenerSincNegocio();
+    inicioSinc=Date.now();
     subirCola();
     TABLAS.forEach(t=>{
       const clave=claveDe(n,t);
-      if(!esTablaRegistros(t)){ listenersNeg.push({ref:escucharClave(clave), ev:'value'}); return; }
-      const refReg=FB.ref('data/'+claveReg(n,t));
-      const refBor=FB.ref('data/'+claveBorr(n,t));
-      refBor.once('value').then(sb=>{
+      if(!esTablaRegistros(t)){ listenersNeg.push(escucharClave(clave, t)); return; }
+      const refReg=nodo('data/'+claveReg(n,t));
+      const refBor=nodo('data/'+claveBorr(n,t));
+      D.get(refBor).then(sb=>{
         REG_BORRADOS[clave]=Object.assign({}, sb.val()||{});      // 1) marcas de borrado primero
-        return refReg.once('value');                               // 2) estado actual
+        return D.get(refReg);                                      // 2) estado actual
       }).then(sr=>{
         const obj=sr.val()||{}, tomb=REG_BORRADOS[clave]||{}, lista=[];
         REG_SRV[clave]={};
         Object.keys(obj).forEach(id=>{ const v=obj[id]; if(!v||!v.id||tomb[id]) return; REG_SRV[clave][id]=JSON.stringify(v); lista.push(v); });
         soloLocal(clave,ordenar(lista,t));
-        return FB.ref('data/'+clave).once('value').then(sv=>{ if(sv.exists()) migrarTablaVieja(n,t,sv.val()); });   // 3) formato viejo
+        return D.get(nodo('data/'+clave)).then(sv=>{ if(sv.exists()) migrarTablaVieja(n,t,sv.val()); });   // 3) formato viejo
       }).then(()=>{
         g.alCambiar();
         g.alCargarTabla(t);
-        const entra=snap=>{ if(entraRegistro(clave,t,snap.key,snap.val())) g.alCambiar(); };
-        refReg.on('child_added',entra);
-        refReg.on('child_changed',entra);
-        refReg.on('child_removed',snap=>{ if(saleRegistro(clave,snap.key)) g.alCambiar(); });
-        refBor.on('child_added',snap=>{
-          const tb=REG_BORRADOS[clave]||(REG_BORRADOS[clave]={});
-          if(tb[snap.key]) return;
-          tb[snap.key]=snap.val()||Date.now();
-          if(saleRegistro(clave,snap.key)) g.alCambiar();
-        });
-        // Compatibilidad: un equipo con la versión VIEJA escribe la tabla completa
-        const refViejo=FB.ref('data/'+clave);
-        refViejo.on('value',sv=>{ if(sv.exists()) migrarTablaVieja(n,t,sv.val()); });
-        listenersNeg.push({ref:refReg,ev:'child'},{ref:refBor,ev:'child'},{ref:refViejo,ev:'value'});
+        // Nuevo = no estaba en lo recibido ni en lo que este equipo subió (lo propio no se avisa)
+        const entra=snap=>{
+          const nuevo=!(REG_SRV[clave]||{})[snap.key];
+          if(!entraRegistro(clave,t,snap.key,snap.val())) return;
+          if(nuevo) aviso(o=>g.alRegistroNuevo(t, snap.val(), o));
+          g.alCambiar();
+        };
+        listenersNeg.push(
+          D.onChildAdded(refReg, entra),
+          D.onChildChanged(refReg, entra),
+          D.onChildRemoved(refReg, snap=>{ if(saleRegistro(clave,snap.key)) g.alCambiar(); }),
+          D.onChildAdded(refBor, snap=>{
+            const tb=REG_BORRADOS[clave]||(REG_BORRADOS[clave]={});
+            if(tb[snap.key]) return;
+            tb[snap.key]=snap.val()||Date.now();
+            if(saleRegistro(clave,snap.key)) g.alCambiar();
+          }),
+          // Compatibilidad: un equipo con la versión VIEJA escribe la tabla completa
+          escuchar('data/'+clave, sv=>{ if(sv.exists()) migrarTablaVieja(n,t,sv.val()); })
+        );
       }).catch(e=>console.warn('Sync',t,e&&e.message));
     });
   }
@@ -493,27 +525,22 @@ export function crearAdaptadorFirebase(opc){
     if(migrando[clave]) return;
     migrando[clave]=true;
     const lista=Array.isArray(datos)?datos:Object.values(datos);
-    FB.ref('data/'+claveReg(n,tabla)).once('value').then(sr=>{
+    D.get(nodo('data/'+claveReg(n,tabla))).then(sr=>{
       const ya=sr.val()||{}, tomb=REG_BORRADOS[clave]||{}, u={};
-      lista.forEach(x=>{
-        if(!x||!x.id||ya[x.id]||tomb[x.id]) return;
+      const validos=lista.filter(x=>x&&x.id&&idSeguro(x.id));   // S8: un id con símbolos lo rechazarían las reglas
+      if(validos.length<lista.filter(x=>x&&x.id).length) console.warn('Migración',tabla,'registros con id inválido no se copiaron');
+      validos.forEach(x=>{
+        if(ya[x.id]||tomb[x.id]) return;
         const l=limpiar(x); if(l) u[claveReg(n,tabla)+'/'+x.id]=l;
       });
       u[clave]=null;                                    // retirar el formato viejo
-      u[clave+'_bk']=lista.length?limpiar(datos):null;  // respaldo por si acaso
-      return FB.ref('data').update(u);
+      u[clave+'_bk']=validos.length?limpiar(validos):null;  // respaldo por si acaso
+      return actualizar('data', u);
     }).catch(e=>console.warn('Migración',tabla,e&&e.message))
       .then(()=>{ migrando[clave]=false; });
   }
   function detenerSincNegocio(){
-    listenersNeg.forEach(l=>{
-      try{
-        const ref=l&&l.ref?l.ref:l;
-        if(!ref||!ref.off) return;
-        if(l&&l.ev==='child'){ ref.off('child_added'); ref.off('child_changed'); ref.off('child_removed'); }
-        else ref.off('value');
-      }catch(e){}
-    });
+    listenersNeg.forEach(quitar=>{ try{ quitar(); }catch(e){} });
     listenersNeg=[];
     detenerNegocioPropio();
   }
@@ -523,34 +550,44 @@ export function crearAdaptadorFirebase(opc){
     if(!estado.listo || !FB || sincTodoOn) return;
     sincTodoOn=true;
     if(!estado.cuentas){   // esquema viejo: todo data (con las reglas cerradas no se usa)
-      FB.ref('data').on('value', snap=>{ if(aplicarTodo(snap.val()||{})) g.alCambiar(); });
+      quitarTodo=escuchar('data', snap=>{ if(aplicarTodo(snap.val()||{})) g.alCambiar(); });
       return;
     }
     // R1: el panel escucha SOLO lo que muestra (negocios, administradores, usuarios y el
     // resumen de cifras de cada negocio). Antes escuchaba todo data: cada venta de cualquier
     // negocio le reenviaba la base completa. Lo demás se lee bajo demanda (leerNegocioCompleto).
     const parte={negocios_r:null, negocios:null, usuarios:null};
-    const escuchar=(ruta, fn)=>{
-      const ref=FB.ref('data/'+ruta);
-      ref.on('value', sn=>fn(sn.val()), e=>console.warn('Panel',ruta,e&&e.message));
-      refsPanel.push(ref);
-    };
+    const oir=(ruta, fn)=>{ refsPanel.push(escuchar('data/'+ruta, sn=>fn(sn.val()), e=>console.warn('Panel',ruta,e&&e.message))); };
+    if(sesion.vendedor){ escucharNegociosVendedor(parte); return; }
     const negociosCambiaron=()=>{
       const cambio=aplicarGlobalesCuentas(parte);
       const ids=aLista(parte.negocios_r||parte.negocios).map(n=>n.id).filter(Boolean);
       ids.forEach(id=>{ if(!negPanel[id]) negPanel[id]=escucharNegocioPanel(id); });
-      Object.keys(negPanel).forEach(id=>{ if(ids.indexOf(id)<0){ negPanel[id].forEach(r=>{ try{ r.off(); }catch(e){} }); delete negPanel[id]; } });
+      Object.keys(negPanel).forEach(id=>{ if(ids.indexOf(id)<0){ negPanel[id].forEach(quitar=>{ try{ quitar(); }catch(e){} }); delete negPanel[id]; } });
       if(cambio) g.alCambiar();
     };
-    escuchar('negocios_r', v=>{ parte.negocios_r=v; negociosCambiaron(); });
-    escuchar('negocios', v=>{ parte.negocios=v; negociosCambiaron(); });   // antes de migrar las tablas globales
-    escuchar('usuarios', v=>{ parte.usuarios=v; if(aplicarGlobalesCuentas(parte)) g.alCambiar(); });
-    escuchar('superadmins', v=>aceptarDeNube('superadmins', v));
+    oir('negocios_r', v=>{ parte.negocios_r=v; negociosCambiaron(); });
+    oir('negocios', v=>{ parte.negocios=v; negociosCambiaron(); });   // antes de migrar las tablas globales
+    oir('usuarios', v=>{ parte.usuarios=v; if(aplicarGlobalesCuentas(parte)) g.alCambiar(); });
+    oir('superadmins', v=>aceptarDeNube('superadmins', v));
+  }
+  // Vendedor: las reglas solo le dejan leer negocios_r con la consulta por SU id
+  // (vendedorId = sus clientes y pruebas; demoDe = sus demos). Ni usuarios ni resumen ajenos.
+  function escucharNegociosVendedor(parte){
+    const res={vendedorId:{}, demoDe:{}};
+    const unir=()=>{
+      parte.negocios_r=Object.assign({}, res.vendedorId, res.demoDe);
+      if(aplicarGlobalesCuentas(parte)) g.alCambiar();
+    };
+    ['vendedorId','demoDe'].forEach(campo=>{
+      const q=D.query(nodo('data/negocios_r'), D.orderByChild(campo), D.equalTo(sesion.vendedor));
+      refsPanel.push(D.onValue(q, sn=>{ res[campo]=sn.val()||{}; unir(); }, e=>console.warn('Panel vendedor',campo,e&&e.message)));
+    });
   }
   // Usuarios y resumen de un negocio, para el panel
   function escucharNegocioPanel(id){
     const refs=[], e={r:null, x:null}, clave=claveDe(id,'usuarios');
-    const ref=(ruta, fn)=>{ const r=FB.ref('data/'+ruta); r.on('value', sn=>fn(sn.val()), ()=>{}); refs.push(r); };
+    const ref=(ruta, fn)=>{ refs.push(escuchar('data/'+ruta, sn=>fn(sn.val()), ()=>{})); };
     const usuarios=()=>{ if(aplicarRegistros(clave, e.r||{}, e.x||{})) g.alCambiar(); };
     ref(claveReg(id,'usuarios'), v=>{ e.r=v; usuarios(); });
     ref(claveBorr(id,'usuarios'), v=>{ e.x=v; usuarios(); });
@@ -595,9 +632,9 @@ export function crearAdaptadorFirebase(opc){
   }
   function detenerSincTodo(){
     if(!sincTodoOn) return;
-    try{ FB.ref('data').off('value'); }catch(e){}
-    refsPanel.forEach(r=>{ try{ r.off(); }catch(e){} }); refsPanel=[];
-    Object.keys(negPanel).forEach(id=>negPanel[id].forEach(r=>{ try{ r.off(); }catch(e){} })); negPanel={};
+    if(quitarTodo){ try{ quitarTodo(); }catch(e){} quitarTodo=null; }
+    refsPanel.forEach(quitar=>{ try{ quitar(); }catch(e){} }); refsPanel=[];
+    Object.keys(negPanel).forEach(id=>negPanel[id].forEach(quitar=>{ try{ quitar(); }catch(e){} })); negPanel={};
     sincTodoOn=false;
   }
 
@@ -620,11 +657,11 @@ export function crearAdaptadorFirebase(opc){
     if(!estado.listo || !FB) return Promise.reject(new Error('sin_nube'));
     if(modo && modo.superAdmin){
       if(estado.cuentas){ detenerSincTodo(); sincronizarTodo(); return Promise.resolve(); }   // vuelve a leer lo del panel
-      return FB.ref('data').once('value').then(snap=>{ aplicarTodo(snap.val()||{}); });
+      return leerNodo('data').then(v=>{ aplicarTodo(v||{}); });
     }
     const tareas=estado.cuentas
-      ? (modo&&modo.negId ? [FB.ref('data/negocios_r/'+modo.negId).once('value').then(s=>{ const v=s.val(); if(v&&v.id) aceptarNegocio(v); })] : [])
-      : TABLAS_GLOBALES.map(k=>FB.ref('data/'+k).once('value').then(s=>guardarLocal(k,s.val())));
+      ? (modo&&modo.negId ? [leerNodo('data/negocios_r/'+modo.negId).then(v=>{ if(v&&v.id) aceptarNegocio(v); })] : [])
+      : TABLAS_GLOBALES.map(k=>leerNodo('data/'+k).then(v=>guardarLocal(k,v)));
     const n=modo&&modo.negId;
     return Promise.all(tareas.concat(n?[leerNegocioCompleto(n)]:[])).then(()=>{});
   }
@@ -632,7 +669,7 @@ export function crearAdaptadorFirebase(opc){
   // Incluye lo que siga en formato viejo (array completo) sin migrarlo.
   function leerNegocioCompleto(n){
     if(!estado.listo || !FB || !n) return Promise.resolve();
-    const leer=r=>FB.ref('data/'+r).once('value').then(sn=>sn.val());
+    const leer=r=>leerNodo('data/'+r);
     return Promise.all(TABLAS.map(t=>{
       const clave=claveDe(n,t);
       if(!esTablaRegistros(t)) return leer(clave).then(v=>guardarLocal(clave,v));
@@ -652,7 +689,7 @@ export function crearAdaptadorFirebase(opc){
   function exportarTodo(){
     const copiaLocal=()=>JSON.parse(JSON.stringify(CACHE));
     if(!(estado.listo && FB)) return Promise.resolve({datos:copiaLocal(), origen:'local'});
-    return FB.ref('data').once('value').then(s=>({datos:s.val()||{}, origen:'nube'}))
+    return leerNodo('data').then(v=>({datos:v||{}, origen:'nube'}))
       .catch(()=>({datos:copiaLocal(), origen:'local'}));
   }
 
@@ -671,10 +708,10 @@ export function crearAdaptadorFirebase(opc){
   return {
     TABLAS, TABLAS_UNICAS, TABLAS_GLOBALES,
     estado, cache:CACHE,
-    get fb(){ return FB; },
+    entorno:opc.entorno||'local',
     iniciar, cargarGlobales, configurarSesion, cargarNegocioPropio, migrarTablasGlobales, leerRegistro,
     modificarUsuariosLegado, leerNegocioCompleto,
-    get, set, claveDe, misDatos, datosDe, guardar, eliminar,
+    get, set, claveDe, misDatos, datosDe, guardar, eliminar, guardarEn, eliminarEn,
     modificarRegistro, transaccionUnica, transaccionGlobal, reservarConsecutivo,
     sincronizarNegocio, detenerSincNegocio, sincronizarTodo, detenerSincTodo,
     limpiarDatosAjenos, recargar, exportarTodo, borrarDatosNegocio

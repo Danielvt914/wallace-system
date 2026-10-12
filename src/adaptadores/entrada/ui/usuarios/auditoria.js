@@ -21,7 +21,7 @@ export function logAudit(accion, detalle){
     // La pantalla solo muestra los 300 más recientes.
     guardarMisDatos('auditoria', [{id:uid(), usuario:STATE.user.nombre||'—', rol:STATE.user.rol||'',
       accion:accion||'', detalle:detalle||'', fecha:now()}]);
-  }catch(e){}
+  }catch(e){ console.warn('No se pudo registrar en la auditoría:', accion, e); }   // C3 (sin reportarError: se llamaría a sí mismo)
 }
 
 // ============================================================

@@ -6,7 +6,9 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/10-users-roles/10-users-roles.md
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, now, refrescarSiSePuede } from '../nucleo/estado.js';
+import { BOTON, MSJ } from '../nucleo/textos.js';
 import { abrirModal, cerrarModal, toast } from '../nucleo/componentes.js';
+import { WALLACE_LOGO } from '../nucleo/logo.js';
 import { sonidoError } from '../nucleo/sonidos.js';
 import { render } from '../nucleo/navegacion.js';
 import { migrarContrasenasLegado } from './cuentas.js';
@@ -122,20 +124,20 @@ export async function hacerLoginCuentas(usuario, pass){
     toast(ServicioSesion.mensajeDeFallo(r.motivo),'error'); sonidoError();
     return;
   }
-  if(r.passCambiada) toast('Contraseña actualizada. Desde hoy entras con la nueva.','success');
+  if(r.passCambiada) toast(MSJ.contrasenaActualizadaDesdeHoyEntrasCon,'success');
   await entrarConPerfil(r.uid, r.perfil);
 }
 // Migración de una cuenta con contraseña de menos de 6 caracteres: se pide una nueva
 export function pedirPassNueva(){
   return new Promise(resolver=>{
     let listo=false;
-    abrirModal({titulo:'🔑 Elige una contraseña nueva', textoBoton:'Guardar y entrar', campos:[
+    abrirModal({titulo:'🔑 Elige una contraseña nueva', textoBoton:BOTON.guardarYEntrar, campos:[
       {id:'n1', label:'Nueva contraseña (mínimo 6 caracteres)', tipo:'password', requerido:true},
       {id:'n2', label:'Repite la nueva contraseña', tipo:'password', requerido:true}
     ], extraHTML:'<p class="nota">El inicio de sesión ahora es más seguro y exige contraseñas de al menos 6 caracteres. Desde hoy entras con la nueva.</p>',
     onGuardar:d=>{
-      if((d.n1||'').length<6){ toast('Debe tener al menos 6 caracteres','error'); return; }
-      if(d.n1!==d.n2){ toast('Las contraseñas no coinciden','error'); return; }
+      if((d.n1||'').length<6){ toast(MSJ.debeTenerAlMenos6Caracteres,'error'); return; }
+      if(d.n1!==d.n2){ toast(MSJ.lasContrasenasNoCoinciden,'error'); return; }
       listo=true; resolver(d.n1); cerrarModal();
     },
     onCancelar:()=>{ if(!listo){ listo=true; resolver(null); } }});
@@ -148,17 +150,19 @@ export async function entrarConPerfil(uid, perfil){
   const enLinea=(typeof navigator==='undefined' || navigator.onLine!==false);
   fijarFacturaReservada(null);
   if(perfil.rol==='superadmin'){
-    Datos.configurarSesion({cuentas:true, superAdmin:true});
+    // El vendedor solo ve y toca SUS negocios (reglas): el panel le trae solo esos
+    const vendedor=u.rolSuper==='vendedor';
+    Datos.configurarSesion({cuentas:true, superAdmin:true, vendedor:vendedor?u.id:null});
     STATE.user=u; STATE.esSuperAdmin=true; STATE.negocio=null; STATE.page='';
     detenerSincNegocio();
     // Fase 2 del Plan B: negocios y usuarios al formato por registro (una sola vez)
-    if(enLinea){
+    if(enLinea && !vendedor){
       const m=await conTiempo(Datos.migrarTablasGlobales(), 15000, null);
       if(m && m.hecho) toast('Migración: '+m.negocios+' negocio(s) y '+m.usuarios+' usuario(s) pasados al formato nuevo','info');
     }
     sincronizarTodo();
     escucharMiPerfil(uid);
-    migrarContrasenasLegado();
+    if(!vendedor) migrarContrasenasLegado();
     render();
     return;
   }
@@ -171,8 +175,8 @@ export async function entrarConPerfil(uid, perfil){
     neg=(DB.get('negocios')||[]).find(n=>n.id===perfil.negocioId)||null;
     if(!enLinea && neg) Datos.cargarNegocioPropio(perfil.negocioId).catch(()=>{});
   }
-  if(!neg){ await Cuentas.salir(); borrarPerfilLocal(); toast('No se encontró tu negocio. Habla con el administrador del sistema.','error'); render(); return; }
-  if(!neg.activo){ await Cuentas.salir(); borrarPerfilLocal(); toast('Este negocio está suspendido. Contacta al proveedor.','error'); render(); return; }
+  if(!neg){ await Cuentas.salir(); borrarPerfilLocal(); toast(MSJ.noSeEncontroTuNegocioHabla,'error'); render(); return; }
+  if(!neg.activo){ await Cuentas.salir(); borrarPerfilLocal(); toast(MSJ.esteNegocioEstaSuspendidoContactaAl,'error'); render(); return; }
   ponerSesionNegocio(u, neg);
   detenerSincTodo();
   limpiarDatosAjenos(neg.id);   // privacidad: fuera datos de otros negocios y tablas globales
@@ -186,7 +190,7 @@ export function escucharMiPerfil(uid){
   _dejarPerfil=Cuentas.escucharPerfil(uid, p=>{
     if(!STATE.user) return;
     if(!p || p.activo===false){
-      toast('Tu usuario fue desactivado o su contraseña se restableció. Inicia sesión de nuevo.','error');
+      toast(MSJ.tuUsuarioFueDesactivadoOSu,'error');
       logout(); return;
     }
     guardarPerfilLocal(uid, p);
@@ -199,7 +203,7 @@ export function escucharMiPerfil(uid){
 export function negocioCambiado(n){
   if(!STATE.user || STATE.esSuperAdmin || STATE.modoSupervision || !STATE.negocio || STATE.negocio.id!==n.id) return;
   STATE.negocio=JSON.parse(JSON.stringify(n));
-  if(!n.activo){ toast('Este negocio fue suspendido. Contacta al proveedor.','error'); logout(); }
+  if(!n.activo){ toast(MSJ.esteNegocioFueSuspendidoContactaAl,'error'); logout(); }
 }
 export function logout(){
   STATE.user=null; STATE.negocio=null; STATE.esSuperAdmin=false;
@@ -216,7 +220,7 @@ export function logout(){
 }
 // Fuera de producción se dice en qué base se está trabajando (firebase-config.js)
 export function avisoEntorno(){
-  const e=window.FIREBASE_ENTORNO;
+  const e=Datos.entorno;   // lo elige firebase-config.js (src/arranque.js se lo pasa al adaptador de datos)
   if(!e || e==='produccion') return '';
   const txt={pruebas:'🧪 Entorno de PRUEBAS', emulador:'🧪 Emuladores locales de Firebase',
     local:'💻 Modo local: los datos solo quedan en este navegador'}[e]||e;
@@ -225,7 +229,7 @@ export function avisoEntorno(){
 export function vistaLogin(){
   return `<div class="login-fondo">
     <div class="login-caja">
-      <div class="login-emblema">${window.WALLACE_LOGO||''}</div>
+      <div class="login-emblema">${WALLACE_LOGO}</div>
       <div class="login-marca">Wallace<span>System</span></div>
       <p class="login-sub">Sistema administrativo para tu negocio</p>
       ${avisoEntorno()}
@@ -250,7 +254,7 @@ export function necesitaConfigInicial(){
 export function vistaConfigInicial(){
   return `<div class="login-fondo">
     <div class="login-caja">
-      <div class="login-emblema">${window.WALLACE_LOGO||''}</div>
+      <div class="login-emblema">${WALLACE_LOGO}</div>
       <div class="login-marca">Wallace<span>System</span></div>
       <p class="login-sub">Configuración inicial: crea la cuenta del dueño del sistema</p>
       ${avisoEntorno()}
@@ -266,21 +270,21 @@ export function vistaConfigInicial(){
 export function crearDuenoInicial(){
   const v=id=>((document.getElementById(id)||{}).value||'');
   const nombre=v('ci-nombre').trim(), usuario=v('ci-user').trim(), pass=v('ci-pass'), pass2=v('ci-pass2');
-  if(!nombre||!usuario){ toast('Escribe nombre y usuario','error'); return; }
-  if(pass.length<8){ toast('La contraseña debe tener al menos 8 caracteres','error'); return; }
-  if(pass!==pass2){ toast('Las contraseñas no coinciden','error'); return; }
+  if(!nombre||!usuario){ toast(MSJ.escribeNombreYUsuario,'error'); return; }
+  if(pass.length<8){ toast(MSJ.laContrasenaDebeTenerAlMenos8,'error'); return; }
+  if(pass!==pass2){ toast(MSJ.lasContrasenasNoCoinciden,'error'); return; }
   if(conCuentasFirebase()){ crearDuenoInicialCuentas(nombre, usuario, pass); return; }
-  if((DB.get('usuarios')||[]).some(u=>u.usuario===usuario)){ toast('Ese usuario ya existe en un negocio','error'); return; }
+  if((DB.get('usuarios')||[]).some(u=>u.usuario===usuario)){ toast(MSJ.eseUsuarioYaExisteEnUn,'error'); return; }
   const rec=ponerPass({id:uid(), nombre, usuario, rolSuper:'dueno', creado:now()}, pass);
   // Solo se crea si la tabla sigue vacía (otro equipo no se adelantó)
   Datos.transaccionGlobal('superadmins', cur=>{
     if(cur && Object.keys(cur).length) return;   // ya existe alguien: abortar
     return [JSON.parse(JSON.stringify(rec))];
   }).then(res=>{
-    if(!res.committed){ toast('Ya existe un administrador del sistema. Inicia sesión.','error'); }
-    else { toast('Cuenta creada. Ya puedes entrar.','success'); }
+    if(!res.committed){ toast(MSJ.yaExisteUnAdministradorDelSistema,'error'); }
+    else { toast(MSJ.cuentaCreadaYaPuedesEntrar,'success'); }
     render();
-  }).catch(e=>{ console.error(e); toast('No se pudo crear la cuenta en la nube','error'); });
+  }).catch(e=>{ console.error(e); toast(MSJ.noSePudoCrearLaCuenta,'error'); });
 }
 // Instalación nueva con cuentas: cuenta de Firebase + registro + perfil del dueño
 export async function crearDuenoInicialCuentas(nombre, usuario, pass){
@@ -291,12 +295,12 @@ export async function crearDuenoInicialCuentas(nombre, usuario, pass){
       if(cur && Object.keys(cur).length) return;   // ya existe alguien: abortar
       return [JSON.parse(JSON.stringify(rec))];
     });
-    if(!res.committed){ await Cuentas.salir(); _configInicial=false; toast('Ya existe un administrador del sistema. Inicia sesión.','error'); render(); return; }
+    if(!res.committed){ await Cuentas.salir(); _configInicial=false; toast(MSJ.yaExisteUnAdministradorDelSistema,'error'); render(); return; }
     const perfil=Dominio.cuentas.perfilDesdeSuperAdmin(rec);
     perfil.migradoEn=now(); perfil.creadoPor=cuenta.uid;
     await Cuentas.guardarCuenta({uid:cuenta.uid, correo:cuenta.correo, usuario, perfil});
     _configInicial=false;
-    toast('Cuenta de dueño creada','success');
+    toast(MSJ.cuentaDeDuenoCreada,'success');
     await entrarConPerfil(cuenta.uid, perfil);
   }catch(e){ console.error(e); toast('No se pudo crear la cuenta: '+mensajeCuenta(e),'error'); }
 }

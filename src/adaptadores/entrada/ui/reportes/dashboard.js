@@ -19,7 +19,7 @@ export function inicio(){
   fijarEscribiendo(false);
   // Monto de venta (comida) tolerante: si no hay subtotal, usa total. Antes las
   // ventas sin 'subtotal' sumaban 0 y el dashboard no mostraba lo cobrado.
-  const montoVenta=v=>(v.subtotal!=null?v.subtotal:(v.total||0));
+  const montoVenta=Dominio.ventas.ventaDelNegocio;   // F21: la misma definición en todas las pantallas
   const vs=misDatos('ventas').filter(v=>v.estado==='pagada');
   const h=today();
   const hoy=ventasJornada(true);
@@ -114,7 +114,7 @@ export function inicio(){
       return `<div class="tarjeta alerta">
         <span class="t-tit chico">⚠️ ${rev.length} ${pPedido()}(s) con el cobro sin ajustar</span>
         <p>Se editaron después de cobrados y el total cambió. Ajusta el pago para que la caja cuadre.</p>
-        <div class="botones-fila mt-8">${rev.slice(0,6).map(v=>`<button class="btn btn-sm btn-naranja" data-click="ajustarPagoVenta('${v.id}')">${escapeHtml(v.factura||'')} · ${fmtMoney(v.total)}</button>`).join('')}</div>
+        <div class="botones-fila mt-8">${rev.slice(0,6).map(v=>`<button class="btn btn-sm btn-naranja" data-click="ajustarPagoVenta('${escapeHtml(v.id)}')">${escapeHtml(v.factura||'')} · ${fmtMoney(v.total)}</button>`).join('')}</div>
       </div>`; })()}
     ${pend.length?`<div class="tarjeta tarjeta-pend">
       <span class="t-tit">⏳ ${pPedidos(true)} por cobrar</span>
@@ -125,7 +125,7 @@ export function inicio(){
           <td>${escapeHtml(v.cliNombre||v.mesa||'—')}</td>
           <td class="negrita">${fmtMoney(v.total)}</td>
           <td class="gris">${escapeHtml(v.vendedor||'—')}</td>
-          <td><button class="btn btn-sm btn-gold" data-click="cobrarPedido('${v.id}')">Cobrar</button></td>
+          <td><button class="btn btn-sm btn-gold" data-click="cobrarPedido('${escapeHtml(v.id)}')">Cobrar</button></td>
         </tr>`).join('')}</tbody>
       </table></div>
     </div>`:''}

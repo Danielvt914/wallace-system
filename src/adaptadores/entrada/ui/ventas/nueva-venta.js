@@ -6,15 +6,16 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/02-pos-catalog/02-pos-catalog.md
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, fmtMoney, jornadaActual, now } from '../nucleo/estado.js';
+import { BOTON, MSJ } from '../nucleo/textos.js';
 import { cajaActual, exigirPermiso, sucursalActual, tienePermiso, usaInventario } from '../nucleo/permisos.js';
-import { abrirModal, cerrarModal, confirmarModal, ic, pPedido, preguntarDespues, toast } from '../nucleo/componentes.js';
+import { abrirModal, cerrarModal, confirmarModal, fotoProducto, ic, pPedido, preguntarDespues, toast } from '../nucleo/componentes.js';
 import { sonidoError, sonidoPedido } from '../nucleo/sonidos.js';
 import { render } from '../nucleo/navegacion.js';
 import { logAudit } from '../usuarios/auditoria.js';
 import { descuentaAlPedir, nombreCuenta, usaCuentas } from './cuentas-abiertas.js';
 import { idDomiciliario } from './pedidos.js';
 import { abrirCobro, ajustarPagoVenta } from './cobro.js';
-import { imprimirComanda } from '../cocina/comanda.js';
+import { imprimirComanda, imprimirComandaSegura } from '../cocina/comanda.js';
 import { ajustarStockPorEdicion, avisarStockBajo, descontarStock, faltantesPara, requerimientos } from '../inventario/motor.js';
 import { disponiblesCombo, faltantesParaAgregar } from '../inventario/combos.js';
 import { guardarClienteAuto } from '../clientes/clientes.js';
@@ -37,7 +38,9 @@ export let _guardando=false;   // bloquea doble clic
 
 export function nuevaVenta(){
   const neg=STATE.negocio;
-  fijarEscribiendo(true);   // proteger: no refrescar mientras arma el pedido
+  // Proteger (no refrescar) solo si hay un pedido a medio armar. Antes era
+  // siempre: con la caja cerrada el equipo no se enteraba de que otro la abrió.
+  fijarEscribiendo(_carrito.length>0 || !!STATE.editandoVentaId || !!STATE.agregandoCuentaId);
   // Venta rápida: si usa cliente predeterminado y aún no hay datos, precargarlos
   if(neg.usaClienteFijo && !_vCli.nombre && !_vCli.tel && !STATE.editandoVentaId){
     _vCli.nombre=neg.clienteFijoNombre||'Consumidor Final';
@@ -78,8 +81,8 @@ export function nuevaVenta(){
         <input type="text" class="busca-grande" placeholder="🔍 Buscar ${escapeHtml((neg.palabraProducto||'producto').toLowerCase())}..." value="${escapeHtml(_vBusca)}" data-input="buscarEnVenta(this.value)">
         ${cats.length>1?`<div class="cats">${cats.map(c=>`<button class="cat ${_vCat===c?'on':''}" data-click="elegirCategoriaVenta(this.dataset.cat)" data-cat="${escapeHtml(c)}">${escapeHtml(c)}</button>`).join('')}</div>`:''}
         ${productos.length?`<div class="prods">
-          ${productos.map(p=>`<div class="prod" data-click="agregarAlCarrito('${p.id}')">
-            <div class="prod-ico">${p.imagen?`<img src="${p.imagen}" alt="">`:ic('box')}</div>
+          ${productos.map(p=>`<div class="prod" data-click="agregarAlCarrito('${escapeHtml(p.id)}')">
+            <div class="prod-ico">${fotoProducto(p,'box')}</div>
             <div class="prod-nom">${escapeHtml(p.nombre)}</div>
             <div class="prod-pre">${fmtMoney(p.precio)}</div>
             ${esCombo(p)?(()=>{ const d=disponiblesCombo(p); return d===null?'':`<div class="prod-stock ${d<=0?'sin':d<=3?'poco':''}">${d<=0?'No alcanza':'Alcanzan para '+d}</div>`; })()
@@ -110,7 +113,7 @@ export function nuevaVenta(){
             ${_carrito.length?`<button class="btn btn-sm btn-ghost" data-click="vaciarCarrito()" title="Vaciar">🗑</button>`:''}
           </div>
           ${tiposCfg.length>1?`<div class="tipos">
-            ${tiposCfg.map(t=>`<button class="tipo ${_vTipo===t?'on':''}" data-click="elegirTipoEntrega('${t}')">${etiquetas[t]||t}</button>`).join('')}
+            ${tiposCfg.map(t=>`<button class="tipo ${_vTipo===t?'on':''}" data-click="elegirTipoEntrega('${escapeHtml(t)}')">${etiquetas[t]||t}</button>`).join('')}
           </div>`:''}
           <div class="carrito-datos">${camposCliente()}</div>
         </div>
@@ -118,13 +121,13 @@ export function nuevaVenta(){
           ${_carrito.length? _carrito.map((i,idx)=>`<div class="item">
             <div class="item-info"><div class="item-nom">${escapeHtml(i.nombre)}</div><div class="item-uni">${fmtMoney(i.precio)} c/u</div></div>
             <div class="item-qty">
-              <button data-click="cambiarQty(${idx},-1)">−</button>
+              <button data-click="cambiarQty(${escapeHtml(idx)},-1)">−</button>
               <span>${i.qty}</span>
-              <button data-click="cambiarQty(${idx},1)">+</button>
+              <button data-click="cambiarQty(${escapeHtml(idx)},1)">+</button>
             </div>
             <div class="item-tot-wrap">
               <div class="item-tot">${neg.esLogistica?(i.qty+' und'):fmtMoney(i.precio*i.qty)}</div>
-              <button class="item-quitar" data-click="quitarItemCarrito(${idx})">quitar</button>
+              <button class="item-quitar" data-click="quitarItemCarrito(${escapeHtml(idx)})">quitar</button>
             </div>
           </div>`).join('') : '<div class="carrito-vacio">🛒<p>Toca un producto para agregarlo</p></div>'}
         </div>
@@ -175,7 +178,7 @@ export function camposCliente(){
       <div id="cli-sugerencias" class="cli-sugerencias"></div>
       <input type="text" class="campo" placeholder="Dirección" value="${escapeHtml(c.dir)}" data-input="datoCliente('dir',this.value)">
       <input type="text" class="campo" placeholder="Barrio" value="${escapeHtml(c.barrio)}" data-input="datoCliente('barrio',this.value)">
-      <input type="number" class="campo" placeholder="Valor del domicilio" value="${c.valorDom||''}" data-input="valorDomicilio(this.value)">
+      <input type="number" class="campo" placeholder="Valor del domicilio" value="${escapeHtml(c.valorDom||'')}" data-input="valorDomicilio(this.value)">
       ${doms.length?`<select class="campo" data-change="datoCliente('domiciliario',this.value)">
         <option value="">Domiciliario...</option>
         ${doms.map(d=>`<option ${c.domiciliario===d.nombre?'selected':''}>${escapeHtml(d.nombre)}</option>`).join('')}
@@ -191,7 +194,7 @@ export function camposCliente(){
       <input type="text" class="campo" placeholder="Ciudad" value="${escapeHtml(c.ciudad)}" data-input="datoCliente('ciudad',this.value)">
       <input type="text" class="campo" placeholder="Departamento" value="${escapeHtml(c.depto)}" data-input="datoCliente('depto',this.value)">
       <input type="text" class="campo" placeholder="Transportadora" value="${escapeHtml(c.transportadora)}" data-input="datoCliente('transportadora',this.value)">
-      <input type="number" class="campo" placeholder="Valor del envío" value="${c.valorDom||''}" data-input="valorDomicilio(this.value)">
+      <input type="number" class="campo" placeholder="Valor del envío" value="${escapeHtml(c.valorDom||'')}" data-input="valorDomicilio(this.value)">
       <input type="text" class="campo" placeholder="Observaciones..." value="${escapeHtml(_vObs)}" data-input="ponerObservaciones(this.value)">`;
   }
   return `<div class="cli-busca-wrap">
@@ -212,7 +215,7 @@ export function sugerirClientes(texto){
     .sort((a,b)=>(b.pedidos||0)-(a.pedidos||0))   // primero los más frecuentes
     .slice(0,6);
   if(!match.length){ cont.innerHTML=''; cont.classList.remove('abierta'); return; }
-  cont.innerHTML=match.map(c=>`<div class="cli-sug-item" data-mousedown="elegirClienteSugerido('${c.id}')">
+  cont.innerHTML=match.map(c=>`<div class="cli-sug-item" data-mousedown="elegirClienteSugerido('${escapeHtml(c.id)}')">
       <span class="cli-sug-nom">${escapeHtml(c.nombre||'(sin nombre)')}</span>
       <span class="cli-sug-tel">${escapeHtml(c.tel||'')}</span>
       ${c.dir?`<span class="cli-sug-dir">${escapeHtml(c.dir)}${c.barrio?' · '+escapeHtml(c.barrio):''}</span>`:''}
@@ -335,25 +338,25 @@ export function fijarGuardando(v){ _guardando=v; }
 export function abrirDescuento(){
   if(!exigirPermiso('descuento','No tienes permiso para aplicar descuentos')) return;
   const bruto=_carrito.reduce((a,i)=>a+i.precio*i.qty,0);
-  abrirModal({titulo:'Aplicar descuento', textoBoton:'Aplicar', campos:[
+  abrirModal({titulo:'Aplicar descuento', textoBoton:BOTON.aplicar, campos:[
     {id:'tipo', label:'Tipo', tipo:'select', opciones:[{valor:'valor',label:'Valor fijo ($)'},{valor:'pct',label:'Porcentaje (%)'}]},
     {id:'cantidad', label:'Cantidad', tipo:'number', requerido:true, placeholder:'Ej: 5000 o 10'},
     {id:'motivo', label:'Motivo (opcional)'}
   ], extraHTML:`<p class="nota">Subtotal actual: <strong>${fmtMoney(bruto)}</strong></p>`,
   onGuardar:(d)=>{
     const c=parseFloat(d.cantidad)||0;
-    if(c<=0){ toast('Cantidad inválida','error'); return; }
+    if(c<=0){ toast(MSJ.cantidadInvalida,'error'); return; }
     const desc = d.tipo==='pct' ? Math.round(bruto*c/100) : c;
-    if(desc>bruto){ toast('El descuento no puede superar el total','error'); return; }
+    if(desc>bruto){ toast(MSJ.elDescuentoNoPuedeSuperarEl,'error'); return; }
     _desc=desc; _descMot=d.motivo||(d.tipo==='pct'?c+'%':'');
-    cerrarModal(); toast('Descuento aplicado','success'); render();
+    cerrarModal(); toast(MSJ.descuentoAplicado,'success'); render();
   }});
 }
 export function quitarDescuento(){ _desc=0; _descMot=''; render(); }
 export function cancelarEdicionPedido(){
-  confirmarModal('¿Salir sin guardar los cambios del pedido?',()=>{
+  confirmarModal(MSJ.salirSinGuardarLosCambiosDel,()=>{
     limpiarPedido(); fijarEscribiendo(false); STATE.pageNeg='pedidos'; render();
-    toast('Edición cancelada','info');
+    toast(MSJ.edicionCancelada,'info');
   },'Sí, salir');
 }
 
@@ -436,16 +439,16 @@ export function validarClientePedido(){
   const tel=(_vCli.tel||'').trim();
   if((_vTipo==='llevar'||_vTipo==='domicilio'||_vTipo==='envio')){
     if(!tel){ toast('El teléfono es obligatorio para '+(_vTipo==='llevar'?'pedidos para llevar':'domicilios')+' (así se guarda el cliente)','error'); return false; }
-    if(tel.replace(/\D/g,'').length<7){ toast('Escribe un teléfono válido','error'); return false; }
+    if(tel.replace(/\D/g,'').length<7){ toast(MSJ.escribeUnTelefonoValido,'error'); return false; }
   }
-  if(_vTipo==='domicilio' && !(_vCli.dir||'').trim()){ toast('La dirección es obligatoria para domicilios','error'); return false; }
+  if(_vTipo==='domicilio' && !(_vCli.dir||'').trim()){ toast(MSJ.laDireccionEsObligatoriaParaDomicilios,'error'); return false; }
   return true;
 }
 
 // ---------- LOGÍSTICA: registrar salida/entrega de mercancía (sin dinero) ----------
 export function registrarSalida(){
   if(_guardando) return;
-  if(!_carrito.length){ toast('Agrega productos primero','error'); return; }
+  if(!_carrito.length){ toast(MSJ.agregaProductosPrimero,'error'); return; }
   if(!validarClientePedido()) return;
   _guardando=true;
   bloquearBoton('btn-confirmar','Guardando…');
@@ -465,8 +468,8 @@ export function registrarSalida(){
     STATE.pageNeg='pedidos'; render();
     toast('Salida '+venta.factura+' registrada','success');
     // Logística: la remisión siempre se ofrece (no depende de la ventana Facturas)
-    preguntarDespues('¿Imprimir remisión de entrega?',()=>imprimirFactura(venta.id),'Imprimir');
-  }catch(e){ console.error(e); toast('Error al registrar salida','error'); }
+    preguntarDespues(MSJ.imprimirRemisionDeEntrega,()=>imprimirFactura(venta.id),'Imprimir');
+  }catch(e){ console.error(e); toast(MSJ.errorAlRegistrarSalida,'error'); }
   finally{ _guardando=false; }
 }
 
@@ -474,13 +477,14 @@ export function registrarSalida(){
 // Guardar los cambios de un pedido que se está editando.
 // Vale para los dos flujos (cobro directo y confirmar→cobrar).
 export function guardarEdicionPedido(){
+  if(!exigirPermiso('editar','No tienes permiso para editar pedidos')) return;   // S7
   if(_guardando) return;
-  if(!STATE.editandoVentaId){ toast('No hay ningún pedido en edición','error'); return; }
-  if(!_carrito.length){ toast('El pedido no puede quedar vacío. Si quieres borrarlo, anúlalo.','error'); return; }
+  if(!STATE.editandoVentaId){ toast(MSJ.noHayNingunPedidoEnEdicion,'error'); return; }
+  if(!_carrito.length){ toast(MSJ.elPedidoNoPuedeQuedarVacio,'error'); return; }
   if(!validarClientePedido()) return;
   const ventasPrev=misDatos('ventas');
   const orig=ventasPrev.find(x=>x.id===STATE.editandoVentaId);
-  if(!orig){ toast('Ese pedido ya no existe','error'); limpiarPedido(); fijarEscribiendo(false); render(); return; }
+  if(!orig){ toast(MSJ.esePedidoYaNoExiste,'error'); limpiarPedido(); fijarEscribiendo(false); render(); return; }
   const yaDescontado = orig.stockAplicado===true || (orig.stockAplicado===undefined && orig.estado==='pagada');
   if(yaDescontado){
     const d=difRequerimientos(requerimientos(orig.items), requerimientos(_carrito));
@@ -516,16 +520,16 @@ export function guardarEdicionPedido(){
     toast('Pedido '+venta.factura+' actualizado'+(cambiaronItems?' · inventario ajustado':''),'success');
     if(ajustar){ setTimeout(()=>ajustarPagoVenta(idG),450); }
     else if(cambiaronItems && STATE.negocio.usaCocina){
-      preguntarDespues('Cambió el pedido. ¿Imprimir la comanda corregida para cocina?',
+      preguntarDespues(MSJ.cambioElPedidoImprimirLaComanda,
         ()=>{ const vv=misDatos('ventas').find(x=>x.id===idG); if(vv) imprimirComanda(vv); },'Imprimir',450);
     }
-  }catch(e){ console.error(e); toast('Error al guardar los cambios','error'); }
+  }catch(e){ console.error(e); toast(MSJ.errorAlGuardarLosCambios,'error'); }
   finally{ _guardando=false; }
 }
 
 export function confirmarPedido(){
   if(_guardando) return;
-  if(!_carrito.length){ toast('Agrega productos primero','error'); return; }
+  if(!_carrito.length){ toast(MSJ.agregaProductosPrimero,'error'); return; }
   if(!validarClientePedido()) return;
   const editando=!!STATE.editandoVentaId;
   if(!editando && descuentaAlPedir()){
@@ -572,7 +576,7 @@ export function confirmarPedido(){
     }
     guardarMisDatos('ventas',ventas);
     sonidoPedido();
-    if(!editando && STATE.negocio.usaCocina){ try{ imprimirComanda(venta); }catch(e){} }
+    if(!editando && STATE.negocio.usaCocina) imprimirComandaSegura(venta);
     const idGuardada=venta.id, hayQueAjustar=!!venta.pagoDescuadrado, cambiaronItems=editando&&JSON.stringify(itemsAntes)!==JSON.stringify(venta.items);
     limpiarPedido();
     fijarEscribiendo(false);
@@ -582,11 +586,11 @@ export function confirmarPedido(){
     toast('Pedido '+venta.factura+(editando?' actualizado':' confirmado'),'success');
     if(hayQueAjustar){ setTimeout(()=>ajustarPagoVenta(idGuardada),450); }
     else if(editando && cambiaronItems && STATE.negocio.usaCocina){
-      preguntarDespues('Cambió el pedido. ¿Imprimir la comanda corregida para cocina?',
+      preguntarDespues(MSJ.cambioElPedidoImprimirLaComanda,
         ()=>{ const vv=misDatos('ventas').find(x=>x.id===idGuardada); if(vv) imprimirComanda(vv); },'Imprimir',450);
     }
   }catch(e){
-    console.error(e); toast('Error al guardar','error');
+    console.error(e); toast(MSJ.errorAlGuardar,'error');
   }finally{ _guardando=false; }
 }
 
@@ -594,7 +598,7 @@ export function confirmarPedido(){
 export function cobrarDirecto(){
   if(!exigirPermiso('cobrar','No tienes permiso para cobrar. Pide a un cajero que lo cobre.')) return;
   if(_guardando) return;
-  if(!_carrito.length){ toast('Agrega productos primero','error'); return; }
+  if(!_carrito.length){ toast(MSJ.agregaProductosPrimero,'error'); return; }
   if(!validarClientePedido()) return;
   const venta=armarVenta('abierta');
   abrirCobro(venta, true);

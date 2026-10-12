@@ -82,7 +82,7 @@ Recomendación: **A para probar ya**; **B antes de llevar a la empresa**, para v
 #### Opción A — Firebase Hosting del sandbox
 
 **Por qué hay un script**: Firebase Hosting sube lo que hay **en el disco**, no lo que hay en Git. Si se publicara la carpeta del proyecto, `importar-pruebas.json` (contraseñas de producción) y `perfil.json` quedarían en internet. `scripts/publicar-sandbox.mjs`:
-- copia a `.publicar/` **solo** `index.html`, `src/`, `firebase-config.js`, `logo.js` y `prueba.html/js`;
+- copia a `.publicar/` **solo** `index.html`, `src/`, `firebase-config.js` y `prueba.html/js`;
 - revisa que no haya nada más que `.html`, `.js` y `.css`;
 - se detiene si algo no cuadra.
 
@@ -117,7 +117,11 @@ Comprobado el 2026-10-10:
 ✔ Listo cuando: el sitio público funciona igual que en `localhost`.
 
 ### Paso 6 — CSP en modo "solo informar"
-En el sitio del paso 5, agregar el encabezado `Content-Security-Policy-Report-Only` a `render.yaml`, revisar la consola mientras se repite el paso 2, y luego activarlo. Detalle y valores: [csp.md](../-03-architecture/csp.md), sección 4.
+El navegador avisa en la consola lo que bloquearía, sin bloquear nada.
+- **Firebase Hosting (opción A)**: ya viene puesto en `firebase.hosting.json`. Publicar, abrir la consola (F12) y repetir el paso 2. Guía: [csp.md, sección 7](../-03-architecture/csp.md).
+- **Render (opción B)**: agregar el encabezado a `render.yaml` ([csp.md, sección 4](../-03-architecture/csp.md)).
+
+Cuando no aparezca ningún aviso, se cambia a `Content-Security-Policy` (activa) y se vuelve a publicar.
 
 ✔ Listo cuando: no aparece ningún `[Report Only] Refused to …`.
 
@@ -140,7 +144,7 @@ El export y `importar-pruebas.json` tienen contraseñas y datos de clientes: no 
 **No hacer sin el visto bueno explícito del responsable del proyecto.** En el repositorio no existe un alias de producción, y no se crea hasta ese momento.
 
 1. **Dominio**: llenar `HOSTS_PRODUCCION` en `firebase-config.js` con el dominio público real, **antes** de unir este código al repositorio original. Sin eso, ningún dominio usa producción.
-2. **Decisiones pendientes**: qué ve el super-admin vendedor, el plazo de migración de cuentas, y si el respaldo incluye `perfiles/` y `login/`.
+2. **Decisiones pendientes**: el plazo de migración de cuentas, y si el respaldo incluye `perfiles/` y `login/`. (El vendedor ya está limitado a sus negocios en `database.rules.json`: volver a publicar las reglas cerradas en el sandbox con `npm run reglas:cerradas` para probarlo.)
 3. **Respaldo** completo de la base antes de cada fase (export desde la consola de Firebase).
 4. **Authentication**: activar correo y contraseña en el proyecto de la empresa (si no, la app muestra el aviso `auth_desactivado`).
 5. **Alias**: `npx.cmd firebase use --add` → elegir el proyecto de la empresa → nombre `produccion`.

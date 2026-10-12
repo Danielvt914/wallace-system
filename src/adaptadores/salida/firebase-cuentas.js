@@ -17,15 +17,17 @@ const ESPERA_RED_MS=12000;
 
 /**
  * @param {Object} opc
- * @param {Object} [opc.firebase]  SDK compat (window.firebase) con firebase-auth-compat cargado
- * @param {Object} [opc.config]    window.FIREBASE_CONFIG
+ * @param {Object} [opc.sdk]       SDK MODULAR de Firebase: {app, auth, database} (firebase-sdk.js en el
+ *                                 navegador; los paquetes firebase/* en las pruebas)
+ * @param {Object} [opc.config]    configuración de Firebase (firebase-config.js → elegirEntorno)
  * @param {Object} opc.cuentas     dominio/cuentas.js
  * @param {() => string} opc.aleatorio  texto aleatorio (adaptador de cripto)
  * @param {Object} [opc.emuladores]  {auth:'host:puerto'} para desarrollo local
  */
 export function crearAdaptadorCuentas(opc){
-  const fb=opc.firebase, dom=opc.cuentas;
-  let auth=null, db=null;
+  const S=opc.sdk, dom=opc.cuentas;
+  let auth=null, db=null, A=null, D=null;   // A, D = funciones de firebase/auth y firebase/database
+  let authAltas=null;                       // sesión aparte para crear cuentas de otros
 
   function traducir(e){
     const c=(e&&(e.code||e.codigo))||'';
@@ -51,24 +53,28 @@ export function crearAdaptadorCuentas(opc){
     return Promise.race([promesa, new Promise((_,rej)=>{ t=setTimeout(()=>rej({code:'red', message:'Sin respuesta de la nube'}), ESPERA_RED_MS); })])
       .then(v=>{ clearTimeout(t); return v; }, e=>{ clearTimeout(t); throw traducir(e); });
   }
-  const leer=ruta=>conEspera(db.ref(ruta).once('value')).then(s=>s.val());
+  const nodo=ruta=>ruta ? D.ref(db, ruta) : D.ref(db);
+  const leer=ruta=>conEspera(D.get(nodo(ruta))).then(s=>s.val());
   const correoNuevo=()=>dom.correoInterno(opc.aleatorio());
 
   function iniciar(){
     try{
-      if(!fb || typeof fb.auth!=='function' || !fb.apps || !fb.apps.length) return false;
-      auth=fb.auth(); db=fb.database();
+      // La app de Firebase la crea el adaptador de datos (se inicia antes)
+      if(!S || !S.app || !S.auth || !S.database || !S.app.getApps().length) return false;
+      A=S.auth; D=S.database;
+      const app=S.app.getApp();
+      auth=A.getAuth(app); db=D.getDatabase(app);
       usarEmulador(auth);
       return true;
-    }catch(e){ console.error('Firebase Auth no disponible:',e); auth=null; db=null; return false; }
+    }catch(e){ console.error('Firebase Auth no disponible:',e); auth=null; db=null; A=null; D=null; return false; }
   }
   const disponible=()=>!!auth;
   function usarEmulador(a){
-    if(opc.emuladores && opc.emuladores.auth) a.useEmulator('http://'+opc.emuladores.auth, {disableWarnings:true});
+    if(opc.emuladores && opc.emuladores.auth) A.connectAuthEmulator(a, 'http://'+opc.emuladores.auth, {disableWarnings:true});
   }
 
   function alCambiarSesion(cb){
-    auth.onAuthStateChanged(u=>cb(u?{uid:u.uid}:null));
+    A.onAuthStateChanged(auth, u=>cb(u?{uid:u.uid}:null));
   }
   function buscarLogin(usuario){
     const clave=dom.claveUsuario(usuario);
@@ -76,38 +82,37 @@ export function crearAdaptadorCuentas(opc){
     return leer('login/'+clave).then(v=>(v&&v.correo&&v.uid)?v:null);
   }
   function entrar(correo, pass){
-    return conEspera(auth.signInWithEmailAndPassword(correo, pass)).then(c=>({uid:c.user.uid}));
+    return conEspera(A.signInWithEmailAndPassword(auth, correo, pass)).then(c=>({uid:c.user.uid}));
   }
-  function salir(){ return auth ? auth.signOut().catch(()=>{}) : Promise.resolve(); }
+  function salir(){ return auth ? A.signOut(auth).catch(()=>{}) : Promise.resolve(); }
   function leerPerfil(uid){ return leer('perfiles/'+uid); }
   function escucharPerfil(uid, cb){
-    const ref=db.ref('perfiles/'+uid);
-    const h=s=>cb(s.val());
-    ref.on('value', h, ()=>cb(null));   // permiso negado = sin perfil
-    return ()=>{ try{ ref.off('value', h); }catch(e){} };
+    const quitar=D.onValue(nodo('perfiles/'+uid), s=>cb(s.val()), ()=>cb(null));   // permiso negado = sin perfil
+    return ()=>{ try{ quitar(); }catch(e){} };
   }
 
   // Cuenta del propio usuario (migración): queda con la sesión iniciada
   function crearCuentaPropia(pass){
     const correo=correoNuevo();
-    return conEspera(auth.createUserWithEmailAndPassword(correo, pass)).then(c=>({uid:c.user.uid, correo}));
+    return conEspera(A.createUserWithEmailAndPassword(auth, correo, pass)).then(c=>({uid:c.user.uid, correo}));
   }
-  // Cuenta de otra persona: instancia secundaria, sin cerrar la sesión del super-admin
-  function instanciaAltas(){
-    const ya=(fb.apps||[]).find(a=>a.name==='altas');
-    if(ya) return ya;
-    const nueva=fb.initializeApp(opc.config, 'altas');
-    usarEmulador(nueva.auth());
-    return nueva;
+  // Cuenta de otra persona: instancia secundaria, sin cerrar la sesión del super-admin.
+  // Sesión solo en memoria: nunca se guarda en el navegador ni toca la del super-admin.
+  function sesionAltas(){
+    if(authAltas) return authAltas;
+    const ya=S.app.getApps().find(a=>a.name==='altas');
+    if(ya){ authAltas=A.getAuth(ya); return authAltas; }
+    authAltas=A.initializeAuth(S.app.initializeApp(opc.config, 'altas'), {persistence:A.inMemoryPersistence});
+    usarEmulador(authAltas);
+    return authAltas;
   }
   // Una alta a la vez: la instancia secundaria tiene una sola sesión (p. ej. "crear 5 demos")
   let colaAltas=Promise.resolve();
   function crearCuentaAjena(pass){
     const tarea=colaAltas.then(()=>{
-      const altas=instanciaAltas(), a=altas.auth(), correo=correoNuevo();
-      return conEspera(a.setPersistence(fb.auth.Auth.Persistence.NONE)
-        .then(()=>a.createUserWithEmailAndPassword(correo, pass))
-        .then(c=>{ const uid=c.user.uid; return a.signOut().then(()=>({uid, correo})); }));
+      const a=sesionAltas(), correo=correoNuevo();
+      return conEspera(A.createUserWithEmailAndPassword(a, correo, pass)
+        .then(c=>{ const uid=c.user.uid; return A.signOut(a).then(()=>({uid, correo})); }));
     });
     colaAltas=tarea.catch(()=>{});
     return tarea;
@@ -119,7 +124,7 @@ export function crearAdaptadorCuentas(opc){
     u['perfiles/'+d.uid]=JSON.parse(JSON.stringify(d.perfil));
     u['login/'+dom.claveUsuario(d.usuario)]={correo:d.correo, uid:d.uid};
     Object.assign(u, d.extra||{});
-    return conEspera(db.ref().update(u));
+    return conEspera(D.update(nodo(), u));
   }
   function borrarCuenta(d){
     const u={};
@@ -131,7 +136,7 @@ export function crearAdaptadorCuentas(opc){
       if(clave && ent && (!d.uid || ent.uid===d.uid)) u['login/'+clave]=null;
       Object.assign(u, d.extra||{});
       if(!Object.keys(u).length) return;
-      return conEspera(db.ref().update(u));
+      return conEspera(D.update(nodo(), u));
     });
   }
   function actualizarPerfil(uid, campos, renombrar){
@@ -142,15 +147,22 @@ export function crearAdaptadorCuentas(opc){
       u['login/'+dom.claveUsuario(renombrar.despues)]={correo:renombrar.correo, uid};
     }
     if(!Object.keys(u).length) return Promise.resolve();
-    return conEspera(db.ref().update(u));
+    return conEspera(D.update(nodo(), u));
   }
   function cambiarMiPass(actual, nueva){
     const yo=auth.currentUser;
     if(!yo) return Promise.reject(traducir({code:'auth/requires-recent-login'}));
-    const cred=fb.auth.EmailAuthProvider.credential(yo.email, actual);
-    return conEspera(yo.reauthenticateWithCredential(cred).then(()=>yo.updatePassword(nueva)));
+    const cred=A.EmailAuthProvider.credential(yo.email, actual);
+    return conEspera(A.reauthenticateWithCredential(yo, cred).then(()=>A.updatePassword(yo, nueva)));
   }
 
+  // Super-admin vendedor: las reglas le dejan usar las tablas de UN negocio suyo a la vez,
+  // el que diga perfiles/<uid>/negocioActivo (y solo si ese negocio es suyo)
+  function fijarNegocioActivo(negId){
+    const yo=auth && auth.currentUser;
+    if(!yo) return Promise.reject(traducir({code:'auth/requires-recent-login'}));
+    return conEspera(D.set(nodo('perfiles/'+yo.uid+'/negocioActivo'), negId||null));
+  }
   function leerIndice(){
     return Promise.all([leer('perfiles'), leer('login')]).then(([p,l])=>({perfiles:p||{}, login:l||{}}));
   }
@@ -162,7 +174,7 @@ export function crearAdaptadorCuentas(opc){
       .catch(e=>{ if(e.codigo===ERRORES_CUENTA.PERMISO) return null; throw e; });
   }
   function necesitaDueno(){
-    return conEspera(db.ref('data/superadmins').limitToFirst(1).once('value'))
+    return conEspera(D.get(D.query(nodo('data/superadmins'), D.limitToFirst(1))))
       .then(s=>!s.exists()).catch(()=>false);
   }
   const aLista=v=>Array.isArray(v)?v.filter(Boolean):(v&&typeof v==='object'?Object.values(v).filter(Boolean):[]);
@@ -179,6 +191,7 @@ export function crearAdaptadorCuentas(opc){
     crearCuentaPropia:envolver(crearCuentaPropia), crearCuentaAjena:envolver(crearCuentaAjena),
     guardarCuenta:envolver(guardarCuenta), borrarCuenta:envolver(borrarCuenta),
     actualizarPerfil:envolver(actualizarPerfil), cambiarMiPass:envolver(cambiarMiPass),
-    leerIndice:envolver(leerIndice), leerLegado:envolver(leerLegado), necesitaDueno
+    leerIndice:envolver(leerIndice), leerLegado:envolver(leerLegado), necesitaDueno,
+    fijarNegocioActivo:envolver(fijarNegocioActivo)
   };
 }

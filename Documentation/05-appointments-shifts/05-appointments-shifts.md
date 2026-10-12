@@ -101,3 +101,6 @@ Inventario ([06](../06-inventory-recipes/06-inventory-recipes.md)) para desconta
 - No hay validación de horarios ocupados ni vista de calendario.
 
 Ver [-01-to-review](../-01-to-review/-01-to-review.md).
+
+## Cambios del 2026-10-12
+- **F22**: anular la venta de una entrega devuelve la cita a **pendiente**, sin `ventaId`. Si la anulación devolvió los apartados, quedan sin apartar (al cobrarla otra vez se descuentan).

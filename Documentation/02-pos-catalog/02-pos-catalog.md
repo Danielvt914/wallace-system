@@ -258,3 +258,9 @@ Inventario ([06](../06-inventory-recipes/06-inventory-recipes.md)) vía `requeri
 - La propina por defecto depende de `usaCocina` si el negocio no definió `usaPropina`.
 
 Ver [-01-to-review](../-01-to-review/-01-to-review.md).
+
+## Cambios del 2026-10-12
+- **D6**: con caja, no se cobra sin caja abierta, y el cobro queda en la caja abierta al cobrar.
+- **F20**: anular una venta de una caja ya cerrada exige admin o dueño y registra la devolución del efectivo en la caja abierta.
+- **F22**: anular una venta cobrada resta del cliente el pedido y su monto.
+- **S7**: guardar la edición de un pedido exige el permiso `editar`; abrir, agregar y renombrar cuentas exigen acceso a Ventas o Cuentas.

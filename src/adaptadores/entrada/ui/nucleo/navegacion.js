@@ -7,7 +7,7 @@
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo } from './estado.js';
 import { esAdminSistema, pantallaValida, puedeVerSucursal, sucursalActual, usaInventario } from './permisos.js';
-import { ic, pPedido, pPedidos, reportarError } from './componentes.js';
+import { ic, logoNegocio, pPedido, pPedidos, reportarError } from './componentes.js';
 import { aplicarTema, quitarTema } from './tema.js';
 import { necesitaConfigInicial, vistaConfigInicial, vistaLogin } from '../usuarios/sesion.js';
 import { auditoria } from '../usuarios/auditoria.js';
@@ -16,6 +16,7 @@ import { usuariosNeg } from '../usuarios/usuarios-negocio.js';
 import { pantallaMigracion } from '../usuarios/migracion-cuentas.js';
 import { panelSuperAdmin } from '../super-admin/panel.js';
 import { pantallaSuperAdmins } from '../super-admin/administradores.js';
+import { bannerPrueba } from '../super-admin/pruebas.js';
 import { nuevaVenta } from '../ventas/nueva-venta.js';
 import { cuentas, usaCuentas } from '../ventas/cuentas-abiertas.js';
 import { pedidos } from '../ventas/pedidos.js';
@@ -193,13 +194,13 @@ export function vistaNegocio(){
   <div class="app-grid">
     <aside class="sidebar" id="sidebar">
       <div class="side-cab">
-        ${neg.logo?`<img src="${neg.logo}" class="side-logo" alt="">`:`<div class="side-ini">${(neg.nombre||'?').charAt(0)}</div>`}
+        ${logoNegocio(neg,'class="side-logo" alt=""')||`<div class="side-ini">${escapeHtml((neg.nombre||'?').charAt(0))}</div>`}
         <div class="side-nom">${escapeHtml(neg.nombre)}</div>
         <div class="side-tipo">${escapeHtml(neg.tipo||'')}</div>
       </div>
       <nav class="side-nav">
         ${menu.map(m=>m.g?`<div class="nav-grupo">${m.g}</div>`
-          :`<div class="nav-item ${STATE.pageNeg===m.id?'on':''}" data-click="irA('${m.id}')">${ic(m.ic)}<span>${m.txt}</span></div>`).join('')}
+          :`<div class="nav-item ${STATE.pageNeg===m.id?'on':''}" data-click="irA('${escapeHtml(m.id)}')">${ic(m.ic)}<span>${m.txt}</span></div>`).join('')}
       </nav>
       <div class="side-pie">
         <div class="user-box">
@@ -218,6 +219,7 @@ export function vistaNegocio(){
         <span>👁️ Modo supervisión — viendo como Super-Admin</span>
         <button class="btn btn-sm btn-gold" data-click="volverSuperAdmin()">← Volver al panel</button>
       </div>`:''}
+      ${bannerPrueba(neg)}
       <div class="topbar">
         <h1><button class="menu-btn" data-click="alternarMenu()">☰</button>
           ${escapeHtml(titulos[STATE.pageNeg]||'')}</h1>

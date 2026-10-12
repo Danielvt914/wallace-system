@@ -6,6 +6,7 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/04-kitchen-kds/04-kitchen-kds.md
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, now } from '../nucleo/estado.js';
+import { MSJ } from '../nucleo/textos.js';
 import { puedeVerPantalla } from '../nucleo/permisos.js';
 import { ic, toast } from '../nucleo/componentes.js';
 import { sonidoPedido } from '../nucleo/sonidos.js';
@@ -35,7 +36,7 @@ export function cocina(){
     const min=Math.floor((Date.now()-new Date(v.fecha||Date.now()).getTime())/60000);
     const cls=min<15?'krono-verde':min<25?'krono-amar':'krono-rojo';
     const prep=v.estadoCocina==='preparando';
-    return `<div class="kds-card ${cls}">
+    return `<div class="kds-card ${escapeHtml(cls)}">
       <div class="kds-top">
         <span class="kds-ref">${escapeHtml(v.factura||'')}</span>
         <span class="kds-krono">${min} min</span>
@@ -47,9 +48,9 @@ export function cocina(){
       </div>
       ${v.obs?`<div class="kds-nota">${escapeHtml(v.obs)}</div>`:''}
       <div class="kds-acc">
-        ${!prep&&v.estadoCocina!=='listo'?`<button class="btn btn-sm btn-verde" data-click="marcarCocina('${v.id}','preparando')">👨‍🍳 Preparando</button>`:''}
-        ${v.estadoCocina!=='listo'?`<button class="btn btn-sm btn-gold" data-click="marcarCocina('${v.id}','listo')">✓ Listo</button>`:'<span class="pill pill-verde">✓ Listo</span>'}
-        ${usaComanda?`<button class="btn btn-sm btn-ghost" data-click="imprimirComandaDe('${v.id}')" title="Comanda">🖨️</button>`:''}
+        ${!prep&&v.estadoCocina!=='listo'?`<button class="btn btn-sm btn-verde" data-click="marcarCocina('${escapeHtml(v.id)}','preparando')">👨‍🍳 Preparando</button>`:''}
+        ${v.estadoCocina!=='listo'?`<button class="btn btn-sm btn-gold" data-click="marcarCocina('${escapeHtml(v.id)}','listo')">✓ Listo</button>`:'<span class="pill pill-verde">✓ Listo</span>'}
+        ${usaComanda?`<button class="btn btn-sm btn-ghost" data-click="imprimirComandaDe('${escapeHtml(v.id)}')" title="Comanda">🖨️</button>`:''}
       </div>
     </div>`;
   };
@@ -68,14 +69,14 @@ export function cocina(){
         <div class="kds-top"><span class="kds-ref">${escapeHtml(v.factura||'')}</span><span class="pill pill-verde">Listo</span></div>
         <div class="kds-tipo">${etiq[v.tipo]||''}${v.mesa?' · '+escapeHtml(v.mesa):''}${v.cliNombre?' · '+escapeHtml(v.cliNombre):''}</div>
         <div class="kds-acc">
-          <button class="btn btn-sm btn-verde" data-click="marcarCocina('${v.id}','entregado')">✓ Entregado</button>
-          <button class="btn btn-sm btn-ghost" data-click="marcarCocina('${v.id}','pendiente')">← Volver</button>
+          <button class="btn btn-sm btn-verde" data-click="marcarCocina('${escapeHtml(v.id)}','entregado')">✓ Entregado</button>
+          <button class="btn btn-sm btn-ghost" data-click="marcarCocina('${escapeHtml(v.id)}','pendiente')">← Volver</button>
         </div>
       </div>`).join('')}</div>
     </div>`:''}`;
 }
 export function marcarCocina(id,estado){
-  if(!puedeVerPantalla('cocina')){ toast('No tienes acceso a Cocina','error'); return; }
+  if(!puedeVerPantalla('cocina')){ toast(MSJ.noTienesAccesoACocina,'error'); return; }
   const arr=misDatos('ventas');
   const v=arr.find(x=>x.id===id); if(!v) return;
   v.estadoCocina=estado;

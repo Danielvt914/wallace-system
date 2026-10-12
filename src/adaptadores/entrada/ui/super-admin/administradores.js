@@ -6,6 +6,7 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/01-super-admin-panel/01-super-admin-panel.md
 // ============================================================
 import { STATE, escapeHtml, fmtDate, now } from '../nucleo/estado.js';
+import { BOTON, MSJ } from '../nucleo/textos.js';
 import { abrirModal, cerrarModal, confirmarModal, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
 import { conCuentasFirebase, mensajeCuenta, ponerPass } from '../usuarios/sesion.js';
@@ -41,8 +42,8 @@ export function pantallaSuperAdmins(){
           <td>${s.rolSuper==='dueno'?'<span class="pill pill-oro">Dueño</span>':s.rolSuper==='vendedor'?'<span class="pill pill-verde">Vendedor</span>':'<span class="pill pill-azul">Ayudante</span>'}</td>
           <td class="gris chico">${s.creado?fmtDate(s.creado):'—'}</td>
           <td class="acciones">
-            <button class="btn btn-sm" data-click="editarSuperAdmin('${s.id}')">Editar</button>
-            ${s.rolSuper!=='dueno'||sas.filter(x=>x.rolSuper==='dueno').length>1?`<button class="btn btn-sm btn-rojo" data-click="eliminarSuperAdmin('${s.id}')">×</button>`:''}
+            <button class="btn btn-sm" data-click="editarSuperAdmin('${escapeHtml(s.id)}')">Editar</button>
+            ${s.rolSuper!=='dueno'||sas.filter(x=>x.rolSuper==='dueno').length>1?`<button class="btn btn-sm btn-rojo" data-click="eliminarSuperAdmin('${escapeHtml(s.id)}')">×</button>`:''}
           </td>
         </tr>`).join('')}</tbody>
       </table></div>
@@ -50,10 +51,10 @@ export function pantallaSuperAdmins(){
   </div>`;
 }
 export function editarSuperAdmin(id){
-  if(STATE.user.rolSuper!=='dueno'){ toast('Solo el dueño puede crear administradores','error'); return; }
+  if(STATE.user.rolSuper!=='dueno'){ toast(MSJ.soloElDuenoPuedeCrearAdministradores,'error'); return; }
   const sas=DB.get('superadmins')||[];
   const s=id?sas.find(x=>x.id===id):null;
-  abrirModal({titulo:(s?'Editar':'Crear')+' administrador', textoBoton:'Guardar', campos:[
+  abrirModal({titulo:(s?'Editar':'Crear')+' administrador', textoBoton:BOTON.guardar, campos:[
     {id:'nombre', label:'Nombre completo', valor:s?s.nombre:'', requerido:true},
     {id:'usuario', label:'Usuario para entrar', valor:s?s.usuario:'', requerido:true},
     {id:'pass', label:s?'Nueva contraseña (vacío = no cambiar)':'Contraseña', tipo:'password', valor:'', requerido:!s},
@@ -64,7 +65,7 @@ export function editarSuperAdmin(id){
     // No permitir usuarios repetidos (ni con empleados de negocios)
     const dup=(DB.get('superadmins')||[]).some(x=>x.usuario===usuario && (!s||x.id!==s.id))
            || (DB.get('usuarios')||[]).some(u=>u.usuario===usuario);
-    if(dup){ toast('Ese usuario ya existe','error'); return; }
+    if(dup){ toast(MSJ.eseUsuarioYaExiste,'error'); return; }
     const nuevaPass=d.pass.trim();
     const cuentas=conCuentasFirebase(), minPass=cuentas?6:5;
     if((!s || nuevaPass) && nuevaPass.length<minPass){ toast('La contraseña debe tener al menos '+minPass+' caracteres','error'); return; }
@@ -73,7 +74,7 @@ export function editarSuperAdmin(id){
       const x=list.find(y=>y.id===id);
       // Evitar quitar el último dueño
       if(x.rolSuper==='dueno' && d.rolSuper!=='dueno' && list.filter(y=>y.rolSuper==='dueno').length<=1){
-        toast('Debe quedar al menos un dueño','error'); return;
+        toast(MSJ.debeQuedarAlMenosUnDueno,'error'); return;
       }
       const antes=x.usuario;
       Object.assign(x,{nombre:d.nombre.trim(), usuario:usuario, rolSuper:d.rolSuper});
@@ -86,45 +87,45 @@ export function editarSuperAdmin(id){
       if(cuentas){
         crearCuentaPara(rec, nuevaPass, true).then(()=>{
           const l=DB.get('superadmins')||[]; l.push(rec); DB.set('superadmins',l);
-          cerrarModal(); toast('Administrador creado','success'); render();
+          cerrarModal(); toast(MSJ.administradorCreado,'success'); render();
         }).catch(e=>toast('No se pudo crear la cuenta: '+mensajeCuenta(e),'error'));
         return;
       }
       list.push(ponerPass(rec, nuevaPass));
       DB.set('superadmins',list);
     }
-    cerrarModal(); toast('Administrador guardado','success'); render();
+    cerrarModal(); toast(MSJ.administradorGuardado,'success'); render();
   }});
 }
 export function eliminarSuperAdmin(id){
-  if(STATE.user.rolSuper!=='dueno'){ toast('Solo el dueño puede eliminar','error'); return; }
+  if(STATE.user.rolSuper!=='dueno'){ toast(MSJ.soloElDuenoPuedeEliminar,'error'); return; }
   const sas=DB.get('superadmins')||[];
   const s=sas.find(x=>x.id===id); if(!s) return;
-  if(s.id===STATE.user.id){ toast('No puedes eliminarte a ti mismo','error'); return; }
-  if(s.rolSuper==='dueno' && sas.filter(x=>x.rolSuper==='dueno').length<=1){ toast('Debe quedar al menos un dueño','error'); return; }
+  if(s.id===STATE.user.id){ toast(MSJ.noPuedesEliminarteATiMismo,'error'); return; }
+  if(s.rolSuper==='dueno' && sas.filter(x=>x.rolSuper==='dueno').length<=1){ toast(MSJ.debeQuedarAlMenosUnDueno,'error'); return; }
   confirmarModal('¿Eliminar al administrador "'+s.nombre+'"? No podrá volver a entrar.',()=>{
     DB.set('superadmins', sas.filter(x=>x.id!==id));
     if(conCuentasFirebase()) borrarCuentaDe(s.usuario).catch(e=>toast('No se pudo borrar su cuenta de acceso: '+mensajeCuenta(e),'error'));
-    toast('Administrador eliminado','info'); render();
+    toast(MSJ.administradorEliminado,'info'); render();
   },'Eliminar');
 }
 export function cambiarMiPassSuper(){
   if(conCuentasFirebase()){ cambiarMiPassCuenta(); return; }
   const sas=DB.get('superadmins')||[];
   const yo=sas.find(x=>x.id===STATE.user.id);
-  if(!yo){ toast('No se encontró tu cuenta','error'); return; }
-  abrirModal({titulo:'🔑 Cambiar mi contraseña', textoBoton:'Guardar', campos:[
+  if(!yo){ toast(MSJ.noSeEncontroTuCuenta,'error'); return; }
+  abrirModal({titulo:'🔑 Cambiar mi contraseña', textoBoton:BOTON.guardar, campos:[
     {id:'actual', label:'Contraseña actual', tipo:'password', requerido:true},
     {id:'nueva', label:'Nueva contraseña', tipo:'password', requerido:true},
     {id:'nueva2', label:'Repite la nueva contraseña', tipo:'password', requerido:true}
   ], onGuardar:(d)=>{
-    if(!verificarPass(yo, d.actual)){ toast('La contraseña actual no coincide','error'); return; }
-    if(d.nueva.trim().length<5){ toast('La nueva debe tener al menos 5 caracteres','error'); return; }
-    if(d.nueva!==d.nueva2){ toast('Las contraseñas nuevas no coinciden','error'); return; }
+    if(!verificarPass(yo, d.actual)){ toast(MSJ.laContrasenaActualNoCoincide,'error'); return; }
+    if(d.nueva.trim().length<5){ toast(MSJ.laNuevaDebeTenerAlMenos5,'error'); return; }
+    if(d.nueva!==d.nueva2){ toast(MSJ.lasContrasenasNuevasNoCoinciden,'error'); return; }
     const list=DB.get('superadmins')||[];
     const x=list.find(y=>y.id===yo.id);
     if(x){ ponerPass(x, d.nueva.trim()); DB.set('superadmins',list); }
-    cerrarModal(); toast('Contraseña actualizada','success');
+    cerrarModal(); toast(MSJ.contrasenaActualizada,'success');
   }});
 }
 export function irAdministradores(){ STATE.page='superadmins'; render(); }

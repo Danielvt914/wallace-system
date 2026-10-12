@@ -6,7 +6,8 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/12-invoice-printing/12-invoice-printing.md
 // ============================================================
 import { STATE, escapeHtml, fmtDate, fmtMoney } from '../nucleo/estado.js';
-import { toast } from '../nucleo/componentes.js';
+import { MSJ } from '../nucleo/textos.js';
+import { logoNegocio, toast } from '../nucleo/componentes.js';
 
 
 // ============================================================
@@ -21,7 +22,7 @@ export function imprimirFactura(id){
   else if(tipo==='media'){ html=facturaMedia(v,neg); pagina='@page{size:letter;margin:10mm;}'; ancho=760; }
   else { html=facturaPOS(v,neg); pagina='@page{size:80mm auto;margin:0;}'; ancho=400; }
   const w=window.open('','_blank','width='+ancho+',height=680');
-  if(!w){ toast('Permite las ventanas emergentes para imprimir','error'); return; }
+  if(!w){ toast(MSJ.permiteLasVentanasEmergentesParaImprimir,'error'); return; }
   w.document.write('<html><head><title>Factura '+(v.factura||'')+'</title><meta charset="utf-8"><style>'+pagina+' body{margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}</style></head><body>'+html+'</body></html>');
   w.document.close();
   setTimeout(()=>w.print(),400);
@@ -46,7 +47,7 @@ export function facturaPOS(v,neg){
   if(neg.esLogistica || v.esSalida){
     return `<div style="font-family:Arial,sans-serif;color:#000;width:72mm;padding:4mm;margin:0 auto;font-weight:500;">
       <div style="text-align:center;padding-bottom:6px;">
-        ${neg.logo?`<img src="${neg.logo}" style="max-height:110px;max-width:230px;margin-bottom:6px;">`:''}
+        ${logoNegocio(neg,'style="max-height:110px;max-width:230px;margin-bottom:6px;"')||''}
         <div style="font-size:28px;font-weight:800;line-height:1.1;">${escapeHtml(neg.nombre)}</div>
         ${neg.eslogan?`<div style="font-size:14px;font-style:italic;">${escapeHtml(neg.eslogan)}</div>`:''}
         ${neg.nit?`<div style="font-size:13px;margin-top:3px;">NIT: ${escapeHtml(neg.nit)}</div>`:''}
@@ -86,7 +87,7 @@ export function facturaPOS(v,neg){
   if(v.recargo>0) extras+='<div style="display:flex;justify-content:space-between;"><span>Recargo datáfono</span><span>'+fmtMoney(v.recargo)+'</span></div>';
   return `<div style="font-family:Arial,sans-serif;color:#000;width:72mm;padding:4mm;margin:0 auto;font-weight:500;">
     <div style="text-align:center;padding-bottom:6px;">
-      ${neg.logo?`<img src="${neg.logo}" style="max-height:110px;max-width:230px;margin-bottom:6px;">`:''}
+      ${logoNegocio(neg,'style="max-height:110px;max-width:230px;margin-bottom:6px;"')||''}
       <div style="font-size:28px;font-weight:800;line-height:1.1;">${escapeHtml(neg.nombre)}</div>
       ${neg.eslogan?`<div style="font-size:14px;font-style:italic;">${escapeHtml(neg.eslogan)}</div>`:''}
       ${neg.nit?`<div style="font-size:13px;margin-top:3px;">NIT: ${escapeHtml(neg.nit)}</div>`:''}
@@ -137,9 +138,9 @@ export function facturaMedia(v,neg){
   if(v.propina>0) extras+='<tr><td style="padding:5px 10px;text-align:right;">Propina</td><td style="padding:5px 10px;text-align:right;">'+fmtMoney(v.propina)+'</td></tr>';
   if(v.recargo>0) extras+='<tr><td style="padding:5px 10px;text-align:right;">Recargo datáfono</td><td style="padding:5px 10px;text-align:right;">'+fmtMoney(v.recargo)+'</td></tr>';
   return `<div style="font-family:Arial,sans-serif;color:#111;max-width:190mm;margin:0 auto;font-size:12px;">
-    <div style="background:${N};height:9px;"></div>
-    <div style="text-align:center;padding:9px 0 7px;font-size:17px;font-weight:800;letter-spacing:5px;color:${N};">FACTURA</div>
-    <div style="background:${N};height:3px;"></div>
+    <div style="background:${escapeHtml(N)};height:9px;"></div>
+    <div style="text-align:center;padding:9px 0 7px;font-size:17px;font-weight:800;letter-spacing:5px;color:${escapeHtml(N)};">FACTURA</div>
+    <div style="background:${escapeHtml(N)};height:3px;"></div>
     <div style="display:flex;justify-content:center;gap:26px;padding:7px 0;font-size:11px;border-bottom:1px solid #ddd;">
       <span><strong>FECHA:</strong> ${fmtDate(v.fecha)}</span>
       <span><strong>NÚMERO:</strong> ${escapeHtml(v.factura||'—')}</span>
@@ -147,7 +148,7 @@ export function facturaMedia(v,neg){
     </div>
     <div style="display:flex;gap:20px;padding:14px 4px;border-bottom:1px solid #ddd;">
       <div style="flex:0 0 150px;text-align:center;">
-        ${neg.logo?`<img src="${neg.logo}" style="max-height:75px;max-width:145px;">`:`<div style="font-size:20px;font-weight:800;color:${N};">${escapeHtml(neg.nombre)}</div>`}
+        ${logoNegocio(neg,'style="max-height:75px;max-width:145px;"')||`<div style="font-size:20px;font-weight:800;color:${escapeHtml(N)};">${escapeHtml(neg.nombre)}</div>`}
       </div>
       <div style="flex:1;font-size:11px;line-height:1.55;">
         <div style="font-weight:800;font-size:13px;">${escapeHtml(neg.nombre)}</div>
@@ -161,7 +162,7 @@ export function facturaMedia(v,neg){
       </div>
     </div>
     <table style="width:100%;border-collapse:collapse;margin-top:14px;font-size:11px;">
-      <thead><tr style="background:${N};color:#fff;">
+      <thead><tr style="background:${escapeHtml(N)};color:#fff;">
         <th style="padding:7px 10px;text-align:left;width:60px;">CANT</th>
         <th style="padding:7px 10px;text-align:left;">CONCEPTO</th>
         <th style="padding:7px 10px;text-align:right;width:90px;">PRECIO</th>
@@ -178,16 +179,16 @@ export function facturaMedia(v,neg){
       <table style="border-collapse:collapse;font-size:12px;min-width:265px;">
         <tr><td style="padding:5px 10px;text-align:right;">Subtotal</td><td style="padding:5px 10px;text-align:right;">${fmtMoney(sub)}</td></tr>
         ${extras}
-        <tr style="background:${N};color:#fff;">
+        <tr style="background:${escapeHtml(N)};color:#fff;">
           <td style="padding:9px 10px;text-align:right;font-weight:800;font-size:14px;">TOTAL</td>
           <td style="padding:9px 10px;text-align:right;font-weight:800;font-size:14px;">${fmtMoney(v.total)}</td>
         </tr>
       </table>
     </div>
     ${v.obs?`<div style="margin-top:12px;font-size:11px;padding:8px 10px;background:#f7f9fa;border-left:3px solid #01c38e;"><strong>Obs:</strong> ${escapeHtml(v.obs)}</div>`:''}
-    <div style="margin-top:20px;text-align:center;font-size:12px;font-weight:700;color:${N};">¡Gracias por su compra!</div>
+    <div style="margin-top:20px;text-align:center;font-size:12px;font-weight:700;color:${escapeHtml(N)};">¡Gracias por su compra!</div>
     <div style="margin-top:14px;border-top:1px solid #ddd;padding-top:8px;text-align:center;font-size:9px;color:#888;">
-      Software por <strong style="color:${N};">WALLACE COMPANY SYSTEM</strong> · wallacecompany11@gmail.com
+      Software por <strong style="color:${escapeHtml(N)};">WALLACE COMPANY SYSTEM</strong> · wallacecompany11@gmail.com
     </div>
     <div style="background:#01c38e;height:5px;margin-top:8px;"></div>
   </div>`;

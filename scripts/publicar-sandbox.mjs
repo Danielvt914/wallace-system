@@ -11,7 +11,7 @@ import { join, relative, extname } from 'node:path';
 const RAIZ=decodeURIComponent(new URL('..', import.meta.url).pathname).replace(/^\/([A-Za-z]:)/,'$1');
 const DESTINO=join(RAIZ, '.publicar');
 // Lo único que necesita la app en el navegador
-const LISTA=['index.html', 'firebase-config.js', 'logo.js', 'prueba.html', 'prueba.js', 'src'];
+const LISTA=['index.html', 'firebase-config.js', 'prueba.html', 'prueba.js', 'src'];   // el logo va dentro de src/
 const PERMITIDAS=new Set(['.html', '.js', '.css']);
 
 rmSync(DESTINO, {recursive:true, force:true});
@@ -31,7 +31,7 @@ const archivos=[], raros=[];
 if(raros.length){ console.error('NO se publica: archivos fuera de lo permitido:\n  '+raros.join('\n  ')); process.exit(1); }
 
 // La configuración de pruebas debe estar: si no, el sitio quedaría en modo local
-if(!/var PRUEBAS = \{/.test(readFileSync(join(DESTINO,'firebase-config.js'),'utf8'))){ console.error('firebase-config.js no tiene el bloque PRUEBAS'); process.exit(1); }
+if(!/export const PRUEBAS = \{/.test(readFileSync(join(DESTINO,'firebase-config.js'),'utf8'))){ console.error('firebase-config.js no tiene el bloque PRUEBAS'); process.exit(1); }
 
 console.log('.publicar/ lista: '+archivos.length+' archivos (solo .html, .js y .css).');
 console.log('Se publicará en el proyecto "pruebas" (wallacesys-dev-sandbox): https://wallacesys-dev-sandbox.web.app');

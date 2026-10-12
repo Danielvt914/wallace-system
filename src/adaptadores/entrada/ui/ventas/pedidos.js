@@ -6,6 +6,7 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/02-pos-catalog/02-pos-catalog.md
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, fmtMoney } from '../nucleo/estado.js';
+import { MSJ } from '../nucleo/textos.js';
 import { cajaActual, puedeVerPantalla, sucursalActual, tienePermiso } from '../nucleo/permisos.js';
 import { ic, pPedido, pPedidos, pPersonal, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
@@ -27,10 +28,11 @@ export function ventasJornada(soloPagadas){
   if(usaSucursales(STATE.negocio)){ const suc=sucursalActual(); vs=vs.filter(v=>Dominio.caja.deSucursal(v,suc)); }
   if(cajaAbierta && cajaAbierta.apertura){
     const desde=new Date(cajaAbierta.apertura).getTime();
-    vs=vs.filter(v=> v.cajaId===cajaAbierta.id || new Date(v.fecha||0).getTime()>=desde);
+    // F19: lo que quedó sin cobrar de turnos anteriores sigue a la vista hasta cobrarlo o anularlo
+    vs=vs.filter(v=> v.estado==='abierta' || v.cajaId===cajaAbierta.id || new Date(v.fecha||0).getTime()>=desde);
   } else {
     const h=today();
-    vs=vs.filter(v=>jornadaDe(v)===h);
+    vs=vs.filter(v=> v.estado==='abierta' || jornadaDe(v)===h);
   }
   return soloPagadas ? vs.filter(v=>v.estado==='pagada') : vs;
 }
@@ -63,11 +65,11 @@ export function pedidos(){
   // Badge de cocina
   const cocBadge=(e)=>{
     const m={pendiente:['pill-gold','Pendiente'],preparando:['pill-azul','Preparando'],listo:['pill-verde','Listo'],entregado:['pill','Entregado']};
-    const x=m[e||'pendiente']; return `<span class="pill ${x[0]}">${x[1]}</span>`;
+    const x=m[e||'pendiente']; return `<span class="pill ${escapeHtml(x[0])}">${x[1]}</span>`;
   };
   const selDom=(v)=>{
     if(!doms.length) return '—';
-    return `<select class="busca minw-auto p-5-8" data-change="asignarDomiciliario('${v.id}',this.value)"><option value="">Asignar…</option>${doms.map(d=>`<option ${v.domiciliario===d.nombre?'selected':''}>${escapeHtml(d.nombre)}</option>`).join('')}</select>`;
+    return `<select class="busca minw-auto p-5-8" data-change="asignarDomiciliario('${escapeHtml(v.id)}',this.value)"><option value="">Asignar…</option>${doms.map(d=>`<option ${v.domiciliario===d.nombre?'selected':''}>${escapeHtml(d.nombre)}</option>`).join('')}</select>`;
   };
   // Encabezados dinámicos
   const cols=[];
@@ -90,18 +92,18 @@ export function pedidos(){
     tds+=colDinero?`<td class="negrita">${fmtMoney(v.total)}</td>`:`<td class="negrita">${uniDe(v)} und</td>`;
     if(colDinero) tds+=`<td>${abierta?'<span class="pill pill-gold">Abierta</span>':'<span class="pill pill-verde">Pagada</span>'}${v.estado==='pagada'?`<br><span class="gris chico" title="${escapeHtml(detallePagos(v))}">${escapeHtml(metodoTexto(v))}</span>`:''}${v.pagoDescuadrado?`<br><span class="pill pill-rojo mt-3">Revisar pago</span>`:''}${bancoPendiente(v)?`<br><span class="pill pill-gold mt-3">Transferencia sin verificar</span>`:''}</td>`;
     if(usaCocina) tds+=`<td>${cocBadge(v.estadoCocina)}</td>`;
-    tds+=`<td><select class="busca minw-auto p-5-8" data-change="setEstadoPedido('${v.id}',this.value)"><option value="activo" ${v.estadoPedido!=='entregado'?'selected':''}>Activo</option><option value="entregado" ${v.estadoPedido==='entregado'?'selected':''}>Entregado</option></select></td>`;
+    tds+=`<td><select class="busca minw-auto p-5-8" data-change="setEstadoPedido('${escapeHtml(v.id)}',this.value)"><option value="activo" ${v.estadoPedido!=='entregado'?'selected':''}>Activo</option><option value="entregado" ${v.estadoPedido==='entregado'?'selected':''}>Entregado</option></select></td>`;
     if(usaDomi) tds+=`<td>${v.tipo==='domicilio'?selDom(v):'—'}</td>`;
     tds+=`<td class="acciones">
-      ${abierta&&colDinero&&tienePermiso('cobrar')?`<button class="btn btn-sm btn-verde" data-click="cobrarPedido('${v.id}')" title="Cobrar">💵 Cobrar</button>`:''}
-      ${tienePermiso('editar')?`<button class="btn btn-sm" data-click="editarPedido('${v.id}')" title="Editar">✏️</button>`:''}
-      ${usaCocina&&tienePermiso('comanda')?`<button class="btn btn-sm" data-click="reimprimirComanda('${v.id}')" title="Comanda de cocina">👨‍🍳</button>`:''}
-      ${tienePermiso('imprimir')?`<button class="btn btn-sm" data-click="imprimirFactura('${v.id}')" title="${esLog?'Reimprimir remisión':(v.estado==='pagada'?'Reimprimir factura':'Imprimir cuenta (cobro pendiente)')}">🖨️</button>`:''}
-      ${v.pagoDescuadrado&&tienePermiso('cobrar')?`<button class="btn btn-sm btn-naranja" data-click="ajustarPagoVenta('${v.id}')" title="El total cambió: ajustar el cobro">⚠ Ajustar cobro</button>`:''}
-      ${bancoPendiente(v)?`<button class="btn btn-sm btn-verde" data-click="marcarVerificada('${v.id}')" title="Confirmar que la transferencia llegó">✔ Verificar</button>`:''}
-      ${colDinero&&v.estado==='pagada'&&tienePermiso('cambiarpago')?`<button class="btn btn-sm" data-click="cambiarFormaPago('${v.id}')" title="Cambiar forma de pago">💳</button>`:''}
-      ${tienePermiso('anular')?`<button class="btn btn-sm btn-rojo" data-click="anularPedido('${v.id}')" title="Anular">🚫</button>`:''}
-      ${tienePermiso('eliminar')?`<button class="btn btn-sm btn-rojo" data-click="eliminarDefinitivo('${v.id}')" title="Eliminar por completo">🗑️</button>`:''}
+      ${abierta&&colDinero&&tienePermiso('cobrar')?`<button class="btn btn-sm btn-verde" data-click="cobrarPedido('${escapeHtml(v.id)}')" title="Cobrar">💵 Cobrar</button>`:''}
+      ${tienePermiso('editar')?`<button class="btn btn-sm" data-click="editarPedido('${escapeHtml(v.id)}')" title="Editar">✏️</button>`:''}
+      ${usaCocina&&tienePermiso('comanda')?`<button class="btn btn-sm" data-click="reimprimirComanda('${escapeHtml(v.id)}')" title="Comanda de cocina">👨‍🍳</button>`:''}
+      ${tienePermiso('imprimir')?`<button class="btn btn-sm" data-click="imprimirFactura('${escapeHtml(v.id)}')" title="${esLog?'Reimprimir remisión':(v.estado==='pagada'?'Reimprimir factura':'Imprimir cuenta (cobro pendiente)')}">🖨️</button>`:''}
+      ${v.pagoDescuadrado&&tienePermiso('cobrar')?`<button class="btn btn-sm btn-naranja" data-click="ajustarPagoVenta('${escapeHtml(v.id)}')" title="El total cambió: ajustar el cobro">⚠ Ajustar cobro</button>`:''}
+      ${bancoPendiente(v)?`<button class="btn btn-sm btn-verde" data-click="marcarVerificada('${escapeHtml(v.id)}')" title="Confirmar que la transferencia llegó">✔ Verificar</button>`:''}
+      ${colDinero&&v.estado==='pagada'&&tienePermiso('cambiarpago')?`<button class="btn btn-sm" data-click="cambiarFormaPago('${escapeHtml(v.id)}')" title="Cambiar forma de pago">💳</button>`:''}
+      ${tienePermiso('anular')?`<button class="btn btn-sm btn-rojo" data-click="anularPedido('${escapeHtml(v.id)}')" title="Anular">🚫</button>`:''}
+      ${tienePermiso('eliminar')?`<button class="btn btn-sm btn-rojo" data-click="eliminarDefinitivo('${escapeHtml(v.id)}')" title="Eliminar por completo">🗑️</button>`:''}
     </td>`;
     return `<tr class="${abierta?'fila-pend':''}">${tds}</tr>`;};
 
@@ -119,13 +121,13 @@ export function pedidos(){
       <div class="tabla-wrap"><table class="tabla">
         <thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
         <tbody>${vs.length? vs.slice(0,100).map(fila).join('')
-          : `<tr><td colspan="${nCols}" class="gris">Sin ${pPedidos()} en esta jornada.</td></tr>`}</tbody>
+          : `<tr><td colspan="${escapeHtml(nCols)}" class="gris">Sin ${pPedidos()} en esta jornada.</td></tr>`}</tbody>
       </table></div>
     </div>`;
 }
 // Cambiar estado del pedido (activo/entregado) desde la tabla
 export function setEstadoPedido(id, estado){
-  if(!puedeVerPantalla('pedidos')){ toast('No tienes acceso a Pedidos','error'); return; }
+  if(!puedeVerPantalla('pedidos')){ toast(MSJ.noTienesAccesoAPedidos,'error'); return; }
   const arr=misDatos('ventas');
   const v=arr.find(x=>x.id===id); if(!v) return;
   v.estadoPedido=estado;
@@ -142,7 +144,7 @@ export function idDomiciliario(nombre){
   return d ? d.id : null;
 }
 export function asignarDomiciliario(id, nombre){
-  if(!puedeVerPantalla('pedidos')){ toast('No tienes acceso a Pedidos','error'); return; }
+  if(!puedeVerPantalla('pedidos')){ toast(MSJ.noTienesAccesoAPedidos,'error'); return; }
   const arr=misDatos('ventas');
   const v=arr.find(x=>x.id===id); if(!v) return;
   v.domiciliario=nombre;

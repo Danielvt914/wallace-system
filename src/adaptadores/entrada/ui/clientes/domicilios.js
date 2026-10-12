@@ -6,6 +6,7 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/07-customers-delivery/07-customers-delivery.md
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, fmtMoney, now } from '../nucleo/estado.js';
+import { BOTON, MSJ } from '../nucleo/textos.js';
 import { puedeVerPantalla } from '../nucleo/permisos.js';
 import { abrirModal, cerrarModal, confirmarModal, ic, pPedidos, pProds, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
@@ -127,7 +128,7 @@ export function domicilios(){
             <td>${escapeHtml(d.tel||'—')}</td>
             <td>${suyos.length}</td>
             <td class="oro">${fmtMoney(suyos.reduce((a,v)=>a+(v.valorDom||0),0))}</td>
-            <td class="acciones"><button class="btn btn-sm btn-rojo" data-click="eliminarDomiciliario('${d.id}')">×</button></td>
+            <td class="acciones"><button class="btn btn-sm btn-rojo" data-click="eliminarDomiciliario('${escapeHtml(d.id)}')">×</button></td>
           </tr>`;
         }).join('') : '<tr><td colspan="5" class="gris">Sin domiciliarios.</td></tr>'}
         </tbody>
@@ -152,20 +153,20 @@ export function domicilios(){
     </div>`;
 }
 export function editarDomiciliario(id){
-  if(!puedeVerPantalla('domicilios')){ toast('No tienes acceso a Domicilios','error'); return; }
-  abrirModal({titulo:'Nuevo domiciliario', textoBoton:'Agregar', campos:[
+  if(!puedeVerPantalla('domicilios')){ toast(MSJ.noTienesAccesoADomicilios,'error'); return; }
+  abrirModal({titulo:'Nuevo domiciliario', textoBoton:BOTON.agregar, campos:[
     {id:'nombre', label:'Nombre', requerido:true},
     {id:'tel', label:'Teléfono'}
   ], onGuardar:(d)=>{
     const arr=misDatos('domiciliarios');
     arr.push({id:uid(), nombre:d.nombre, tel:d.tel, creado:now()});
     guardarMisDatos('domiciliarios',arr);
-    cerrarModal(); toast('Agregado','success'); render();
+    cerrarModal(); toast(MSJ.agregado,'success'); render();
   }});
 }
 export function eliminarDomiciliario(id){
-  if(!puedeVerPantalla('domicilios')){ toast('No tienes acceso a Domicilios','error'); return; }
-  confirmarModal('¿Eliminar este domiciliario?',()=>{
-    eliminarMisDatos('domiciliarios',id); toast('Eliminado','info'); render();
+  if(!puedeVerPantalla('domicilios')){ toast(MSJ.noTienesAccesoADomicilios,'error'); return; }
+  confirmarModal(MSJ.eliminarEsteDomiciliario,()=>{
+    eliminarMisDatos('domiciliarios',id); toast(MSJ.eliminado,'info'); render();
   },'Eliminar');
 }

@@ -64,7 +64,7 @@ export function iniciarInterfaz(){
     return;
   }
   if(ok){
-    console.warn('Sin Firebase Auth (¿falta firebase-auth-compat.js?): inicio de sesión del esquema viejo');
+    console.warn('Sin Firebase Authentication (¿no cargó el SDK modular? ver firebase-sdk.js): inicio de sesión del esquema viejo');
     const app=document.getElementById('app');
     if(app) app.innerHTML='<div class="cargando"><div class="spin"></div><div>Conectando…</div></div>';
     let listo=false;

@@ -6,7 +6,8 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/04-kitchen-kds/04-kitchen-kds.md
 // ============================================================
 import { STATE, escapeHtml, fmtDate } from '../nucleo/estado.js';
-import { toast } from '../nucleo/componentes.js';
+import { MSJ } from '../nucleo/textos.js';
+import { reportarError, toast } from '../nucleo/componentes.js';
 
 
 // ============================================================
@@ -36,10 +37,15 @@ export function comandaHTML(v){
   </div>
   <div style="text-align:center;font-size:16px;margin-top:10px;">--- &#9986; ---</div>`;
 }
+// C3: si la comanda no sale, la cocina no se entera del pedido: se avisa y queda en la auditoría
+export function imprimirComandaSegura(v){
+  try{ imprimirComanda(v); }
+  catch(e){ reportarError('la comanda '+((v&&v.factura)||''), e); toast(MSJ.noSeImprimioLaComandaReimprimela,'error'); }
+}
 export function imprimirComanda(v){
   if(!v){ return; }
   const w=window.open('','_blank','width=400,height=680');
-  if(!w){ toast('Permite las ventanas emergentes para imprimir','error'); return; }
+  if(!w){ toast(MSJ.permiteLasVentanasEmergentesParaImprimir,'error'); return; }
   const estilo='@page{size:80mm auto;margin:0;}'
     +'body{margin:0;padding:4mm 3mm;width:80mm;box-sizing:border-box;'
     +'-webkit-print-color-adjust:exact;print-color-adjust:exact;background:#fff;}';

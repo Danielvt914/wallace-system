@@ -6,8 +6,9 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/11-business-settings/11-business-settings.md
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo } from '../nucleo/estado.js';
+import { MSJ } from '../nucleo/textos.js';
 import { puedeVerPantalla, usaInventario } from '../nucleo/permisos.js';
-import { ic, pProds, toast } from '../nucleo/componentes.js';
+import { ic, logoNegocio, pProds, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
 import { descuentaAlPedir } from '../ventas/cuentas-abiertas.js';
 
@@ -35,7 +36,7 @@ export function minegocio(){
       <p class="gris">Aparece en el menú lateral y en todas las facturas. Usa una imagen cuadrada.</p>
       <div class="logo-zona">
         <div class="logo-vista" id="logo-vista">
-          ${neg.logo?`<img src="${neg.logo}" alt="logo">`:`<div class="logo-vacio">Sin logo</div>`}
+          ${logoNegocio(neg,'alt="logo"')||`<div class="logo-vacio">Sin logo</div>`}
         </div>
         <div class="logo-acc">
           <input type="file" id="n-logo" accept="image/*" data-change="cargarLogo(this)" class="oculto">
@@ -54,7 +55,7 @@ export function minegocio(){
             <option value="claro" ${neg.tema==='claro'?'selected':''}>Claro / fondo blanco</option>
           </select></div>
         <div class="m-row"><label>Color principal</label>
-          <input id="n-color" type="color" class="campo h-46 p-5 cursor-mano" value="${/^#[0-9a-fA-F]{6}$/.test(neg.colorTema||'')?neg.colorTema:'#01c38e'}">
+          <input id="n-color" type="color" class="campo h-46 p-5 cursor-mano" value="${escapeHtml(/^#[0-9a-fA-F]{6}$/.test(neg.colorTema||'')?neg.colorTema:'#01c38e')}">
           <p class="nota">Pinta botones, menú y detalles en todos los equipos. El verde original es #01c38e.</p></div>
         <div class="m-row"><label>Tamaño de la factura</label>
           <select id="n-fact" class="campo">
@@ -63,7 +64,7 @@ export function minegocio(){
             <option value="carta" ${neg.tipoFactura==='carta'?'selected':''}>Hoja completa</option>
           </select></div>
         <div class="m-row"><label>Recargo del datáfono (%)</label>
-          <input id="n-pct" type="number" step="0.1" class="campo" value="${neg.pctDatafono||0}" placeholder="Ej: 4"></div>
+          <input id="n-pct" type="number" step="0.1" class="campo" value="${escapeHtml(neg.pctDatafono||0)}" placeholder="Ej: 4"></div>
         <div class="m-row"><label>Al editar un pedido ya cobrado</label>
           <select id="n-ajustecobro" class="campo">
             <option value="diferencia" ${(neg.ajusteCobro!=='total')?'selected':''}>Cobrar solo la diferencia (dice cuánto debe o cuánto devolver)</option>
@@ -71,7 +72,7 @@ export function minegocio(){
           </select>
           <p class="nota"><strong>Solo la diferencia:</strong> el cajero registra únicamente lo que falta cobrar o devolver; el resto del pago queda como estaba.<br><strong>Total nuevo completo:</strong> muestra el total actualizado y se cobra entero, reemplazando el pago anterior. Con las dos formas la caja queda cuadrada.</p></div>
         <div class="m-row"><label>Base fija del cajón (lo que se deja todos los días)</label>
-          <input id="n-basefija" type="number" class="campo" value="${neg.baseFija!=null?neg.baseFija:''}" placeholder="Ej: 100000">
+          <input id="n-basefija" type="number" class="campo" value="${escapeHtml(neg.baseFija!=null?neg.baseFija:'')}" placeholder="Ej: 100000">
           <p class="nota">Al cerrar caja se sugiere dejar esta cantidad y retirar el resto. Déjalo vacío si cada día es distinto.</p></div>
       </div>
       <div class="checks">
@@ -88,7 +89,7 @@ export function minegocio(){
       <p class="nota mt-8">🍺 <strong>Descontar al pedir:</strong> apenas se agrega el producto a una cuenta o pedido, sale del inventario. Es lo correcto en licoreras y bares, donde el producto ya se entregó. Si lo apagas, el stock baja solo cuando se cobra.</p>
       <div class="m-row mt-12">
         <label>Avisar cuántos días antes de que un producto se venza</label>
-        <input id="n-diasvence" type="number" min="0" class="campo" value="${neg.diasAvisoVence!=null?neg.diasAvisoVence:7}" placeholder="Ej: 7"></div>
+        <input id="n-diasvence" type="number" min="0" class="campo" value="${escapeHtml(neg.diasAvisoVence!=null?neg.diasAvisoVence:7)}" placeholder="Ej: 7"></div>
       <button class="btn btn-ghost btn-sm mt-12" data-click="sonidoVenta()">🔊 Probar sonido</button>
     </div>
     <div class="tarjeta">
@@ -99,7 +100,7 @@ export function minegocio(){
 export function cargarLogo(input){
   const f=input.files && input.files[0];
   if(!f) return;
-  if(f.size>5*1024*1024){ toast('La imagen es muy pesada (máx 5MB)','error'); return; }
+  if(f.size>5*1024*1024){ toast(MSJ.laImagenEsMuyPesadaMax,'error'); return; }
   const lector=new FileReader();
   lector.onload=e=>{
     const img=new Image();
@@ -111,11 +112,14 @@ export function cargarLogo(input){
       const lienzo=document.createElement('canvas');
       lienzo.width=w; lienzo.height=h;
       lienzo.getContext('2d').drawImage(img,0,0,w,h);
-      const dataUrl=lienzo.toDataURL('image/png');
+      let dataUrl=lienzo.toDataURL('image/png');
+      // Una foto en PNG puede pesar mucho: entonces JPEG (el tope es el de las reglas, S8)
+      if(!Dominio.negocio.logoValido(dataUrl)) dataUrl=lienzo.toDataURL('image/jpeg', 0.85);
+      if(!Dominio.negocio.logoValido(dataUrl)){ toast(MSJ.laImagenEsMuyPesadaMax,'error'); return; }
       const vista=document.getElementById('logo-vista');
-      if(vista) vista.innerHTML='<img src="'+dataUrl+'" alt="logo">';
+      if(vista) vista.innerHTML='<img src="'+escapeHtml(dataUrl)+'" alt="logo">';
       window._logoNuevo=dataUrl;
-      toast('Logo listo. Dale a Guardar cambios.','info');
+      toast(MSJ.logoListoDaleAGuardarCambios,'info');
     };
     img.src=e.target.result;
   };
@@ -125,15 +129,15 @@ export function quitarLogo(){
   window._logoNuevo='';
   const vista=document.getElementById('logo-vista');
   if(vista) vista.innerHTML='<div class="logo-vacio">Sin logo</div>';
-  toast('Logo quitado. Dale a Guardar cambios.','info');
+  toast(MSJ.logoQuitadoDaleAGuardarCambios,'info');
 }
 export function guardarMiNegocio(){
-  if(!puedeVerPantalla('minegocio')){ toast('No tienes permiso para cambiar los datos del negocio','error'); return; }
+  if(!puedeVerPantalla('minegocio')){ toast(MSJ.noTienesPermisoParaCambiarLos,'error'); return; }
   const val=id=>{ const e=document.getElementById(id); return e?e.value:''; };
   const chk=id=>{ const e=document.getElementById(id); return e?e.checked:false; };
   const negocios=JSON.parse(JSON.stringify(DB.get('negocios')||[]));
   const i=negocios.findIndex(n=>n.id===STATE.negocio.id);
-  if(i<0){ toast('No se encontró el negocio','error'); return; }
+  if(i<0){ toast(MSJ.noSeEncontroElNegocio,'error'); return; }
   const n=negocios[i];
   n.nombre=val('n-nombre').trim()||n.nombre;
   n.nit=val('n-nit').trim();
@@ -158,11 +162,11 @@ export function guardarMiNegocio(){
   // No toca "funciones" (eso es del super-admin y las reglas de la base lo bloquean).
   if(inventarioHabilitado(n)) n.inventarioApagado=!chk('n-inventario');
   { const dv=parseInt(val('n-diasvence'),10); n.diasAvisoVence=isNaN(dv)?7:Math.max(0,dv); }
-  if(window._logoNuevo!==undefined){ n.logo=window._logoNuevo; window._logoNuevo=undefined; }
+  if(window._logoNuevo!==undefined){ if(window._logoNuevo==='' || Dominio.negocio.logoValido(window._logoNuevo)) n.logo=window._logoNuevo; window._logoNuevo=undefined; }
   negocios[i]=n;
   DB.set('negocios',negocios);
   STATE.negocio=JSON.parse(JSON.stringify(n));
-  toast('Datos guardados','success');
+  toast(MSJ.datosGuardados,'success');
   render();
 }
 // Abre el selector de archivo del logo (input oculto #n-logo)

@@ -18,11 +18,11 @@ export function reportes(){
   const vs=misDatos('ventas').filter(v=>v.estado==='pagada');
   const h=today();
   const hoy=vs.filter(v=>jornadaDe(v)===h);
-  const totHoy=hoy.reduce((a,v)=>a+(v.subtotal||0),0);
+  const totHoy=hoy.reduce((a,v)=>a+Dominio.ventas.ventaDelNegocio(v),0);
   const ticket=hoy.length?Math.round(totHoy/hoy.length):0;
   const d7=new Date(); d7.setDate(d7.getDate()-7);
   const k7=fechaLocal(d7);
-  const hace7=vs.filter(v=>jornadaDe(v)===k7).reduce((a,v)=>a+(v.subtotal||0),0);
+  const hace7=vs.filter(v=>jornadaDe(v)===k7).reduce((a,v)=>a+Dominio.ventas.ventaDelNegocio(v),0);
   const cambio=hace7>0?Math.round((totHoy-hace7)/hace7*100):0;
   // Gráfico 7 días
   const dias=[];
@@ -30,7 +30,7 @@ export function reportes(){
     const d=new Date(); d.setDate(d.getDate()-i);
     const k=fechaLocal(d);
     dias.push({lbl:['DOM','LUN','MAR','MIÉ','JUE','VIE','SÁB'][d.getDay()],
-      tot:vs.filter(v=>jornadaDe(v)===k).reduce((a,v)=>a+(v.subtotal||0),0)});
+      tot:vs.filter(v=>jornadaDe(v)===k).reduce((a,v)=>a+Dominio.ventas.ventaDelNegocio(v),0)});
   }
   const mx=Math.max.apply(null,dias.map(d=>d.tot).concat([1]));
   // Gráfico 12 meses
@@ -43,7 +43,7 @@ export function reportes(){
     const yy=String(d.getFullYear()).slice(2);
     const etq=(d.getMonth()===0||i===11)?MESNOM[d.getMonth()]+' '+yy:MESNOM[d.getMonth()];
     meses.push({lbl:etq,
-      tot:vs.filter(v=>mesDeJornada(v)===k).reduce((a,v)=>a+(v.subtotal||0),0)});
+      tot:vs.filter(v=>mesDeJornada(v)===k).reduce((a,v)=>a+Dominio.ventas.ventaDelNegocio(v),0)});
   }
   const mxM=Math.max.apply(null,meses.map(m=>m.tot).concat([1]));
   // Ventas últimos 30 días para más/menos vendidos y horas pico
@@ -55,7 +55,7 @@ export function reportes(){
   const menos=ordenados.slice(-8).reverse();
   // Horas pico (30 días)
   const horas=new Array(24).fill(0);
-  v30.forEach(v=>{ const hh=new Date(v.fecha).getHours(); horas[hh]+=(v.subtotal||0); });
+  v30.forEach(v=>{ const hh=new Date(v.fecha).getHours(); horas[hh]+=Dominio.ventas.ventaDelNegocio(v); });
   const maxHora=Math.max.apply(null,horas.concat([1]));
   const horasActivas=horas.map((tot,hh)=>({h:hh,tot})).filter(x=>x.tot>0);
   // Resumen del día: propinas por mesero, platos de hoy, domicilios

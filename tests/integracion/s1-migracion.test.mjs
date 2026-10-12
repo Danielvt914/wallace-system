@@ -6,9 +6,9 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import firebase from 'firebase/compat/app';
-import 'firebase/compat/auth';
-import 'firebase/compat/database';
+import * as fbApp from 'firebase/app';
+import * as fbDatabase from 'firebase/database';
+import * as fbAuth from 'firebase/auth';
 import { crearAdaptadorFirebase } from '../../src/adaptadores/salida/firebase-datos.js';
 import { crearAdaptadorCuentas } from '../../src/adaptadores/salida/firebase-cuentas.js';
 import { crearAlmacenLocal } from '../../src/adaptadores/salida/almacen-local.js';
@@ -29,14 +29,9 @@ const rest=(ruta, metodo, cuerpo)=>fetch('http://'+DB_HOST+'/'+ruta+'.json?ns='+
 const ponerReglas=archivo=>rest('.settings/rules', 'PUT', JSON.parse(readFileSync(new URL('../../'+archivo, import.meta.url),'utf8')));
 const borrarCuentasAuth=()=>fetch('http://'+AUTH_HOST+'/emulator/v1/projects/'+PROYECTO+'/accounts', {method:'DELETE'});
 
-// Firebase "envuelto": toda app que se cree apunta a los emuladores
-const fb=Object.create(firebase);
-fb.initializeApp=(cfg, nombre)=>{
-  const app=firebase.initializeApp(cfg, nombre);
-  const [h,p]=DB_HOST.split(':'); app.database().useEmulator(h, +p);
-  app.auth().useEmulator('http://'+AUTH_HOST, {disableWarnings:true});
-  return app;
-};
+// El mismo SDK modular que usa el navegador, desde npm; los adaptadores se conectan a los emuladores
+const SDK={app:fbApp, database:fbDatabase, auth:fbAuth};
+const EMULADORES={database:DB_HOST, auth:AUTH_HOST};
 function memoria(){ const m=new Map(); return {getItem:k=>m.has(k)?m.get(k):null, setItem:(k,v)=>m.set(k,String(v)),
   removeItem:k=>m.delete(k), key:i=>[...m.keys()][i]??null, get length(){ return m.size; }}; }
 
@@ -61,9 +56,9 @@ before(async ()=>{
   await borrarCuentasAuth();
   await ponerReglas('database.rules.transicion.json');
   await rest('', 'PUT', {data:LEGADO});
-  datos=crearAdaptadorFirebase({local:crearAlmacenLocal(memoria(),'ws_'), firebase:fb, config:CONFIG, ganchos:{}});
+  datos=crearAdaptadorFirebase({local:crearAlmacenLocal(memoria(),'ws_'), sdk:SDK, config:CONFIG, emuladores:EMULADORES, ganchos:{}});
   assert.equal(datos.iniciar(), true);
-  C=crearAdaptadorCuentas({firebase:fb, config:CONFIG, cuentas, aleatorio:nuevaSal});
+  C=crearAdaptadorCuentas({sdk:SDK, config:CONFIG, emuladores:EMULADORES, cuentas, aleatorio:nuevaSal});
   assert.equal(C.iniciar(), true);
   datos.configurarSesion({cuentas:true});
   sesion=crearServicioSesion({cuentas:C, dominio:{cuentas, contrasenas}, pantallasPorRol:PANT,
@@ -72,7 +67,7 @@ before(async ()=>{
       ? datos.transaccionGlobal('superadmins', cur=>{ if(cur===null) return null; const l=Object.values(cur); const x=l.find(s=>s.id===id); cuentas.CAMPOS_PASS.forEach(k=>delete x[k]); return l; })
       : datos.modificarUsuariosLegado(l=>l.filter(x=>x.id!==id))});
 });
-after(async ()=>{ if(omitir) return; await C.salir(); await Promise.all(firebase.apps.map(a=>a.delete())); });
+after(async ()=>{ if(omitir) return; await C.salir(); await Promise.all(fbApp.getApps().map(a=>fbApp.deleteApp(a))); });
 
 test('fase 2: el dueño del sistema migra su cuenta y las tablas globales', {skip:omitir}, async ()=>{
   const r=await sesion.iniciarSesion('admin', 'clavedueno');
@@ -83,6 +78,7 @@ test('fase 2: el dueño del sistema migra su cuenta y las tablas globales', {ski
   const d=await rest('data');
   assert.equal(d.negocios, undefined); assert.ok(d.negocios_bk);
   assert.equal(d.negocios_r.n1.nombre, 'Licorera');
+  assert.equal(d.negocios_r.n1.logo, '');                       // S8: el logo 'data:x' no es imagen: se quita y la migración sigue
   assert.equal(d.data_n1_usuarios_r.u2.usuario, 'MARCE');
   for(const k of cuentas.CAMPOS_PASS) assert.equal(k in d.data_n1_usuarios_r.u2, false);
   assert.equal(d.superadmins[0].pass, undefined);               // su clave vieja se retiró
@@ -107,11 +103,12 @@ test('fase 4: con reglas cerradas cada negocio queda aislado', {skip:omitir}, as
   datos.configurarSesion({cuentas:true, superAdmin:false, negId:'n1'});
   const neg=await datos.cargarNegocioPropio('n1');
   assert.equal(neg.nombre, 'Licorera');
-  const db=firebase.database();
-  await assert.rejects(db.ref('data/data_n2_ventas_r').once('value'));
-  await assert.rejects(db.ref('data/usuarios').once('value'));
-  await assert.rejects(db.ref('data/negocios_r/n2').once('value'));
-  assert.equal((await db.ref('data/data_n1_ventas').once('value')).val().length, 1);   // tabla vieja de su negocio: legible para migrarla
+  const db=fbDatabase.getDatabase(fbApp.getApp());
+  const leer=r=>fbDatabase.get(fbDatabase.ref(db, r));
+  await assert.rejects(leer('data/data_n2_ventas_r'));
+  await assert.rejects(leer('data/usuarios'));
+  await assert.rejects(leer('data/negocios_r/n2'));
+  assert.equal((await leer('data/data_n1_ventas')).val().length, 1);   // tabla vieja de su negocio: legible para migrarla
   // Mi Negocio: solo se envían los campos permitidos (el plan se ignora sin romper el resto)
   datos.set('negocios', [Object.assign({}, neg, {nombre:'Licorera La M', plan:'Premium', inventarioApagado:true})]);
   await new Promise(res=>setTimeout(res, 400));
@@ -129,7 +126,7 @@ test('fase 3/4: el super-admin crea la cuenta del pendiente sin perder su sesió
   const cuenta=await C.crearCuentaAjena('marce2026');
   const perfil=cuentas.perfilDesdeUsuario(marce, PANT); perfil.migradoEn=new Date().toISOString();
   await C.guardarCuenta({uid:cuenta.uid, correo:cuenta.correo, usuario:'MARCE', perfil});
-  assert.equal(firebase.auth().currentUser.uid, r.uid);          // sigue siendo el super-admin
+  assert.equal(fbAuth.getAuth(fbApp.getApp()).currentUser.uid, r.uid);          // sigue siendo el super-admin
   const ix=await C.leerIndice();
   const filas=cuentas.estadoMigracion({superadmins:[{id:'s1', usuario:'admin', rolSuper:'dueno'}],
     usuarios:Object.values((await rest('data/data_n1_usuarios_r'))).concat(Object.values(await rest('data/data_n2_usuarios_r'))),
@@ -146,4 +143,24 @@ test('desactivar un perfil corta el acceso aunque la contraseña sea correcta', 
   await C.actualizarPerfil(ent.uid, {activo:false});
   await C.salir();
   assert.equal((await sesion.iniciarSesion('BURGOS', 'burgos1')).motivo, 'inactivo');
+});
+test('avisos entre equipos (5425800): pedido nuevo y caja abierta/cerrada de otro equipo; lo propio y la carga no se avisan', {skip:omitir}, async ()=>{
+  await ponerReglas('database.rules.transicion.json');
+  await rest('data/data_n9_ventas_r', 'PUT', {v1:{id:'v1', total:5}});
+  const nuevos=[], tablas=[];
+  const d2=crearAdaptadorFirebase({local:crearAlmacenLocal(memoria(),'ws2_'), sdk:SDK, config:CONFIG, emuladores:EMULADORES, ganchos:{
+    alRegistroNuevo:(t,v,o)=>nuevos.push([t,v.id,o.inicial]),
+    alCambiarTabla:(t,v,antes,o)=>{ if(t==='caja_actual') tablas.push([v?v.length:0, o.inicial]); }}});
+  assert.equal(d2.iniciar(), true);
+  d2.sincronizarNegocio('n9');
+  await new Promise(res=>setTimeout(res, 2800));              // pasa la carga inicial
+  await rest('data/data_n9_ventas_r/v2', 'PUT', {id:'v2', total:7});      // otro equipo toma un pedido
+  d2.guardarEn('n9', 'ventas', [{id:'v3', total:9}]);                     // este equipo toma uno
+  await rest('data/data_n9_caja_actual', 'PUT', [{id:'c1', cajero:'Ana', sucursalId:'principal'}]);   // otro abre la caja
+  await new Promise(res=>setTimeout(res, 500));
+  await rest('data/data_n9_caja_actual', 'DELETE');                      // y la cierra
+  await new Promise(res=>setTimeout(res, 500));
+  d2.detenerSincNegocio();
+  assert.deepEqual(nuevos, [['ventas','v2',false]]);   // ni v1 (ya estaba) ni v3 (propio)
+  assert.deepEqual(tablas, [[1,false],[0,false]]);
 });

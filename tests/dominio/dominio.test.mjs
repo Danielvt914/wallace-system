@@ -156,3 +156,16 @@ test('ponerPass guarda hash con sal y borra el texto plano; verificarPass acepta
   // misma contraseña, distinta sal → distinto hash
   assert.notEqual(pw.ponerPass({}, 'x', 'sal1').passHash, pw.ponerPass({}, 'x', 'sal2').passHash);
 });
+
+// ---------- Foto del producto ----------
+test('foto del producto: solo se acepta una imagen data: (nada que pueda romper el HTML)', ()=>{
+  assert.equal(inv.imagenValida('data:image/jpeg;base64,/9j/4AAQSkZJRg=='), true);
+  assert.equal(inv.imagenValida('data:image/png;base64,iVBORw0KGgo='), true);
+  assert.equal(inv.imagenValida(''), false);
+  assert.equal(inv.imagenValida(undefined), false);
+  assert.equal(inv.imagenValida('https://ejemplo.com/a.jpg'), false);
+  assert.equal(inv.imagenValida('x" onerror="alert(1)'), false);
+  assert.equal(inv.imagenValida('data:image/jpeg;base64,AAA" onerror="alert(1)'), false);
+  assert.equal(inv.imagenValida('data:image/svg+xml;base64,PHN2Zz4='), false);
+  assert.equal(inv.imagenValida('data:image/jpeg;base64,'+'A'.repeat(inv.FOTO_MAX_BYTES)), false);
+});

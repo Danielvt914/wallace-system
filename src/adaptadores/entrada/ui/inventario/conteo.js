@@ -6,6 +6,7 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/06-inventory-recipes/06-inventory-recipes.md
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, fmtDate, fmtMoney, now } from '../nucleo/estado.js';
+import { BOTON, MSJ } from '../nucleo/textos.js';
 import { tienePermiso, usaInventario } from '../nucleo/permisos.js';
 import { abrirModal, cerrarModal, confirmarModal, ic, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
@@ -41,15 +42,15 @@ export function itemsParaContar(){
   return filas.sort((a,b)=>(a.categoria+a.nombre).localeCompare(b.categoria+b.nombre,'es'));
 }
 export function iniciarConteo(){
-  if(!tienePermiso('conteo')){ toast('No tienes permiso para hacer conteos','error'); return; }
+  if(!tienePermiso('conteo')){ toast(MSJ.noTienesPermisoParaHacerConteos,'error'); return; }
   const filas=itemsParaContar();
-  if(!filas.length){ toast('No hay productos con inventario para contar','error'); return; }
+  if(!filas.length){ toast(MSJ.noHayProductosConInventarioPara,'error'); return; }
   _conteo={inicio:now(), por:STATE.user.nombre, items:filas};
   _conteoBusca='';
   render();
 }
 export function cancelarConteo(){
-  confirmarModal('¿Cancelar el conteo? Se pierde lo que lleves contado.',()=>{
+  confirmarModal(MSJ.cancelarElConteoSePierdeLo,()=>{
     _conteo=null; render();
   },'Sí, cancelar');
 }
@@ -57,9 +58,18 @@ export function cancelarConteo(){
 // SIN redibujar la pantalla (no se pierde el teclado en el celular).
 export function contarItem(idx, valor){
   if(!_conteo || !_conteo.items[idx]) return;
-  _conteo.items[idx].contado = valor===''?'':(parseFloat(valor));
+  const it=_conteo.items[idx];
+  it.contado = valor===''?'':(parseFloat(valor));
+  // D8: lo contado se compara con el stock de ESTE momento (si se vendió mientras se
+  // contaba, la venta ya está descontada y no se vuelve a restar al aplicar)
+  it.sistema=stockActualDe(it);
+  const sis=document.getElementById('sis-'+idx); if(sis) sis.textContent=it.sistema+(it.unidad?' '+it.unidad:'');
   pintarFilaConteo(idx);
   pintarTotalesConteo();
+}
+export function stockActualDe(it){
+  const x=misDatos(it.tipo==='insumo'?'insumos':'productos').find(y=>y.id===it.id);
+  return x ? (x.stock||0) : (it.sistema||0);
 }
 export function difDe(it){ return Dominio.inventario.diferenciaConteo(it); }
 export function pintarFilaConteo(idx){
@@ -104,15 +114,15 @@ export function pintarTotalesConteo(){
 // Marca todo lo que no se escribió como "igual al sistema"
 export function conteoTodoBien(){
   if(!_conteo) return;
-  _conteo.items.forEach((it,i)=>{ if(it.contado===''||it.contado==null) it.contado=it.sistema; });
+  _conteo.items.forEach((it,i)=>{ if(it.contado===''||it.contado==null){ it.sistema=stockActualDe(it); it.contado=it.sistema; } });   // D8
   render();
   setTimeout(pintarTotalesConteo,50);
 }
 export function guardarConteo(ajustar){
   if(!_conteo){ return; }
-  if(ajustar && !tienePermiso('editarstock')){ toast('No tienes permiso para ajustar el stock','error'); return; }
+  if(ajustar && !tienePermiso('editarstock')){ toast(MSJ.noTienesPermisoParaAjustarEl,'error'); return; }
   const r=resumenConteo();
-  if(r.contados===0){ toast('Escribe al menos una cantidad contada','error'); return; }
+  if(r.contados===0){ toast(MSJ.escribeAlMenosUnaCantidadContada,'error'); return; }
   const seguir=()=>{
     const items=_conteo.items.filter(it=>difDe(it)!==null).map(it=>({
       tipo:it.tipo, id:it.id, nombre:it.nombre, unidad:it.unidad||'',
@@ -181,7 +191,7 @@ export function verConteo(id){
         <td>${escapeHtml(i.nombre)}</td><td>${i.sistema}</td><td>${i.contado}</td>
         <td class="${i.dif<0?'rojo':'oro'} negrita">${i.dif>0?'+':''}${i.dif}</td></tr>`).join('')}</tbody></table>
     </div>`:'<p class="nota mt-12">Todo cuadró: ninguna diferencia.</p>'}`;
-  abrirModal({titulo:'Conteo del '+(c.fecha||'').split('T')[0], textoBoton:'Cerrar', campos:[],
+  abrirModal({titulo:'Conteo del '+(c.fecha||'').split('T')[0], textoBoton:BOTON.cerrar, campos:[],
     extraHTML:cuerpo, onGuardar:()=>cerrarModal()});
 }
 
@@ -221,12 +231,12 @@ export function conteo(){
         </div>
         <div class="tabla-wrap"><table class="tabla tabla-cards">
           <thead><tr><th>Producto</th><th>Sistema</th><th>Contado</th><th>Diferencia</th></tr></thead>
-          <tbody>${filas.map(({it,i})=>`<tr id="fila-${i}">
+          <tbody>${filas.map(({it,i})=>`<tr id="fila-${escapeHtml(i)}">
             <td data-label="Producto"><strong>${escapeHtml(it.nombre)}</strong><br><span class="gris chico">${escapeHtml(it.categoria)}${it.tipo==='insumo'?' · insumo':''}</span></td>
-            <td data-label="Sistema" class="negrita">${it.sistema}${it.unidad?' '+escapeHtml(it.unidad):''}</td>
+            <td data-label="Sistema" class="negrita" id="sis-${escapeHtml(i)}">${it.sistema}${it.unidad?' '+escapeHtml(it.unidad):''}</td>
             <td data-label="Contado"><input type="number" class="busca minw-90 w-110" inputmode="decimal"
-                value="${it.contado===''?'':it.contado}" placeholder="—" data-input="contarItem(${i}, this.value)"></td>
-            <td data-label="Diferencia" id="dif-${i}"><span class="gris">—</span></td>
+                value="${escapeHtml(it.contado===''?'':it.contado)}" placeholder="—" data-input="contarItem(${escapeHtml(i)}, this.value)"></td>
+            <td data-label="Diferencia" id="dif-${escapeHtml(i)}"><span class="gris">—</span></td>
           </tr>`).join('')}</tbody>
         </table></div>
         <div class="botones-fila mt-16">
@@ -273,7 +283,7 @@ export function conteo(){
           <td data-label="Faltan" class="${(c.faltantes||0)?'rojo negrita':'gris'}">${c.faltantes||0}${(c.faltantes||0)?'<br><span class="chico">'+fmtMoney(c.valorFalta||0)+'</span>':''}</td>
           <td data-label="Sobran" class="${(c.sobrantes||0)?'oro negrita':'gris'}">${c.sobrantes||0}${(c.sobrantes||0)?'<br><span class="chico">'+fmtMoney(c.valorSobra||0)+'</span>':''}</td>
           <td data-label="Diferencia" class="negrita ${dif<0?'rojo':dif>0?'oro':'verde'}">${dif===0?'Cuadró':fmtMoney(dif)}</td>
-          <td class="acciones" data-label="Acciones"><button class="btn btn-sm" data-click="verConteo('${c.id}')">Ver detalle</button></td>
+          <td class="acciones" data-label="Acciones"><button class="btn btn-sm" data-click="verConteo('${escapeHtml(c.id)}')">Ver detalle</button></td>
         </tr>`;}).join('') : '<tr><td colspan="7" class="gris">Todavía no se ha hecho ningún conteo.</td></tr>'}</tbody>
       </table></div>
     </div>`;

@@ -22,6 +22,8 @@
  * @property {(negId:string, tabla:string) => Array} datosDe  Tabla de cualquier negocio.
  * @property {(tabla:string, registros:Array) => void} guardar        Guarda (fusiona por id) solo lo que cambió.
  * @property {(tabla:string, id:string) => void} eliminar             Borra un registro (con marca de borrado).
+ * @property {(negId:string, tabla:string, registros:Array) => void} guardarEn  Como guardar, en un negocio dado (no el activo).
+ * @property {(negId:string, tabla:string, id:string) => void} eliminarEn       Como eliminar, en un negocio dado.
  * @property {(tabla:string, id:string, fn:Function) => Object|null} modificarRegistro  Cambio concurrente seguro (transacción).
  * @property {(tabla:string, fn:Function) => Promise<{committed:boolean, valor:any}>} transaccionUnica
  * @property {(clave:string, fn:Function) => Promise<{committed:boolean, valor:any}>} transaccionGlobal
@@ -34,6 +36,7 @@
  * @property {(modo:{superAdmin:boolean, negId?:string}) => Promise<void>} recargar
  * @property {() => Promise<Object>} exportarTodo
  * @property {(negId:string) => void} borrarDatosNegocio
+ * @property {string} entorno   produccion | pruebas | emulador | local (lo elige firebase-config.js; el login lo muestra)
  *
  * Con cuentas de Firebase (S1):
  * @property {(s:{cuentas:boolean, superAdmin?:boolean, negId?:string}) => void} configurarSesion
@@ -46,7 +49,7 @@
  */
 
 export const OPERACIONES_DATOS=['iniciar','cargarGlobales','get','set','claveDe','misDatos','datosDe','guardar',
-  'eliminar','modificarRegistro','transaccionUnica','transaccionGlobal','reservarConsecutivo',
+  'eliminar','guardarEn','eliminarEn','modificarRegistro','transaccionUnica','transaccionGlobal','reservarConsecutivo',
   'sincronizarNegocio','detenerSincNegocio','sincronizarTodo','detenerSincTodo','limpiarDatosAjenos',
   'recargar','exportarTodo','borrarDatosNegocio',
   'configurarSesion','cargarNegocioPropio','migrarTablasGlobales','leerRegistro','modificarUsuariosLegado',

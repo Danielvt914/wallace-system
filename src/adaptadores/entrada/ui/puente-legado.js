@@ -24,6 +24,7 @@ export function instalarPuente(win, piezas){
   win.ServicioSesion=sesion;    // {crear(), mensajeDeFallo(motivo)}
   win.Dominio=d;
   win.Cripto=cripto;
+  win.Pruebas=piezas.pruebas;   // periodo de prueba (aplicacion/servicios/pruebas.js); aún sin pantalla
 
   // Banderas de estado de la nube (solo lectura; NUBE_LISTA también se escribe)
   const propiedad=(nombre, get, set)=>Object.defineProperty(win, nombre, {get, set, configurable:true});

@@ -6,8 +6,9 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/01-super-admin-panel/01-super-admin-panel.md
 // ============================================================
 import { escapeHtml, fmtDate, fmtMoney } from '../nucleo/estado.js';
+import { BOTON, MSJ } from '../nucleo/textos.js';
 import { esAdminSistema } from '../nucleo/permisos.js';
-import { abrirModal, cerrarModal, toast } from '../nucleo/componentes.js';
+import { abrirModal, cerrarModal, logoNegocio, toast } from '../nucleo/componentes.js';
 import { nombreMes } from '../gastos/contable.js';
 
 // ============================================================
@@ -15,20 +16,20 @@ import { nombreMes } from '../gastos/contable.js';
 // ============================================================
 export let _repNegMes=null;
 export async function reporteMensualNegocio(negId){
-  if(!esAdminSistema()){ toast('No tienes permiso para ver informes de negocios','error'); return; }
+  if(!esAdminSistema()){ toast(MSJ.noTienesPermisoParaVerInformes,'error'); return; }
   const neg=(DB.get('negocios')||[]).find(n=>n.id===negId);
-  if(!neg){ toast('Negocio no encontrado','error'); return; }
+  if(!neg){ toast(MSJ.negocioNoEncontrado,'error'); return; }
   // R1: el panel no tiene las ventas de cada negocio; se leen ahora, una vez
   if(FB_READY && Datos.estado.cuentas){
     toast('Cargando datos de '+neg.nombre+'…','info');
     try{ await Datos.leerNegocioCompleto(negId); }
-    catch(e){ toast('No se pudieron leer los datos del negocio','error'); return; }
+    catch(e){ toast(MSJ.noSePudieronLeerLosDatos,'error'); return; }
   }
   const ventas=(datosDe(negId,'ventas')||[]);
   const mesesSet={}; mesesSet[today().substring(0,7)]=1;
   ventas.forEach(v=>{ const m2=(v.jornada||fechaLocal(v.fecha)||'').substring(0,7); if(m2) mesesSet[m2]=1; });
   const meses=Object.keys(mesesSet).sort().reverse();
-  abrirModal({titulo:'📄 Reporte mensual · '+neg.nombre, textoBoton:'Generar PDF', campos:[
+  abrirModal({titulo:'📄 Reporte mensual · '+neg.nombre, textoBoton:BOTON.generarPdf, campos:[
     {id:'mes', label:'Mes del informe', tipo:'select', opciones:meses.map(m=>({valor:m,label:nombreMes(m)}))}
   ], extraHTML:`<p class="nota">Se abre listo para imprimir o guardar como PDF (en la ventana de impresión elija "Guardar como PDF").</p>`,
   onGuardar:(d)=>{ cerrarModal(); imprimirReporteNegocio(negId, d.mes); }});
@@ -81,7 +82,7 @@ export function imprimirReporteNegocio(negId, mes){
         ${vend?`<div style="font-size:12px;color:#555;">Vendedor a cargo: <strong>${escapeHtml(vend.nombre)}</strong></div>`:''}
       </div>
       <div style="text-align:right;">
-        ${neg.logo?`<img src="${neg.logo}" style="max-height:58px;">`:''}
+        ${logoNegocio(neg,'style="max-height:58px;"')||''}
         <div style="font-size:11px;color:#888;margin-top:4px;">Informe generado<br>${new Date().toLocaleString('es-CO')}</div>
       </div>
     </div>
@@ -143,7 +144,7 @@ export function imprimirReporteNegocio(negId, mes){
     </div>
   </div>`;
   const w=window.open('','_blank','width=900,height=700');
-  if(!w){ toast('Permite las ventanas emergentes para generar el PDF','error'); return; }
+  if(!w){ toast(MSJ.permiteLasVentanasEmergentesParaGenerar,'error'); return; }
   w.document.write('<html><head><title>Informe '+escapeHtml(neg.nombre)+' '+nombreMes(mes)+'</title><meta charset="utf-8"><style>@page{size:letter;margin:14mm;}body{margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}h3{margin:14px 0 6px;}</style></head><body>'+html+'</body></html>');
   w.document.close();
   setTimeout(()=>w.print(),500);

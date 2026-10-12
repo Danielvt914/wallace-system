@@ -6,9 +6,10 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/-02-corrections/-02-corrections.md
 // ============================================================
 import { STATE, now } from '../nucleo/estado.js';
+import { BOTON, MSJ } from '../nucleo/textos.js';
 import { esAdminSistema } from '../nucleo/permisos.js';
 import { abrirModal, cerrarModal, toast } from '../nucleo/componentes.js';
-import { mensajeCuenta, ponerPass } from './sesion.js';
+import { conCuentasFirebase, mensajeCuenta, ponerPass } from './sesion.js';
 import { logAudit } from './auditoria.js';
 
 
@@ -81,9 +82,20 @@ export function actualizarUsuarioLegado(rec){
     return l;
   }).catch(()=>{});
 }
+// Vendedor con cuentas: las reglas le dejan usar las tablas de un negocio SUYO solo si
+// es su "negocio activo" (perfiles/<uid>/negocioActivo). Se fija antes de escribirlas;
+// las escrituras van en orden por la misma conexión. Dueño y ayudante: no hace nada.
+export function trabajarEn(negId){
+  const u=STATE._superUser||STATE.user;
+  if(!conCuentasFirebase() || !u || u.rolSuper!=='vendedor') return Promise.resolve();
+  return Cuentas.fijarNegocioActivo(negId);
+}
 export async function borrarCuentasDeNegocio(negId){
   const us=(DB.get('usuarios')||[]).filter(u=>u.negocioId===negId);
   for(const u of us){ try{ await borrarCuentaDe(u.usuario); }catch(e){ console.warn('Borrar cuenta',u.usuario,e&&e.message); } }
+  // La tabla vieja de usuarios (con contraseñas) es solo del dueño y el ayudante: el vendedor no la toca
+  const yo=STATE._superUser||STATE.user;
+  if(yo && yo.rolSuper==='vendedor') return;
   await Datos.modificarUsuariosLegado(l=>{ const f=l.filter(x=>x.negocioId!==negId); return f.length===l.length?undefined:f; }).catch(()=>{});
 }
 // Las contraseñas que sigan en texto plano en las tablas viejas (cuentas aún sin
@@ -99,16 +111,16 @@ export function migrarContrasenasLegado(){
 }
 // "Mi contraseña" con cuentas: Firebase pide la actual (B.5.5)
 export function cambiarMiPassCuenta(){
-  abrirModal({titulo:'🔑 Cambiar mi contraseña', textoBoton:'Guardar', campos:[
+  abrirModal({titulo:'🔑 Cambiar mi contraseña', textoBoton:BOTON.guardar, campos:[
     {id:'actual', label:'Contraseña actual', tipo:'password', requerido:true},
     {id:'nueva', label:'Nueva contraseña (mínimo 6 caracteres)', tipo:'password', requerido:true},
     {id:'nueva2', label:'Repite la nueva contraseña', tipo:'password', requerido:true}
   ], onGuardar:(d)=>{
-    if((d.nueva||'').length<6){ toast('La nueva debe tener al menos 6 caracteres','error'); return; }
-    if(d.nueva!==d.nueva2){ toast('Las contraseñas nuevas no coinciden','error'); return; }
+    if((d.nueva||'').length<6){ toast(MSJ.laNuevaDebeTenerAlMenos6,'error'); return; }
+    if(d.nueva!==d.nueva2){ toast(MSJ.lasContrasenasNuevasNoCoinciden,'error'); return; }
     Cuentas.cambiarMiPass(d.actual, d.nueva).then(()=>{
       if(STATE.negocio && !STATE.esSuperAdmin) logAudit('Cambió su contraseña', STATE.user.nombre);
-      cerrarModal(); toast('Contraseña actualizada','success');
+      cerrarModal(); toast(MSJ.contrasenaActualizada,'success');
     }).catch(e=>toast(e&&e.codigo==='credenciales'?'La contraseña actual no coincide':mensajeCuenta(e),'error'));
   }});
 }

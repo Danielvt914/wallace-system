@@ -45,8 +45,8 @@ Si una regla del negocio necesita un dato externo (la fecha de hoy, un id nuevo,
 ## 3. Estructura
 
 ```
-index.html                          Página única: enlaza los estilos de ui/estilos/ y carga src/arranque.js
-firebase-config.js, logo.js         Configuración y logo (scripts clásicos)
+index.html                          Página única: enlaza los estilos de ui/estilos/ y carga src/arranque.js (único script)
+firebase-config.js                  Módulo: elegirEntorno() decide la base por dominio (producción, pruebas, emuladores, local)
 src/
   arranque.js                       RAÍZ DE COMPOSICIÓN: crea adaptadores, verifica puertos, publica el puente, importa la UI
   dominio/                          NÚCLEO: reglas puras, probadas con npm test
@@ -61,10 +61,13 @@ src/
     negocio.js                      perfiles por tipo de negocio, planes, ventanas por plan, inventario (F12), sucursales
     gastos.js                       conceptos de gasto sin repetidos (mayúsculas, tildes, espacios)
     ventas.js                       estadísticas por producto y persona (por id) y resumen de ventas del panel (R1)
+    prueba.js                       periodo de prueba y vencimiento de demos (estado, extender, pasar a pago, quién puede)
+    ejemplos.js                     datos de ejemplo de los 18 tipos de negocio y armado de una demo
   aplicacion/
     puertos/datos.js                PUERTO DE SALIDA de datos: contrato + verificación al arrancar
     puertos/cuentas.js              PUERTO DE SALIDA de cuentas (S1): autenticar y administrar cuentas
     servicios/sesion.js             CASO DE USO: inicio de sesión + migración automática de cuentas viejas (S1)
+    servicios/pruebas.js            CASOS DE USO: periodo de prueba (iniciar, extender, pasar a pago, ejemplos); aún sin pantalla
   adaptadores/
     salida/
       firebase-datos.js             Implementa el puerto de datos: Firebase + respaldo local, sync por registro, transacciones,
@@ -72,10 +75,11 @@ src/
       firebase-cuentas.js           Implementa el puerto de cuentas: Firebase Authentication + login/ + perfiles/
       almacen-local.js              localStorage con prefijo ws_
       cripto-navegador.js           ids y sales aleatorias
+      firebase-sdk.js               Carga el SDK MODULAR de Firebase desde gstatic (solo si hay base)
     entrada/ui/                     INTERFAZ (módulos ES; el HTML generado llama acciones con data-click)
       manifiesto.js                 Lista de los módulos + cargarInterfaz() (los importa y arma window.WS) + VERSION_UI
       puente-legado.js              PUENTE TEMPORAL: publica dominio, datos y cuentas con los nombres de siempre
-      estilos/                      CSS en 15 archivos (01-base … 14-responsive + 15-utilidades), en ese orden
+      estilos/                      CSS en 16 archivos: 00-tokens (TODOS los colores, fuentes, tamaños y radios), 01-base … 14-responsive, 15-utilidades; en ese orden
       nucleo/                       estado, permisos, componentes (modales, avisos, iconos), eventos delegados,
                                     sonidos, tema, tablas en celular, navegación/render, arranque de la interfaz
       usuarios/                     sesión (login), cuentas S1, auditoría, usuarios (super-admin y negocio), migración de cuentas
@@ -177,6 +181,8 @@ Cada fase deja la app funcionando, pasa `npm test` y las pruebas de navegador, y
 
 ## 9. Realtime Database vs. Cloud Firestore
 
+> La diferencia con **Cloud Storage** (archivos: logos, fotos, respaldos) está en [realtime-vs-storage](realtime-vs-storage.md).
+
 Firebase ofrece dos bases de datos. Wallace System usa **Realtime Database**. Esta sección explica la diferencia, qué ganaría el sistema con **Cloud Firestore** y por qué la recomendación es no cambiar todavía.
 
 ### 9.1 Diferencias
@@ -262,6 +268,8 @@ El puente publica las constantes y funciones puras con su nombre de siempre, as�
 
 ## 11. Fase 8: estilos, eventos delegados y módulos ES (2026-10-09)
 
+> Guía para trabajar con los módulos (qué son, reglas, cómo agregar funciones, acciones y archivos, errores típicos): [modulos-es](modulos-es.md).
+
 Se hizo en tres pasos, cada uno verificado con `npm test`, `npm run test:firebase` y **121 capturas de pantalla idénticas píxel a píxel** a las de antes (`scripts/capturas.mjs`, sección 11.5). El rediseño visual quedó para después, a pedido del usuario.
 
 ### 11.1 Estilos fuera de `index.html`
@@ -306,7 +314,7 @@ Se hizo en tres pasos, cada uno verificado con `npm test`, `npm run test:firebas
 
 Al cerrar la fase 8 se actualizaron las reglas estáticas de `CLAUDE.md`:
 
-- **Arquitectura**: la interfaz son **47 módulos ES** (antes "45 scripts clásicos"). `ui/manifiesto.js` los lista y su `cargarInterfaz()` los importa, instala los eventos delegados (`data-click`) y arma `window.WS`. Los estilos están en `ui/estilos/`, en orden numérico. Retirar el puente es lo único que falta de la fase 8.
+- **Arquitectura**: la interfaz son **51 módulos ES** (47 en la fase 8; antes "45 scripts clásicos"). `ui/manifiesto.js` los lista y su `cargarInterfaz()` los importa, instala los eventos delegados (`data-click`) y arma `window.WS`. Los estilos están en `ui/estilos/`, en orden numérico. Retirar el puente es lo único que falta de la fase 8.
 - **Módulos**: importar lo que se usa, sin renombrar (`import { x } from '../nucleo/estado.js'`). No repetir nombres entre módulos ni tapar uno del puente. Al cargar, solo declarar, porque hay importaciones circulares. Para cambiar una variable de otro archivo, usar su `fijarX(v)`.
 - **HTML generado**: acciones con `data-click` (y `data-input`, `data-change`…), siempre **exportadas**. Los textos del usuario van en `data-x` + `this.dataset.x`. Nada de `onclick` ni `style` fijos: se usan las clases de `estilos/15-utilidades.css`. El porqué está en [seguridad-interfaz](seguridad-interfaz.md).
 - **Archivo nuevo de interfaz**: agregarlo a `ui/manifiesto.js` y correr `node scripts/mapa-interfaz.mjs`.
@@ -325,5 +333,35 @@ Cada `tomar <carpeta>` crea una carpeta con las fotos numeradas (`001-config-ini
 | `d` | Estilos terminados, ya con las 121 fotos, comparado con `base`. |
 | `e` | Tras los eventos delegados (fase 8a). |
 | `f` | Tras los módulos ES (fase 8b): idéntica a `base`. |
+| `antes-modular` | Versión del commit `e2f41bc` (con Firebase *compat*), ya con la semilla fijada antes de los demos (2026-10-11). |
+| `modular` | Versión con Firebase modular, misma semilla: **idéntica a `antes-modular`** (121 de 121). **Es la referencia actual.** |
 
-Solo `base` sirve para comparar cambios futuros (por ejemplo, el rediseño visual); las demás se pueden borrar. Si `base` se borra, se rehace tomando las fotos de la versión que se quiera usar de referencia. Para un cambio nuevo, la costumbre es: `tomar capturas/antes` → hacer el cambio → `tomar capturas/despues` → `comparar capturas/antes capturas/despues`.
+Las carpetas `a` a `e` se borraron el 2026-10-11. `tokens2` es la toma tras centralizar el tema en tokens (sección 11.8): idéntica a `modular`. `revision2` (2026-10-12): tras corregir la segunda revisión, solo cambia la etiqueta de Historial ("Ventas del negocio", F21). **Es la referencia actual.** `demos` (2026-10-12): tras reorganizar las demos, 4 capturas cambian solo en el **orden** de "Últimos movimientos de inventario". Ahora va del más nuevo al más viejo, como llegan los datos de Firebase; antes, en modo local, la demo los dejaba al revés. Antes lo fue **`modular`**: `base` quedó con los datos de la semilla vieja. Las demás se pueden borrar.
+
+**Semilla de los datos**: el tool fija el azar con una semilla y la **vuelve a fijar justo antes de crear los demos** (`window.__semilla`). Así los datos no dependen de cuántos números al azar gasten las librerías al cargar. Se agregó el 2026-10-11, porque las librerías *compat* de Firebase gastaban uno y, al quitarlas, el primer demo salía con una venta más. Por eso hay una referencia nueva, `capturas/modular` (sección 11.7). Si `base` se borra, se rehace tomando las fotos de la versión que se quiera usar de referencia. Para un cambio nuevo, la costumbre es: `tomar capturas/antes` → hacer el cambio → `tomar capturas/despues` → `comparar capturas/antes capturas/despues`.
+
+### 11.7 Sin scripts clásicos: Firebase modular, configuración y logo como módulos (2026-10-11)
+
+Quedaban tres scripts clásicos en `index.html`: las librerías *compat* de Firebase (que dejaban el global `window.firebase`), `logo.js` y `firebase-config.js` (que dejaban `window.WALLACE_LOGO`, `window.FIREBASE_CONFIG`…). Se convirtieron:
+
+| Antes | Ahora |
+|---|---|
+| `firebase-app-compat.js`, `-database-compat.js`, `-auth-compat.js` en `index.html`; adaptadores con `firebase.database().ref(r).once()` | SDK **modular** que importa `src/adaptadores/salida/firebase-sdk.js` **solo si hay base**; adaptadores con `get(ref(db, r))`, `onValue`, `runTransaction`… ([modulos-es](modulos-es.md), sección 8) |
+| `firebase-config.js` script clásico con `window.FIREBASE_*` | Módulo con `elegirEntorno(location)`, probado en `tests/configuracion/firebase-config.test.mjs` (ningún dominio fuera de `HOSTS_PRODUCCION` usa producción; `?local`/`?emulador` solo en localhost) |
+| `logo.js` con `window.WALLACE_LOGO` | `ui/nucleo/logo.js` (`export const WALLACE_LOGO`) |
+| La interfaz leía `window.FIREBASE_ENTORNO` | `Datos.entorno`: el arranque se lo pasa al adaptador de datos |
+| `prueba.js` con el global `firebase` | Módulo con `elegirEntorno` y el SDK modular |
+
+**Resultado**: `index.html` tiene **un solo** `<script type="module" src="src/arranque.js">`, y no queda ningún global propio salvo `window.WS` y el puente. **En modo local la app ya no descarga Firebase.** La interfaz no cambió: solo cambiaron los dos adaptadores de salida, gracias a los puertos.
+
+**Cómo se verificó**:
+- `npm test`: 76, incluidas las nuevas pruebas de `elegirEntorno` y una que exige un solo script en `index.html` y ningún global viejo.
+- `npm run test:firebase`: 36, incluida la integración, que pasa a los adaptadores los paquetes modulares de npm, y el login y la migración en Chrome contra los emuladores.
+- Carga real contra el sandbox: pide `firebase-app.js`, `-database.js` y `-auth.js`; no existe `window.firebase`; conecta.
+- `node scripts/probar-csp.mjs`: 0 violaciones.
+- Capturas de la versión anterior (`e2f41bc`, servida desde un `git worktree`) y la nueva, con la misma semilla: **121 de 121 idénticas** (`capturas/antes-modular` vs `capturas/modular`).
+- La herramienta de capturas se detuvo 2 veces de unas 8, al final (modales del tercer negocio), sin poder reproducirlo en 4 repeticiones seguidas. La app no tenía errores: las pruebas pasan y las corridas completas son idénticas. Desde ahora, si vuelve a pasar, dice en qué captura se detuvo y por qué (y termina con error).
+
+### 11.8 Tema centralizado en tokens (2026-10-11)
+
+Todos los colores (72 distintos, 211 usos), fuentes, tamaños de letra (26) y radios (16) pasaron a variables en `ui/estilos/00-tokens.css`. Los demás CSS solo usan `var(--…)`, y `tests/ui/estructura.test.mjs` lo exige. Además, el acento de cada negocio dejó de llamarse `--verde…`/`--acc-…` (`--acento…`), y el verde fijo de la marca tiene su propio token (`--marca`). Capturas antes y después: **121 de 121 idénticas** (tema oscuro y claro). Detalle, reglas y lo que queda para el rediseño (modo claro por componente, `--linea`/`--glow` que no siguen al negocio, escala de tamaños, textos): [tema.md](tema.md).

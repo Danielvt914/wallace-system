@@ -98,3 +98,6 @@ Tirilla 80 mm en Courier: `*** COCINA ***`, número de factura grande, recuadro 
 - Tiempos usa todas las ventas históricas (no solo la jornada) y puede mezclar periodos.
 
 Ver [-01-to-review](../-01-to-review/-01-to-review.md).
+
+## Cambios del 2026-10-12
+- **C3**: si la comanda no se puede imprimir, `imprimirComandaSegura` avisa ("reimprímela desde Pedidos") y el error queda en la auditoría. Antes se perdía en silencio y la cocina no se enteraba del pedido.

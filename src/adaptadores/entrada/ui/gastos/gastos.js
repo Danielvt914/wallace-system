@@ -6,7 +6,8 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/09-expenses-accounting/09-expenses-accounting.md
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, fmtMoney, now } from '../nucleo/estado.js';
-import { puedeVerPantalla } from '../nucleo/permisos.js';
+import { BOTON, MSJ } from '../nucleo/textos.js';
+import { puedeVerPantalla, tienePermiso } from '../nucleo/permisos.js';
 import { abrirModal, cerrarModal, confirmarModal, ic, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
 import { logAudit } from '../usuarios/auditoria.js';
@@ -51,7 +52,7 @@ export function conceptosCompactoHTML(obj, opts){
   let html=`<div class="cc-list">${vis.map(fila).join('')}`;
   if(resto.length){
     const suma=resto.reduce((a,[,v])=>a+v,0); const id=opts.id||'cc';
-    html+=`<details class="cc-more" ${window._ccOpen[id]?'open':''} data-toggle="recordarDesplegado('${id}',this.open)">
+    html+=`<details class="cc-more" ${window._ccOpen[id]?'open':''} data-toggle="recordarDesplegado('${escapeHtml(id)}',this.open)">
       <summary>Ver ${resto.length} concepto(s) más · ${fmtMoney(suma)}</summary>
       <div class="cc-scroll">${resto.map(fila).join('')}</div></details>`;
   }
@@ -62,9 +63,10 @@ export function opcionesConcepto(lista, sel){
     lista.map(c=>`<option value="${escapeHtml(c)}" ${claveConcepto(c)===claveConcepto(sel||'')?'selected':''}>${escapeHtml(c)}</option>`).join('');
 }
 export function agregarConceptoGasto(){
+  if(!puedeVerPantalla('gastosneg')){ toast(MSJ.noTienesAccesoAGastos,'error'); return; }   // S7
   const inp=document.getElementById('g-nuevoconcepto');
   const n=normConcepto(inp&&inp.value);
-  if(!n){ toast('Escribe el nombre del concepto','error'); return; }
+  if(!n){ toast(MSJ.escribeElNombreDelConcepto,'error'); return; }
   const lista=getConceptosGasto();
   const ex=lista.find(x=>claveConcepto(x)===claveConcepto(n));
   if(ex){ toast('"'+ex+'" ya existe, queda seleccionado','info'); }
@@ -82,7 +84,7 @@ export function toggleNuevoConcepto(){
 }
 export function administrarConceptos(){
   const lista=getConceptosGasto();
-  abrirModal({titulo:'Conceptos de gasto', textoBoton:'Listo', campos:[],
+  abrirModal({titulo:'Conceptos de gasto', textoBoton:BOTON.listo, campos:[],
     extraHTML:`<p class="nota">Estos son los conceptos que aparecen al registrar un gasto. Quitar uno no borra los gastos ya registrados con él.</p>
       <div class="d-flex flex-wrap gap-6 mt-10">
         ${lista.map(c=>`<span class="pill pill-gold p-5-6-5-11">${escapeHtml(c)}
@@ -91,11 +93,12 @@ export function administrarConceptos(){
     onGuardar:()=>{ cerrarModal(); render(); }});
 }
 export function quitarConcepto(nombre){
+  if(!puedeVerPantalla('gastosneg') || !tienePermiso('eliminar')){ toast(MSJ.noTienesPermisoParaQuitarConceptos,'error'); return; }   // S7
   if(!nombre) return;
   const lista=getConceptosGasto().filter(x=>claveConcepto(x)!==claveConcepto(nombre));
   guardarConceptos(lista);
   logAudit('Quitó concepto de gasto',nombre);
-  cerrarModal(); toast('Concepto quitado','info'); administrarConceptos();
+  cerrarModal(); toast(MSJ.conceptoQuitado,'info'); administrarConceptos();
 }
 
 export function gastosneg(){
@@ -130,7 +133,7 @@ export function gastosneg(){
           <p class="gris">Todo lo que sale de plata: lo que paga el dueño aparte y lo que sale de la caja diaria.</p></div>
         <div class="t-acc">
           <select class="busca" data-change="elegirMesGastos(this.value)">
-            ${meses.map(m=>`<option value="${m}" ${m===mes?'selected':''}>${nombreMes(m)}</option>`).join('')}
+            ${meses.map(m=>`<option value="${escapeHtml(m)}" ${m===mes?'selected':''}>${nombreMes(m)}</option>`).join('')}
           </select>
           <button class="btn btn-sm btn-ghost" data-click="administrarConceptos()">Conceptos</button>
           <button class="btn btn-gold" data-click="nuevoGasto()">+ Registrar gasto</button>
@@ -163,16 +166,16 @@ export function gastosneg(){
             <td><strong>${escapeHtml(g.concepto)}</strong>${g.origen==='caja'?' <span class="pill pill-azul chico">de caja</span>':''}${g.nota?`<br><span class="gris chico">${escapeHtml(g.nota)}</span>`:''}${g.por?`<br><span class="gris chico">${escapeHtml(g.por)}</span>`:''}</td>
             <td class="gris">${escapeHtml(g.metodo||'—')}</td>
             <td class="negrita rojo">${fmtMoney(g.valor)}</td>
-            <td>${g.origen==='caja'?'<span class="gris chico" title="Se corrige desde la caja">🔒 Caja</span>':`<button class="btn btn-sm btn-rojo" data-click="eliminarGasto('${g.id}')">×</button>`}</td>
+            <td>${g.origen==='caja'?'<span class="gris chico" title="Se corrige desde la caja">🔒 Caja</span>':`<button class="btn btn-sm btn-rojo" data-click="eliminarGasto('${escapeHtml(g.id)}')">×</button>`}</td>
           </tr>`).join(''):'<tr><td colspan="5" class="gris">Sin gastos este mes.</td></tr>'}</tbody>
         </table></div>
       </div>
     </div>`;
 }
 export function nuevoGasto(){
-  if(!puedeVerPantalla('gastosneg')){ toast('No tienes acceso a Gastos','error'); return; }
+  if(!puedeVerPantalla('gastosneg')){ toast(MSJ.noTienesAccesoAGastos,'error'); return; }
   const lista=getConceptosGasto();
-  abrirModal({titulo:'Registrar gasto', textoBoton:'Guardar', campos:[
+  abrirModal({titulo:'Registrar gasto', textoBoton:BOTON.guardar, campos:[
     {id:'concepto', label:'Concepto', tipo:'select', opciones:[{valor:'',label:'Seleccione un concepto...'}].concat(lista.map(c=>({valor:c,label:c})))},
     {id:'valor', label:'Valor', tipo:'number', requerido:true},
     {id:'fecha', label:'Fecha', tipo:'date', valor:today()},
@@ -191,23 +194,23 @@ export function nuevoGasto(){
       </div>
     </div>`,
   onGuardar:(d)=>{
-    if(!normConcepto(d.concepto)){ toast('Seleccione el concepto del gasto','error'); return; }
+    if(!normConcepto(d.concepto)){ toast(MSJ.seleccioneElConceptoDelGasto,'error'); return; }
     const arr=misDatos('gastos_negocio');
     arr.unshift({id:uid(), concepto:normConcepto(d.concepto), valor:parseFloat(d.valor)||0,
       fecha:d.fecha||today(), metodo:d.metodo, nota:d.nota, por:STATE.user.nombre, creado:now()});
     guardarMisDatos('gastos_negocio',arr);
     logAudit('Registró gasto', d.concepto+' · '+fmtMoney(parseFloat(d.valor)||0));
-    cerrarModal(); toast('Gasto registrado','success'); render();
+    cerrarModal(); toast(MSJ.gastoRegistrado,'success'); render();
   }});
 }
 export function eliminarGasto(id){
-  if(!puedeVerPantalla('gastosneg')){ toast('No tienes acceso a Gastos','error'); return; }
+  if(!puedeVerPantalla('gastosneg')){ toast(MSJ.noTienesAccesoAGastos,'error'); return; }
   const g=misDatos('gastos_negocio').find(x=>x.id===id);
   if(!g){ return; }
   // F13: un gasto de caja vive en la caja y en su cierre (de ahí lo toma Contable).
   // Borrarlo aquí dejaba Gastos y Contable con cifras distintas.
   if(g.origen==='caja'){
-    toast('Este gasto salió de la caja y ya cuenta en su cierre. Para corregirlo, registra en la caja una Entrada por el mismo valor.','info');
+    toast(MSJ.esteGastoSalioDeLaCaja,'info');
     return;
   }
   // confirmarModal ya escapa el texto
@@ -215,7 +218,7 @@ export function eliminarGasto(id){
   confirmarModal(aviso,()=>{
     eliminarMisDatos('gastos_negocio',id);
     logAudit('Eliminó gasto', (g.concepto||'')+' · '+fmtMoney(g.valor));
-    toast('Gasto eliminado','info'); render();
+    toast(MSJ.gastoEliminado,'info'); render();
   },'Eliminar');
 }
 export function elegirMesGastos(v){ _mesGas=v; render(); }

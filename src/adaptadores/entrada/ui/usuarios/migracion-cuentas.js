@@ -6,6 +6,7 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/-02-corrections/-02-corrections.md
 // ============================================================
 import { STATE, escapeHtml, fmtDate } from '../nucleo/estado.js';
+import { BOTON, MSJ } from '../nucleo/textos.js';
 import { esAdminSistema } from '../nucleo/permisos.js';
 import { abrirModal, cerrarModal, confirmarModal, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
@@ -21,7 +22,7 @@ import { reemplazarCuenta } from './cuentas.js';
 // ============================================================
 export let _indiceCuentas=null, _cargandoIndice=false;
 export function abrirMigracion(){
-  if(!esAdminSistema()){ toast('No tienes permiso','error'); return; }
+  if(!esAdminSistema()){ toast(MSJ.noTienesPermiso,'error'); return; }
   STATE.page='migracion';
   recargarIndiceCuentas();
   render();
@@ -53,9 +54,9 @@ export function pantallaMigracion(){
   const pill=f=>f.estado==='migrado'?'<span class="pill pill-verde">✅ Migrado</span>'
     :f.estado==='pendiente'?'<span class="pill pill-azul">⏳ Pendiente</span>':'<span class="pill pill-rojo">⚠️ Revisar</span>';
   const acciones=(f,i)=>{
-    if(!f.id) return `<button class="btn btn-sm btn-rojo" data-click="borrarPerfilHuerfano(${i})">Borrar perfil</button>`;
-    if(f.estado==='pendiente') return `<button class="btn btn-sm btn-gold" data-click="cuentaParaFila(${i})">Crear cuenta</button>`;
-    return `<button class="btn btn-sm" data-click="cuentaParaFila(${i})">${f.estado==='revisar'?'Reemplazar cuenta':'Restablecer contraseña'}</button>`;
+    if(!f.id) return `<button class="btn btn-sm btn-rojo" data-click="borrarPerfilHuerfano(${escapeHtml(i)})">Borrar perfil</button>`;
+    if(f.estado==='pendiente') return `<button class="btn btn-sm btn-gold" data-click="cuentaParaFila(${escapeHtml(i)})">Crear cuenta</button>`;
+    return `<button class="btn btn-sm" data-click="cuentaParaFila(${escapeHtml(i)})">${f.estado==='revisar'?'Reemplazar cuenta':'Restablecer contraseña'}</button>`;
   };
   window._filasMigracion=filas;
   return `
@@ -91,14 +92,14 @@ export function pantallaMigracion(){
 export function cuentaParaFila(i){
   const f=(window._filasMigracion||[])[i]; if(!f) return;
   const rec=filaMigracion(f);
-  if(!rec){ toast('No se encontró el usuario','error'); return; }
-  abrirModal({titulo:(f.estado==='pendiente'?'Crear cuenta de ':'Contraseña nueva para ')+rec.usuario, textoBoton:'Guardar', campos:[
+  if(!rec){ toast(MSJ.noSeEncontroElUsuario,'error'); return; }
+  abrirModal({titulo:(f.estado==='pendiente'?'Crear cuenta de ':'Contraseña nueva para ')+rec.usuario, textoBoton:BOTON.guardar, campos:[
     {id:'p1', label:'Contraseña nueva (mínimo 6 caracteres)', tipo:'password', requerido:true},
     {id:'p2', label:'Repítela', tipo:'password', requerido:true}
   ], extraHTML:`<p class="nota">Entrégale la contraseña a <strong>${escapeHtml(rec.nombre||rec.usuario)}</strong>. Si ya tenía una cuenta, esa queda sin acceso.</p>`,
   onGuardar:d=>{
-    if((d.p1||'').length<6){ toast('Debe tener al menos 6 caracteres','error'); return; }
-    if(d.p1!==d.p2){ toast('Las contraseñas no coinciden','error'); return; }
+    if((d.p1||'').length<6){ toast(MSJ.debeTenerAlMenos6Caracteres,'error'); return; }
+    if(d.p1!==d.p2){ toast(MSJ.lasContrasenasNoCoinciden,'error'); return; }
     reemplazarCuenta(rec, d.p1, f.tipo==='super').then(()=>{
       cerrarModal(); toast('Cuenta lista para '+rec.usuario,'success'); recargarIndiceCuentas();
     }).catch(e=>toast('No se pudo: '+mensajeCuenta(e),'error'));
@@ -107,7 +108,7 @@ export function cuentaParaFila(i){
 export function borrarPerfilHuerfano(i){
   const f=(window._filasMigracion||[])[i]; if(!f || !f.uid) return;
   confirmarModal('¿Borrar el perfil de "'+(f.usuario||'?')+'"? Esa cuenta queda sin acceso a nada.',()=>{
-    Cuentas.borrarCuenta({uid:f.uid, usuario:f.usuario}).then(()=>{ toast('Perfil borrado','info'); recargarIndiceCuentas(); })
+    Cuentas.borrarCuenta({uid:f.uid, usuario:f.usuario}).then(()=>{ toast(MSJ.perfilBorrado,'info'); recargarIndiceCuentas(); })
       .catch(e=>toast('No se pudo: '+mensajeCuenta(e),'error'));
   },'Borrar');
 }

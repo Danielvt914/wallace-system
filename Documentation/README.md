@@ -27,6 +27,9 @@ Esta carpeta documenta el sistema **por módulo**, tal como está implementado e
 | [-01-to-review](-01-to-review/-01-to-review.md) | Hallazgos para revisar | Bugs, riesgos de seguridad e inconsistencias encontradas al documentar, con su estado |
 | [-02-corrections](-02-corrections/-02-corrections.md) | Correcciones aplicadas | Qué se corrigió de seguridad y datos, dónde, cómo se probó y qué queda pendiente |
 | [-03-architecture](-03-architecture/-03-architecture.md) | Arquitectura | Estructura hexagonal (dominio, puertos, adaptadores), regla de dependencias, plan de fases de la migración, fase 8 (módulos, eventos delegados, estilos, capturas) y comparación Realtime Database vs. Cloud Firestore |
+| [-03 → modulos-es](-03-architecture/modulos-es.md) | Módulos ES | Qué son, cómo está organizada la interfaz (manifiesto, `cargarInterfaz`, `window.WS`), reglas, cómo agregar funciones, acciones y archivos, errores típicos |
+| [-03 → realtime-vs-storage](-03-architecture/realtime-vs-storage.md) | Realtime Database vs. Cloud Storage | Datos vs. archivos, cómo guarda hoy los logos, cuándo convendría Cloud Storage y qué costaría |
+| [-03 → tema](-03-architecture/tema.md) | Tema y textos | Tokens de color, fuente, tamaño y radio en `estilos/00-tokens.css`; color por negocio y modo claro; qué queda para el rediseño; estado de los textos |
 | [-03 → modelo-de-datos](-03-architecture/modelo-de-datos.md) | Modelo de datos | Todas las tablas con sus campos en un solo lugar: árbol de Firebase, formatos (`_r`, `_x`, `_bk`), qué escribe cada módulo y qué cambió respecto a producción |
 | [-03 → seguridad-interfaz](-03-architecture/seguridad-interfaz.md) | Seguridad de la interfaz | Ataques posibles con código en línea (`onclick`, `style`), el caso real S6 y el riesgo que queda |
 | [-03 → csp](-03-architecture/csp.md) | Content-Security-Policy | Política propuesta, cómo se probó, cómo activarla en Render y qué hacer si bloquea algo |
@@ -50,16 +53,15 @@ Esta carpeta documenta el sistema **por módulo**, tal como está implementado e
 
 | Archivo | Para qué sirve | ¿En Git? |
 |---|---|---|
-| `index.html` | Única página de la app. Enlaza los 15 CSS de `ui/estilos/` (con `?v=VERSION_UI`) y carga Firebase, `logo.js`, `firebase-config.js` y el módulo `src/arranque.js`. El cuerpo solo tiene `#app`, `#modal-container` y `#toasts`. | Sí |
-| `firebase-config.js` | Decide **a qué base se conecta la app** según la dirección: `?local` → modo local; `?emulador` → emuladores; dominios de `HOSTS_PRODUCCION` (vacío hasta definir el dominio) → producción; cualquier otro (`localhost`, el fork en Render) → el proyecto de pruebas `wallacesys-dev-sandbox`. Define `window.FIREBASE_CONFIG` y `window.FIREBASE_ENTORNO`. | Sí (la configuración web no es secreta) |
-| `logo.js` | Logo SVG de la marca (`window.WALLACE_LOGO`) y logo por defecto de los negocios que no han subido el suyo. | Sí |
-| `prueba.html` + `prueba.js` | **Diagnóstico de conexión**: entorno, si Firebase responde, qué reglas están publicadas y, opcionalmente, un inicio de sesión de prueba. **No escribe nada.** El código está en `prueba.js` para que funcione con la CSP. Se abre en `/prueba.html`. | Sí |
+| `index.html` | Única página de la app. Enlaza los 16 CSS de `ui/estilos/` (el primero, `00-tokens.css`, con todos los colores y tamaños) (con `?v=VERSION_UI`) y carga **un solo** script, el módulo `src/arranque.js`, que importa todo lo demás. El cuerpo solo tiene `#app`, `#modal-container` y `#toasts`. | Sí |
+| `firebase-config.js` | Decide **a qué base se conecta la app** según la dirección: `?local` → modo local; `?emulador` → emuladores; dominios de `HOSTS_PRODUCCION` (vacío hasta definir el dominio) → producción; cualquier otro (`localhost`, el fork en Render) → el proyecto de pruebas `wallacesys-dev-sandbox`. Es un **módulo**: exporta `elegirEntorno(location)`, que usan `src/arranque.js` y `prueba.js` (ya no deja variables en `window`). | Sí (la configuración web no es secreta) |
+| `prueba.html` + `prueba.js` | **Diagnóstico de conexión**: entorno, si Firebase responde, qué reglas están publicadas y, opcionalmente, un inicio de sesión de prueba. **No escribe nada.** El código está en `prueba.js` (módulo, con el SDK modular de Firebase) para que funcione con la CSP. Se abre en `/prueba.html`. | Sí |
 | `.firebaserc` | Proyectos que conoce la CLI de Firebase: solo el alias `pruebas` → `wallacesys-dev-sandbox`. No hay alias de producción (se crea solo con aprobación). | Sí |
 | `firebase.json` | Configuración de la CLI: reglas a publicar (`database.rules.json`, las cerradas) y puertos de los emuladores (base 9000, Authentication 9099). | Sí |
 | `firebase.transicion.json` | Igual que `firebase.json` pero con las reglas de transición. Lo usa `npm run reglas:transicion` (`--config`). | Sí |
 | `database.rules.json` | **Reglas finales (cerradas)** de la base: cada sesión solo lee y escribe lo de su negocio según su rol (S1). Las publica `npm run reglas:cerradas`. | Sí |
 | `database.rules.transicion.json` | **Reglas de transición**: las finales más permisos temporales para que las cuentas viejas migren en su primer ingreso. Solo mientras dura la migración. | Sí |
-| `firebase.hosting.json` | Publicación del sitio en **Firebase Hosting del sandbox** (opción A de [conexion-firebase](-00-execution-protocol/conexion-firebase.md), paso 5): publica solo `.publicar/`, con `Cache-Control: no-cache`. Lo usa `npm run publicar:sandbox`. | Sí |
+| `firebase.hosting.json` | Publicación del sitio en **Firebase Hosting del sandbox** (opción A de [conexion-firebase](-00-execution-protocol/conexion-firebase.md), paso 5): publica solo `.publicar/`, con `Cache-Control: no-cache` y la CSP en modo `Report-Only`. Lo usa `npm run publicar:sandbox`. | Sí |
 | `render.yaml` | Despliegue en Render: sitio estático desde la raíz, toda ruta a `index.html`, `Cache-Control: no-cache` en `/src/*`. Ahí iría la CSP ([csp.md](-03-architecture/csp.md)). | Sí |
 | `package.json` | Comandos (`npm test`, `test:firebase`, `emulador`, `reglas:transicion`, `reglas:cerradas`, `start`) y herramientas de desarrollo (`firebase-tools`, `puppeteer-core`, `acorn`…). Render no las instala: el sitio es estático. | Sí |
 | `package-lock.json` | Versiones exactas de esas herramientas, para que `npm install` instale lo mismo en cualquier equipo. No se edita a mano. | Sí |
@@ -80,11 +82,11 @@ Esta carpeta documenta el sistema **por módulo**, tal como está implementado e
 | `src/dominio/` | Reglas puras del negocio (fechas, pagos, caja, inventario, facturas, contraseñas, cuentas, permisos, negocio, gastos, ventas). Probadas con `npm test`. |
 | `src/aplicacion/puertos/` | Contratos que deben cumplir los adaptadores (datos y cuentas). |
 | `src/aplicacion/servicios/` | Casos de uso (hoy: inicio de sesión y migración de cuentas, S1). |
-| `src/adaptadores/salida/` | Firebase + respaldo local (sincronización y transacciones), cuentas con Firebase Authentication, `localStorage`, aleatoriedad. |
-| `src/adaptadores/entrada/ui/` | Interfaz: 47 módulos ES por carpeta (`nucleo/`, `ventas/`, `caja/`, `inventario/`…) listados en `manifiesto.js`, más `estilos/` (CSS). Mapa función → archivo: [mapa-interfaz](-03-architecture/mapa-interfaz.md). |
+| `src/adaptadores/salida/` | Firebase + respaldo local (sincronización y transacciones), cuentas con Firebase Authentication, `localStorage`, aleatoriedad; `firebase-sdk.js` carga el SDK **modular** de Firebase desde gstatic (solo si hay base). |
+| `src/adaptadores/entrada/ui/` | Interfaz: 51 módulos ES por carpeta (`nucleo/`, `ventas/`, `caja/`, `inventario/`…) listados en `manifiesto.js`, más `estilos/` (CSS); el logo de la marca está en `nucleo/logo.js`. Mapa función → archivo: [mapa-interfaz](-03-architecture/mapa-interfaz.md). |
 | `src/adaptadores/entrada/ui/puente-legado.js` | Puente temporal: publica en `window` el dominio y los datos con los nombres de siempre. |
 | `tests/` | `npm test` (dominio, servicios, estructura de la interfaz) y `npm run test:firebase` (reglas, migración e interfaz en emuladores y Chrome). |
-| `scripts/` | `emulador.mjs` (app completa en emuladores), `probar-firebase.mjs` (corre `test:firebase`), `preparar-pruebas.mjs` (diagnóstico del export sin datos sensibles), `mapa-interfaz.mjs` (genera el mapa), `capturas.mjs` (regresión visual), `probar-csp.mjs` (prueba la CSP), `publicar-sandbox.mjs` (prepara `.publicar/` para Firebase Hosting del sandbox). |
+| `scripts/` | `emulador.mjs` (app completa en emuladores), `probar-firebase.mjs` (corre `test:firebase`), `preparar-pruebas.mjs` (diagnóstico del export sin datos sensibles), `mapa-interfaz.mjs` (genera el mapa), `capturas.mjs` (regresión visual), `csp-politica.mjs` (la CSP del proyecto, en un solo lugar), `probar-csp.mjs` (prueba la CSP), `publicar-sandbox.mjs` (prepara `.publicar/` para Firebase Hosting del sandbox). |
 
 ## Convenciones de esta documentación
 

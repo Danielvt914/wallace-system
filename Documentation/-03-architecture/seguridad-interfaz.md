@@ -10,6 +10,7 @@ Las rutas `ui/…` son relativas a `src/adaptadores/entrada/`.
 |---|---|---|
 | Inyección de JavaScript dentro de un `onclick="…"` armado con datos | **Real**: el nombre de una categoría de producto ejecutaba código (S6) | No hay `onclick`; los datos van en `data-x` y se leen con `this.dataset.x` |
 | HTML inyectado con `onerror=`/`onload=` (si falta `escapeHtml`) | Se ejecuta | Se sigue ejecutando: solo lo frena una CSP (sección 5) |
+| Un dato pegado sin escapar en un atributo (`src="${neg.logo}"`, ids en `data-click`) | — | **Fue real (S8), corregido**: todo `${…}` dentro de un atributo va con `escapeHtml` (lo exige una prueba) y el logo se valida en la app y en las reglas. Sección 7 |
 | Política de seguridad de contenido (CSP) que bloquee código en línea | Imposible: la app dependía de 250 manejadores en línea | **Posible**: propuesta y probada en local, aún no activada ([csp.md](csp.md)) |
 | Texto de un `data-click` inyectado | — | Solo llama funciones **exportadas** con argumentos simples, sin `eval` |
 | `style="…"` con datos del usuario (inyección de CSS) | No había datos del usuario en estilos | Igual; los estilos fijos pasaron a clases y en línea solo quedan números calculados |
@@ -105,3 +106,59 @@ Están en `CLAUDE.md` (reglas de código) y las vigila `npm test`:
 |---|---|
 | `tests/ui/estructura.test.mjs` | `on…="…"` en una plantilla; `data-click` que llama algo no exportado o con argumentos no permitidos |
 | `tests/navegador/recorrido.test.mjs` | En el HTML ya dibujado de las 327 pantallas: ningún atributo `on…`, y cada `data-*` (unos 10.500) con una acción existente y argumentos válidos. Clics reales, incluida una categoría con apóstrofo |
+
+## 7. El logo del negocio (S8, 2026-10-12) — corregido
+
+### 7.1 El error
+
+Diez plantillas dibujan el logo así:
+
+```js
+${neg.logo ? `<img src="${neg.logo}" class="side-logo" alt="">` : …}
+```
+
+`neg.logo` no pasa por `escapeHtml` ni por ninguna validación. Funciona mientras `logo` sea lo que guarda la pantalla Mi Negocio (`data:image/png;base64,…`, que no tiene comillas). Pero **la pantalla no es la única forma de escribirlo**: las reglas dejan que cualquier cuenta con `editaNegocio` escriba `negocios_r/<id>/logo` con el valor que quiera, y no validan su forma. Lugares y quién los abre: [-01-to-review](../-01-to-review/-01-to-review.md), S8.
+
+A diferencia de S6 (el dato dentro de un `onclick`), aquí el dato está dentro de un atributo normal **sin escapar**: basta una comilla `"` para salir de `src` y escribir atributos nuevos.
+
+### 7.2 Cómo se abusa (ejecución de código)
+
+1. **El atacante** tiene una cuenta con `editaNegocio`: el administrador o el dueño de un negocio cliente, o un super-admin **vendedor** en un negocio o demo suyo.
+2. **Escribe el campo sin la pantalla.** Con su sesión abierta, desde la consola del navegador (el SDK modular se puede importar desde gstatic y reutiliza la app ya iniciada) o con la API REST de Realtime Database y su token. Las reglas lo aceptan porque `logo` no es un campo reservado.
+3. **El valor** es una "imagen" que cierra el atributo y agrega un manejador, de la forma `x" onerror="<código>`. El HTML queda `<img src="x" onerror="<código>" class="side-logo" alt="">`. La imagen `x` no carga y el navegador ejecuta el `onerror`.
+4. **La víctima** solo tiene que abrir una pantalla con el logo:
+   - **El dueño o el ayudante del sistema** al pulsar "Entrar" (supervisar) en ese negocio, o "📄 Informe" en el panel (ni siquiera entra al negocio);
+   - cualquier empleado del negocio, en cualquier pantalla (la barra lateral está en todas), y en facturas, tickets y cierres impresos.
+5. **El código corre con la sesión de la víctima** (mismo origen, misma app de Firebase ya autenticada). Con la del dueño del sistema puede:
+   - leer todo `data`, `perfiles` y `login` (todos los negocios y sus clientes);
+   - **subirse de rango**: escribir `perfiles/<uid del atacante>/rolSuper = 'dueno'` (o `rol = 'superadmin'`), crear cuentas nuevas o cambiar a qué cuenta apunta un usuario en `login/`;
+   - suspender, cambiar el plan o borrar negocios; descargar el respaldo completo;
+   - sacar el token de sesión y seguir actuando desde fuera mientras sea válido.
+
+El escenario más directo con lo hecho hoy: **un vendedor anula su propia restricción** (sección 12 de [01-super-admin-panel](../01-super-admin-panel/01-super-admin-panel.md)) poniendo el logo en una demo suya y esperando a que el dueño la supervise.
+
+### 7.3 Otros abusos del mismo punto (aun con CSP)
+
+La CSP propuesta (sección 5 y [csp.md](csp.md)) bloquea el `onerror` porque `script-src` no tiene `'unsafe-inline'`. Lo demás sigue funcionando:
+
+- **Disfrazar la pantalla**: `style` sí se permite en línea. Un `style="position:fixed;inset:0;width:100vw;height:100vh;z-index:9999"` con una imagen `data:` hecha a mano cubre la app con un mensaje falso ("Tu sesión venció, llama a soporte al …"), que es ingeniería social.
+- **Ocultar o tapar botones** (z-index, tamaños) para que la víctima pulse otra cosa.
+- **Romper las impresiones** (facturas y cierres ilegibles).
+
+Por eso la CSP es la **segunda** barrera: la primera es no dejar entrar el valor.
+
+### 7.4 Corrección aplicada (2026-10-12)
+
+Se aplicó lo propuesto y se amplió a toda la clase de error. Detalle en [-01-to-review](../-01-to-review/-01-to-review.md) (S8) y [-02-corrections](../-02-corrections/-02-corrections.md#s8--código-inyectable-por-el-logo-del-negocio--2026-10-12).
+
+- **Regla que lo mantiene**: todo `${…}` dentro del valor de un atributo va con `escapeHtml(…)`, aunque sea un id o un número guardado. Solo se aceptan sin escapar las expresiones que no pueden traer comillas: literales, `Math.round`, `fmtMoney`, `toFixed`, operaciones numéricas. La prueba estructural la exige.
+- **Por qué también los ids**: los escribe cualquiera con sesión y viajan dentro de `data-click="accion('${id}')"`. Un id con `"` cerraba el atributo. Ahora, además, las reglas exigen ids sin símbolos.
+
+Lo que sigue es la propuesta original, para referencia:
+
+
+1. `Dominio.negocio.logoValido(s)`, como `Dominio.inventario.imagenValida` de la foto del producto: solo `data:image/(png|jpeg|webp);base64,…` con un tope de tamaño.
+2. `logoNegocio(neg, clases)` en `ui/nucleo/componentes.js` para los 10 lugares (un logo inválido = sin logo), y escapar la inicial del nombre (`navegacion.js:197`). Prueba estructural: ninguna plantilla con `${neg.logo}`.
+3. `.validate` en `negocios_r/$negId/logo` con la misma expresión regular y largo máximo, para cortar la escritura por consola o API. Prueba de reglas: un logo con comillas se rechaza; uno `data:image/png` válido se acepta. Antes de publicarla, comprobar que los logos de producción cumplen (solo forma y tamaño).
+4. Activar la CSP.
+5. Prueba del recorrido: un logo malicioso no crea atributos `on…` ni ejecuta nada al supervisar ni al sacar el informe.

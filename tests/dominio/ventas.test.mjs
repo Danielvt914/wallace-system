@@ -78,3 +78,14 @@ test('venta o cierre de una sucursal (sin sucursal = principal)', ()=>{
   assert.equal(cj.deSucursal({sucursalId:'s2'}, 's2'), true);
   assert.equal(cj.deSucursal({sucursalId:'s2'}, 'principal'), false);
 });
+
+test('F21: venta del negocio = sus productos (subtotal); propina, recargo y domicilio van aparte', ()=>{
+  const v={estado:'pagada', subtotal:50000, propina:5000, recargo:1500, valorDom:4000, total:60500, fecha:'2026-10-12T15:00:00'};
+  assert.equal(vt.ventaDelNegocio(v), 50000);
+  assert.equal(vt.ventaDelNegocio({total:30000}), 30000);          // venta vieja sin subtotal
+  assert.equal(vt.ventaDelNegocio(null), 0);
+  // El resumen del panel del super-admin usa la misma definición (antes sumaba el total)
+  const r=vt.resumenVentas([v, {estado:'anulada', subtotal:9999, total:9999, fecha:'2026-10-12T16:00:00'}], '2026-10-12');
+  assert.equal(r.total, 50000); assert.equal(r.pagadas, 1);
+  assert.equal(r.meses['2026-10'], 50000);
+});

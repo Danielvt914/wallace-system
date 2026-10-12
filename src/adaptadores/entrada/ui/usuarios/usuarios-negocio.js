@@ -6,6 +6,7 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/10-users-roles/10-users-roles.md
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo } from '../nucleo/estado.js';
+import { BOTON, MSJ } from '../nucleo/textos.js';
 import { abrirModal, cerrarModal, ic, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
 import { conCuentasFirebase, ponerPass } from './sesion.js';
@@ -46,7 +47,7 @@ export function usuariosNeg(){
           <td>${escapeHtml((ROLES.find(r=>r[0]===u.rol)||['',u.rol])[1])}</td>
           <td>${u.activo!==false?'<span class="pill pill-verde">Activo</span>':'<span class="pill pill-rojo">Inactivo</span>'}</td>
           <td class="acciones">${!conCuentasFirebase()
-            ? `<button class="btn btn-sm btn-gold" data-click="cambiarPassNeg('${u.id}')" title="Cambiar contraseña">🔑 Cambiar contraseña</button>`
+            ? `<button class="btn btn-sm btn-gold" data-click="cambiarPassNeg('${escapeHtml(u.id)}')" title="Cambiar contraseña">🔑 Cambiar contraseña</button>`
             : (u.id===STATE.user.id ? `<button class="btn btn-sm btn-gold" data-click="cambiarMiPassCuenta()">🔑 Cambiar mi contraseña</button>` : '<span class="gris chico">Pídelo al proveedor</span>')}</td>
         </tr>`).join(''):'<tr><td colspan="5" class="gris">Sin usuarios.</td></tr>'}</tbody>
       </table></div>
@@ -55,25 +56,25 @@ export function usuariosNeg(){
 }
 // Único cambio permitido desde el negocio: la contraseña
 export function cambiarPassNeg(id){
-  if(!puedeGestionarUsuarios()){ toast('No tienes permiso','error'); return; }
+  if(!puedeGestionarUsuarios()){ toast(MSJ.noTienesPermiso,'error'); return; }
   // Con cuentas de Firebase el navegador solo puede cambiar la contraseña propia (Plan B, B.12)
   if(conCuentasFirebase()){
-    if(id===STATE.user.id) cambiarMiPassCuenta(); else toast('La contraseña de otra persona la restablece el administrador del sistema','info');
+    if(id===STATE.user.id) cambiarMiPassCuenta(); else toast(MSJ.laContrasenaDeOtraPersonaLa,'info');
     return;
   }
   const u=(DB.get('usuarios')||[]).find(x=>x.id===id && x.negocioId===STATE.negocio.id);
-  if(!u){ toast('Usuario no encontrado','error'); return; }
-  abrirModal({titulo:'🔑 Contraseña de '+u.nombre, textoBoton:'Guardar', campos:[
+  if(!u){ toast(MSJ.usuarioNoEncontrado,'error'); return; }
+  abrirModal({titulo:'🔑 Contraseña de '+u.nombre, textoBoton:BOTON.guardar, campos:[
     {id:'nueva', label:'Nueva contraseña', requerido:true},
     {id:'nueva2', label:'Repite la nueva contraseña', requerido:true}
   ], extraHTML:`<p class="nota">Usuario para entrar: <strong>${escapeHtml(u.usuario)}</strong>. Mínimo 4 caracteres.</p>`,
   onGuardar:(d)=>{
     const nueva=(d.nueva||'').trim();
-    if(nueva.length<4){ toast('La contraseña debe tener al menos 4 caracteres','error'); return; }
-    if(nueva!==(d.nueva2||'').trim()){ toast('Las contraseñas no coinciden','error'); return; }
+    if(nueva.length<4){ toast(MSJ.laContrasenaDebeTenerAlMenos4,'error'); return; }
+    if(nueva!==(d.nueva2||'').trim()){ toast(MSJ.lasContrasenasNoCoinciden,'error'); return; }
     const arr=DB.get('usuarios')||[];
     const x=arr.find(y=>y.id===id);
-    if(!x){ toast('Usuario no encontrado','error'); return; }
+    if(!x){ toast(MSJ.usuarioNoEncontrado,'error'); return; }
     ponerPass(x, nueva);
     DB.set('usuarios',arr);
     if(x.id===STATE.user.id){ delete STATE.user.pass; STATE.user.passHash=x.passHash; STATE.user.passSal=x.passSal; STATE.user.passIter=x.passIter; }

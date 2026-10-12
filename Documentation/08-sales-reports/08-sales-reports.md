@@ -90,3 +90,6 @@ Lee `ventas` ([02](../02-pos-catalog/02-pos-catalog.md)), la jornada de la caja 
 - ~~Cocina aterrizaba en el Dashboard~~: corregido con `pantallaValida` ([-02](../-02-corrections/-02-corrections.md)).
 
 Ver [-01-to-review](../-01-to-review/-01-to-review.md).
+
+## Cambios del 2026-10-12
+- **F21**: todas las pantallas suman la **venta del negocio** con `Dominio.ventas.ventaDelNegocio` (subtotal): Reportes, Dashboard, Contable, Historial y el resumen del panel. Propina, recargo del datáfono y domicilio son de terceros y se muestran aparte (Historial: "cobrado con propinas, recargos y domicilios").

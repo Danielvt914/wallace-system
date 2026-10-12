@@ -6,8 +6,9 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/06-inventory-recipes/06-inventory-recipes.md
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, fmtMoney, now } from '../nucleo/estado.js';
+import { BOTON, MSJ } from '../nucleo/textos.js';
 import { tienePermiso } from '../nucleo/permisos.js';
-import { abrirModal, cerrarModal, ic, pProd, pProds, toast } from '../nucleo/componentes.js';
+import { abrirModal, cerrarModal, fotoProducto, ic, pProd, pProds, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
 import { logAudit } from '../usuarios/auditoria.js';
 import { _carrito } from '../ventas/nueva-venta.js';
@@ -64,7 +65,7 @@ export function combos(){
           const suelto=precioSuelto(p,productos);
           const ahorro=suelto-(p.precio||0);
           return `<div class="prod ${disp===0?'off':''}">
-            <div class="prod-ico">${p.imagen?`<img src="${p.imagen}" alt="">`:ic('cart')}
+            <div class="prod-ico">${fotoProducto(p,'cart')}
               ${disp===0?'<span class="badge-off">NO ALCANZA</span>':''}</div>
             <div class="prod-nom">${escapeHtml(p.nombre)}</div>
             <div class="prod-cat">${escapeHtml(p.categoria||'Combos')}</div>
@@ -81,8 +82,8 @@ export function combos(){
               ${disp===null?'Sin límite de stock':'Alcanzan para '+disp}
             </div>
             ${puede?`<div class="prod-acc">
-              <button class="btn btn-sm btn-verde" data-click="editarCombo('${p.id}')">Editar</button>
-              <button class="btn btn-sm btn-rojo" data-click="eliminarProducto('${p.id}')">×</button>
+              <button class="btn btn-sm btn-verde" data-click="editarCombo('${escapeHtml(p.id)}')">Editar</button>
+              <button class="btn btn-sm btn-rojo" data-click="eliminarProducto('${escapeHtml(p.id)}')">×</button>
             </div>`:''}
           </div>`;
         }).join('')}
@@ -107,12 +108,12 @@ export function combos(){
 }
 
 export function editarCombo(id){
-  if(!tienePermiso('editarprod')){ toast('No tienes permiso para crear combos','error'); return; }
+  if(!tienePermiso('editarprod')){ toast(MSJ.noTienesPermisoParaCrearCombos,'error'); return; }
   const productos=misDatos('productos');
   const p=id?productos.find(x=>x.id===id):null;
   _comboTmp = p&&p.componentes ? JSON.parse(JSON.stringify(p.componentes)) : [];
   const cats=Array.from(new Set(productos.map(x=>x.categoria||'General')));
-  abrirModal({titulo:(p?'Editar':'Nuevo')+' combo', textoBoton:'Guardar', campos:[
+  abrirModal({titulo:(p?'Editar':'Nuevo')+' combo', textoBoton:BOTON.guardar, campos:[
     {id:'nombre', label:'Nombre del combo', valor:p?p.nombre:'', requerido:true, placeholder:'Ej: Six Pack, Cubetazo'},
     {id:'precio', label:'Precio de venta del combo', tipo:'number', valor:p?String(p.precio):'', requerido:true},
     {id:'categoria', label:'Categoría', valor:p?(p.categoria||'Combos'):'Combos', placeholder:cats.join(', ')}
@@ -129,7 +130,7 @@ export function editarCombo(id){
     guardarMisDatos('productos',arr);
     logAudit(p?'Editó combo':'Creó combo', datos.nombre+' · '+fmtMoney(datos.precio));
     _comboTmp=[];
-    cerrarModal(); toast('Combo guardado','success'); render();
+    cerrarModal(); toast(MSJ.comboGuardado,'success'); render();
   }});
 }
 export function comboEditorHTML(){
@@ -139,7 +140,7 @@ export function comboEditorHTML(){
     <div id="combo-lista" class="m-10-0">${comboFilasHTML()}</div>
     <div class="d-flex gap-8 flex-wrap items-centro">
       <select id="cb-prod" class="campo flex-2 minw-140 m-0">
-        ${sueltos.map(x=>`<option value="${x.id}">${escapeHtml(x.nombre)}${x.stock!=null?' (hay '+x.stock+')':''}</option>`).join('')}
+        ${sueltos.map(x=>`<option value="${escapeHtml(x.id)}">${escapeHtml(x.nombre)}${x.stock!=null?' (hay '+x.stock+')':''}</option>`).join('')}
       </select>
       <input id="cb-cant" type="number" min="1" class="campo flex-1 minw-70 m-0" placeholder="Cant.">
       <button type="button" class="btn btn-verde btn-sm" data-click="agregarAComboTmp()">+ Añadir</button>
@@ -155,7 +156,7 @@ export function comboFilasHTML(){
     return `<div class="c-row p-6-0">
       <span>${b?escapeHtml(b.nombre):'(producto borrado)'}</span>
       <span><strong>${c.cantidad}</strong> und
-        <button type="button" class="mini-x" data-click="quitarDeComboTmp(${idx})">×</button></span>
+        <button type="button" class="mini-x" data-click="quitarDeComboTmp(${escapeHtml(idx)})">×</button></span>
     </div>`;
   }).join('');
 }
@@ -175,7 +176,7 @@ export function agregarAComboTmp(){
   const sel=document.getElementById('cb-prod');
   const cant=parseFloat((document.getElementById('cb-cant')||{}).value)||0;
   if(!sel||!sel.value){ toast('Elige un '+pProd(),'error'); return; }
-  if(cant<=0){ toast('Escribe cuántas unidades lleva','error'); return; }
+  if(cant<=0){ toast(MSJ.escribeCuantasUnidadesLleva,'error'); return; }
   const ya=_comboTmp.find(c=>c.prodId===sel.value);
   if(ya) ya.cantidad=cant; else _comboTmp.push({prodId:sel.value, cantidad:cant});
   const cont=document.getElementById('combo-lista');

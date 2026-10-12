@@ -6,6 +6,7 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/06-inventory-recipes/06-inventory-recipes.md
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, fmtMoney, now } from '../nucleo/estado.js';
+import { BOTON, MSJ } from '../nucleo/textos.js';
 import { tienePermiso } from '../nucleo/permisos.js';
 import { abrirModal, cerrarModal, confirmarModal, ic, pProd, pProds, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
@@ -58,9 +59,9 @@ export function pantallaInsumos(){
             <td>${fmtMoney(i.costo||0)}</td>
             <td class="gris">${i.stockMin||0}</td>
             <td><div class="acciones">
-              ${tienePermiso('editarstock')?`<button class="btn btn-sm btn-verde" data-click="entradaInsumo('${i.id}')">+ Entrada</button>`:''}
-              ${tienePermiso('editarprod')?`<button class="btn btn-sm" data-click="editarInsumo('${i.id}')">Editar</button>`:''}
-              ${tienePermiso('editarprod')?`<button class="btn btn-sm btn-rojo" data-click="eliminarInsumo('${i.id}')">×</button>`:''}
+              ${tienePermiso('editarstock')?`<button class="btn btn-sm btn-verde" data-click="entradaInsumo('${escapeHtml(i.id)}')">+ Entrada</button>`:''}
+              ${tienePermiso('editarprod')?`<button class="btn btn-sm" data-click="editarInsumo('${escapeHtml(i.id)}')">Editar</button>`:''}
+              ${tienePermiso('editarprod')?`<button class="btn btn-sm btn-rojo" data-click="eliminarInsumo('${escapeHtml(i.id)}')">×</button>`:''}
             </div></td>
           </tr>`;
         }).join('')}</tbody>
@@ -69,10 +70,10 @@ export function pantallaInsumos(){
 }
 
 export function editarInsumo(id){
-  if(!tienePermiso('editarprod')){ toast('No tienes permiso para editar insumos','error'); return; }
+  if(!tienePermiso('editarprod')){ toast(MSJ.noTienesPermisoParaEditarInsumos,'error'); return; }
   const arr=misDatos('insumos');
   const i=id?arr.find(x=>x.id===id):null;
-  abrirModal({titulo:(i?'Editar':'Nuevo')+' insumo', textoBoton:'Guardar', campos:[
+  abrirModal({titulo:(i?'Editar':'Nuevo')+' insumo', textoBoton:BOTON.guardar, campos:[
     {id:'nombre', label:'Nombre del insumo', valor:i?i.nombre:'', requerido:true, placeholder:'Ej: Pollo, Arroz, Aceite'},
     {id:'unidad', label:'Unidad de medida', valor:i?(i.unidad||''):'', placeholder:'g, kg, ml, litro, unidad…'},
     {id:'stock', label:'Existencias actuales', tipo:'number', valor:i&&i.stock!=null?String(i.stock):'0'},
@@ -107,11 +108,11 @@ export function editarInsumo(id){
     } else if(!i){
       logAudit('Creó insumo', datos.nombre+' · '+datos.stock+' '+datos.unidad);
     }
-    cerrarModal(); toast('Insumo guardado','success'); render();
+    cerrarModal(); toast(MSJ.insumoGuardado,'success'); render();
   }});
 }
 export function eliminarInsumo(id){
-  if(!tienePermiso('editarprod')){ toast('No tienes permiso para borrar insumos','error'); return; }
+  if(!tienePermiso('editarprod')){ toast(MSJ.noTienesPermisoParaBorrarInsumos,'error'); return; }
   const i=misDatos('insumos').find(x=>x.id===id);
   // Avisar si algún plato lo usa en su receta
   const platos=misDatos('productos').filter(p=>(p.receta||[]).some(r=>r.insumoId===id));
@@ -122,25 +123,25 @@ export function eliminarInsumo(id){
     const prods=misDatos('productos'); let cambio=false;
     prods.forEach(p=>{ if(p.receta){ const n=p.receta.length; p.receta=p.receta.filter(r=>r.insumoId!==id); if(p.receta.length!==n) cambio=true; } });
     if(cambio) guardarMisDatos('productos',prods);
-    toast('Insumo eliminado','info'); render();
+    toast(MSJ.insumoEliminado,'info'); render();
   },'Eliminar');
 }
 export function entradaInsumo(id){
-  if(!tienePermiso('editarstock')){ toast('No tienes permiso para modificar el stock','error'); return; }
+  if(!tienePermiso('editarstock')){ toast(MSJ.noTienesPermisoParaModificarEl,'error'); return; }
   const arr=misDatos('insumos');
   const i=arr.find(x=>x.id===id); if(!i) return;
-  abrirModal({titulo:'Entrada de insumo · '+i.nombre, textoBoton:'Agregar', campos:[
+  abrirModal({titulo:'Entrada de insumo · '+i.nombre, textoBoton:BOTON.agregar, campos:[
     {id:'cant', label:'¿Cuánto entra? ('+(i.unidad||'unidades')+')', tipo:'number', requerido:true},
     {id:'motivo', label:'Motivo', valor:'Compra'}
   ], extraHTML:`<p class="nota">Existencias actuales: <strong>${i.stock||0} ${escapeHtml(i.unidad||'')}</strong></p>`,
   onGuardar:(d)=>{
     const cant=parseFloat(d.cant)||0;
-    if(cant<=0){ toast('Cantidad inválida','error'); return; }
+    if(cant<=0){ toast(MSJ.cantidadInvalida,'error'); return; }
     cambiarStock('insumos', id, x=>{ x.stock=(x.stock||0)+cant; });
     registrarMovimientos([{id:uid(), insumoId:id, nombre:i.nombre, tipo:'entrada-insumo', cantidad:cant,
       motivo:d.motivo, por:STATE.user.nombre, fecha:now()}]);
     logAudit('Entrada de insumo', i.nombre+' +'+cant+' '+(i.unidad||'')+' · '+(d.motivo||''));
-    cerrarModal(); toast('Entrada registrada','success'); render();
+    cerrarModal(); toast(MSJ.entradaRegistrada,'success'); render();
   }});
 }
 export function buscarInsumos(v){ _insBusca=v; render(); }

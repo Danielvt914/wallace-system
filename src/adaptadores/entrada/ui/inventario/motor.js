@@ -6,6 +6,7 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/06-inventory-recipes/06-inventory-recipes.md
 // ============================================================
 import { STATE, escapeHtml, now } from '../nucleo/estado.js';
+import { BOTON } from '../nucleo/textos.js';
 import { usaInventario } from '../nucleo/permisos.js';
 import { abrirModal, cerrarModal, toast } from '../nucleo/componentes.js';
 import { sonidoAlerta } from '../nucleo/sonidos.js';
@@ -44,7 +45,7 @@ export function avisarVencimientos(){
       <p class="mt-6 lh-1_8">${proximos.map(x=>escapeHtml(x.producto.nombre)+' · lote de '+x.lote.cantidad+' · vence '+fmtSoloFecha(x.lote.vence)+' ('+(x.dias===0?'hoy':'en '+x.dias+' día'+(x.dias===1?'':'s'))+')').join('<br>')}</p>
       <p class="nota mt-8">Prioriza vender estos primero (el sistema ya los saca primero al vender).</p>
     </div>`:''}`;
-  abrirModal({titulo:'Alertas de vencimiento', textoBoton:'Entendido', campos:[],
+  abrirModal({titulo:'Alertas de vencimiento', textoBoton:BOTON.entendido, campos:[],
     extraHTML:cuerpo, onGuardar:()=>{ cerrarModal(); }});
 }
 export function fmtSoloFecha(f){
@@ -163,7 +164,7 @@ export function avisarStockBajo(venta){
       <p class="mt-6 lh-1_7">${bj.map(x=>escapeHtml(x)).join('<br>')}</p>
     </div>`:''}`;
   setTimeout(()=>{
-    abrirModal({titulo:'🔔 Alerta de inventario', textoBoton:'Entendido', campos:[],
+    abrirModal({titulo:'🔔 Alerta de inventario', textoBoton:BOTON.entendido, campos:[],
       extraHTML:cuerpo, onGuardar:()=>cerrarModal()});
   },700);
 }

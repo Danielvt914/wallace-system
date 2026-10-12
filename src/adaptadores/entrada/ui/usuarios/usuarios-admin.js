@@ -6,6 +6,7 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/10-users-roles/10-users-roles.md
 // ============================================================
 import { escapeHtml, now } from '../nucleo/estado.js';
+import { BOTON, MSJ } from '../nucleo/textos.js';
 import { esAdminSistema } from '../nucleo/permisos.js';
 import { abrirModal, cerrarModal, confirmarModal, ic, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
@@ -27,7 +28,7 @@ export function pantallaUsuarios(negId){
     <div class="tarjeta">
       <div class="t-cab">
         <span class="t-tit">Empleados</span>
-        <button class="btn btn-gold" data-click="editarUsuario('${negId}',null)">+ Crear usuario</button>
+        <button class="btn btn-gold" data-click="editarUsuario('${escapeHtml(negId)}',null)">+ Crear usuario</button>
       </div>
       <div class="tabla-wrap"><table class="tabla">
         <thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Sucursales</th><th>Estado</th><th></th></tr></thead>
@@ -38,8 +39,8 @@ export function pantallaUsuarios(negId){
           <td class="gris chico">${(u.sucursales&&u.sucursales.length)?u.sucursales.length+' asignada(s)':'todas'}</td>
           <td>${u.activo!==false?'<span class="pill pill-verde">Activo</span>':'<span class="pill pill-rojo">Inactivo</span>'}</td>
           <td class="acciones">
-            <button class="btn btn-sm" data-click="editarUsuario('${negId}','${u.id}')">Editar</button>
-            <button class="btn btn-sm btn-rojo" data-click="eliminarUsuario('${u.id}')">×</button>
+            <button class="btn btn-sm" data-click="editarUsuario('${escapeHtml(negId)}','${escapeHtml(u.id)}')">Editar</button>
+            <button class="btn btn-sm btn-rojo" data-click="eliminarUsuario('${escapeHtml(u.id)}')">×</button>
           </td>
         </tr>`).join(''):'<tr><td colspan="7" class="gris">Sin usuarios. Crea el primero.</td></tr>'}</tbody>
       </table></div>
@@ -66,14 +67,14 @@ export function editarUsuario(negId,userId){
   const permisosHTML=`
     <div class="cobro-caja mt-14">
       <strong>Ventanas que puede ver <span class="gris chico">(según lo que necesite)</span></strong>
-      <div class="checks mt-8">${TODAS_PANTALLAS.map(p=>`<label class="chk"><input type="checkbox" class="u-pant" value="${p[0]}" ${pantActuales.indexOf(p[0])>-1?'checked':''}> ${escapeHtml(p[1])}</label>`).join('')}</div>
+      <div class="checks mt-8">${TODAS_PANTALLAS.map(p=>`<label class="chk"><input type="checkbox" class="u-pant" value="${escapeHtml(p[0])}" ${pantActuales.indexOf(p[0])>-1?'checked':''}> ${escapeHtml(p[1])}</label>`).join('')}</div>
     </div>
     <div class="cobro-caja mt-12">
       <strong>Acciones que puede hacer</strong>
-      <div class="checks mt-8">${ACCIONES.map(a=>`<label class="chk"><input type="checkbox" class="u-perm" value="${a[0]}" ${permActuales.indexOf(a[0])>-1?'checked':''}> ${escapeHtml(a[1])}</label>`).join('')}</div>
+      <div class="checks mt-8">${ACCIONES.map(a=>`<label class="chk"><input type="checkbox" class="u-perm" value="${escapeHtml(a[0])}" ${permActuales.indexOf(a[0])>-1?'checked':''}> ${escapeHtml(a[1])}</label>`).join('')}</div>
       <p class="nota mt-8">Si el rol es <strong>Administrador</strong>, puede hacer todo sin importar estas casillas.</p>
     </div>`;
-  abrirModal({titulo:(u?'Editar':'Crear')+' usuario', textoBoton:'Guardar', campos:[
+  abrirModal({titulo:(u?'Editar':'Crear')+' usuario', textoBoton:BOTON.guardar, campos:[
     {id:'nombre', label:'Nombre completo', valor:u?u.nombre:'', requerido:true},
     {id:'usuario', label:'Usuario para entrar', valor:sugerido, requerido:true},
     {id:'pass', label:u?'Nueva contraseña (vacío = no cambiar)':'Contraseña', tipo:'password', valor:'', requerido:!u},
@@ -81,10 +82,10 @@ export function editarUsuario(negId,userId){
       opciones:ROLES.map(r=>({valor:r[0],label:r[1]}))}
   ], extraHTML: `<label class="chk mb-10"><input type="checkbox" id="u-activo" ${(!u||u.activo!==false)?'checked':''}> Usuario activo (si se desmarca, no puede entrar)</label>` + sucHTML + permisosHTML,
   onGuardar:(d)=>{
-    if(!esAdminSistema()){ toast('Solo el administrador del sistema gestiona usuarios','error'); return; }
+    if(!esAdminSistema()){ toast(MSJ.soloElAdministradorDelSistemaGestiona,'error'); return; }
     const existe=(DB.get('usuarios')||[]).find(x=>x.usuario===d.usuario && (!u||x.id!==u.id))
               || (DB.get('superadmins')||[]).some(s=>s.usuario===d.usuario);
-    if(existe){ toast('Ese usuario ya existe','error'); return; }
+    if(existe){ toast(MSJ.eseUsuarioYaExiste,'error'); return; }
     const nuevaPass=(d.pass||'').trim();
     const cuentas=conCuentasFirebase(), minPass=cuentas?6:4;
     if((!u || nuevaPass) && nuevaPass.length<minPass){ toast('La contraseña debe tener al menos '+minPass+' caracteres','error'); return; }
@@ -109,25 +110,25 @@ export function editarUsuario(negId,userId){
         crearCuentaPara(rec, nuevaPass, false).then(c=>{
           rec.uid=c.uid;
           const l=DB.get('usuarios')||[]; l.push(rec); DB.set('usuarios',l);
-          cerrarModal(); toast('Usuario creado','success'); render();
+          cerrarModal(); toast(MSJ.usuarioCreado,'success'); render();
         }).catch(e=>toast('No se pudo crear la cuenta: '+mensajeCuenta(e),'error'));
         return;
       }
       usuarios.push(ponerPass(rec, nuevaPass));
       DB.set('usuarios',usuarios);
     }
-    cerrarModal(); toast('Usuario guardado','success'); render();
+    cerrarModal(); toast(MSJ.usuarioGuardado,'success'); render();
   }});
 }
 export function eliminarUsuario(id){
-  if(!esAdminSistema()){ toast('No tienes permiso para eliminar usuarios','error'); return; }
-  confirmarModal('¿Eliminar este usuario?',()=>{
+  if(!esAdminSistema()){ toast(MSJ.noTienesPermisoParaEliminarUsuarios,'error'); return; }
+  confirmarModal(MSJ.eliminarEsteUsuario,()=>{
     const rec=(DB.get('usuarios')||[]).find(u=>u.id===id);
     if(rec && conCuentasFirebase()){
       borrarCuentaDe(rec.usuario).catch(e=>toast('No se pudo borrar su cuenta de acceso: '+mensajeCuenta(e),'error'));
       quitarUsuarioLegado(id);
     }
     DB.set('usuarios',(DB.get('usuarios')||[]).filter(u=>u.id!==id));
-    toast('Eliminado','info'); render();
+    toast(MSJ.eliminado,'info'); render();
   },'Eliminar');
 }

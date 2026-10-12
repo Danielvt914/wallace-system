@@ -6,8 +6,9 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/11-business-settings/11-business-settings.md
 // ============================================================
 import { STATE, escapeHtml, fmtDate, fmtMoney } from '../nucleo/estado.js';
+import { BOTON, MSJ } from '../nucleo/textos.js';
 import { esAdminSistema } from '../nucleo/permisos.js';
-import { abrirModal, cerrarModal, confirmarModal, ic, toast } from '../nucleo/componentes.js';
+import { abrirModal, cerrarModal, confirmarModal, ic, logoNegocio, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
 import { resumenDe } from '../reportes/resumen.js';
 
@@ -16,11 +17,11 @@ import { resumenDe } from '../reportes/resumen.js';
 //  CONFIGURACIÓN DEL NEGOCIO (super-admin)
 // ============================================================
 export function configNegocio(id){
-  if(!esAdminSistema()){ toast('No tienes permiso para configurar negocios','error'); return; }
+  if(!esAdminSistema()){ toast(MSJ.noTienesPermisoParaConfigurarNegocios,'error'); return; }
   window._logoNuevo=undefined; STATE.page='config:'+id; render();
 }
 export function usuariosNegocio(id){
-  if(!esAdminSistema()){ toast('No tienes permiso para gestionar usuarios','error'); return; }
+  if(!esAdminSistema()){ toast(MSJ.noTienesPermisoParaGestionarUsuarios,'error'); return; }
   STATE.page='usuarios:'+id; render();
 }
 
@@ -60,7 +61,7 @@ export function pantallaConfig(negId){
       </div>`)
     + sec(ic('box')+' Logo y apariencia', `
       <div class="logo-zona">
-        <div class="logo-vista" id="logo-vista">${neg.logo?`<img src="${neg.logo}" alt="logo">`:`<div class="logo-vacio">Sin logo</div>`}</div>
+        <div class="logo-vista" id="logo-vista">${logoNegocio(neg,'alt="logo"')||`<div class="logo-vacio">Sin logo</div>`}</div>
         <div class="logo-acc">
           <input type="file" id="n-logo" accept="image/*" data-change="cargarLogo(this)" class="oculto">
           <button class="btn btn-gold" data-click="elegirLogo()">Subir logo</button>
@@ -72,20 +73,20 @@ export function pantallaConfig(negId){
         <div class="m-row"><label>Tema</label><select id="c-tema" class="campo">
           <option value="oscuro" ${neg.tema!=='claro'?'selected':''}>Oscuro neón</option>
           <option value="claro" ${neg.tema==='claro'?'selected':''}>Claro / fondo blanco</option></select></div>
-        <div class="m-row"><label>Color principal</label><input id="c-color" type="color" class="campo h-46 p-5 cursor-mano" value="${/^#[0-9a-fA-F]{6}$/.test(neg.colorTema||'')?neg.colorTema:'#01c38e'}"></div>
+        <div class="m-row"><label>Color principal</label><input id="c-color" type="color" class="campo h-46 p-5 cursor-mano" value="${escapeHtml(/^#[0-9a-fA-F]{6}$/.test(neg.colorTema||'')?neg.colorTema:'#01c38e')}"></div>
         <div class="m-row"><label>Tamaño de factura</label><select id="c-fact" class="campo">
           <option value="pos" ${neg.tipoFactura==='pos'?'selected':''}>Tirilla POS (80mm)</option>
           <option value="media" ${neg.tipoFactura==='media'?'selected':''}>Media hoja</option>
           <option value="carta" ${neg.tipoFactura==='carta'?'selected':''}>Hoja completa</option></select></div>
-        <div class="m-row"><label>Recargo del datáfono (%)</label><input id="c-pct" type="number" step="0.1" class="campo" value="${neg.pctDatafono||0}"></div>
+        <div class="m-row"><label>Recargo del datáfono (%)</label><input id="c-pct" type="number" step="0.1" class="campo" value="${escapeHtml(neg.pctDatafono||0)}"></div>
       </div>`);
   }
   else if(t==='comercial'){
     cuerpo=sec('💼 Plan y cobro', `
       <div class="form2">
         <div class="m-row"><label>Plan</label><select id="c-plan" class="campo">${PLANES.map(x=>`<option ${(planDe(neg)===x)?'selected':''}>${x}</option>`).join('')}</select></div>
-        <div class="m-row"><label>Precio mensual</label><input id="c-precio" type="number" class="campo" value="${neg.precioMes||0}"></div>
-        <div class="m-row"><label>Día de pago del mes</label><input id="c-diapago" type="number" min="1" max="31" class="campo" value="${neg.diaPago||''}" placeholder="Ej: 5"></div>
+        <div class="m-row"><label>Precio mensual</label><input id="c-precio" type="number" class="campo" value="${escapeHtml(neg.precioMes||0)}"></div>
+        <div class="m-row"><label>Día de pago del mes</label><input id="c-diapago" type="number" min="1" max="31" class="campo" value="${escapeHtml(neg.diaPago||'')}" placeholder="Ej: 5"></div>
         <div class="m-row"><label>Estado</label><div class="campo d-flex items-centro">${neg.activo?'<span class="pill pill-verde">Activo</span>':'<span class="pill pill-rojo">Suspendido</span>'}</div></div>
       </div>`)
     + sec(ic('users')+' Vendedor a cargo', `
@@ -93,7 +94,7 @@ export function pantallaConfig(negId){
       <div class="form2">
         <div class="m-row"><label>Vendedor asignado</label><select id="c-vendedor" class="campo">
           <option value="">— Sin asignar —</option>
-          ${vendedores.map(v=>`<option value="${v.id}" ${neg.vendedorId===v.id?'selected':''}>${escapeHtml(v.nombre)}${v.rolSuper==='vendedor'?' (vendedor)':''}</option>`).join('')}
+          ${vendedores.map(v=>`<option value="${escapeHtml(v.id)}" ${neg.vendedorId===v.id?'selected':''}>${escapeHtml(v.nombre)}${v.rolSuper==='vendedor'?' (vendedor)':''}</option>`).join('')}
         </select></div>
         <div class="m-row"><label>Notas comerciales</label><input id="c-notas" class="campo" value="${escapeHtml(neg.notasComerciales||'')}" placeholder="Ej: referido por Portal Imperial"></div>
       </div>`)
@@ -104,7 +105,7 @@ export function pantallaConfig(negId){
       <div class="linea"><span>Ventas registradas</span><strong>${(r=>r?r.pagadas:'—')(resumenDe(negId))}</strong></div>
       <div class="linea total-linea"><span>Facturado desde que entró</span><strong>${fmtMoney((neg.precioMes||0)*Math.max(1,Math.ceil((dias||0)/30)))}</strong></div>
       <div class="botones-fila mt-14">
-        <button class="btn btn-gold" data-click="reporteMensualNegocio('${negId}')">📄 Reporte mensual en PDF</button>
+        <button class="btn btn-gold" data-click="reporteMensualNegocio('${escapeHtml(negId)}')">📄 Reporte mensual en PDF</button>
       </div>`);
   }
   else if(t==='operacion'){
@@ -119,7 +120,7 @@ export function pantallaConfig(negId){
         <option value="total" ${(neg.ajusteCobro==='total')?'selected':''}>Cobrar el total nuevo completo</option>
       </select></div>
       <div class="m-row"><label>Tipos de entrega</label>
-        <div class="checks">${entregas.map(e=>`<label class="chk"><input type="checkbox" class="c-ent" value="${e[0]}" ${(neg.tiposEntrega||[]).indexOf(e[0])>-1?'checked':''}> ${e[1]}</label>`).join('')}</div></div>`)
+        <div class="checks">${entregas.map(e=>`<label class="chk"><input type="checkbox" class="c-ent" value="${escapeHtml(e[0])}" ${(neg.tiposEntrega||[]).indexOf(e[0])>-1?'checked':''}> ${e[1]}</label>`).join('')}</div></div>`)
     + sec('Funcionamiento del negocio', `
       <div class="checks">
         <label class="chk"><input type="checkbox" id="c-mesas" ${neg.usaMesas?'checked':''}> Usa mesas</label>
@@ -155,7 +156,7 @@ export function pantallaConfig(negId){
       <p class="nota">Todo lo que el negocio puede ver está aquí, en un solo lugar. Lo que desmarque no le aparece a nadie, ni al administrador del negocio. Los permisos de cada empleado se manejan aparte, dentro del negocio.</p>
       ${GRUPOS.map(g=>`<div class="mt-16">
         <div class="cc-sec"><span>${g[0]}</span><span>${g[1].filter(x=>F.indexOf(x[0])>-1).length}/${g[1].length}</span></div>
-        <div class="checks">${g[1].map(x=>`<label class="chk"><input type="checkbox" class="c-fun" value="${x[0]}" ${F.indexOf(x[0])>-1?'checked':''}> ${x[1]}</label>`).join('')}</div>
+        <div class="checks">${g[1].map(x=>`<label class="chk"><input type="checkbox" class="c-fun" value="${escapeHtml(x[0])}" ${F.indexOf(x[0])>-1?'checked':''}> ${x[1]}</label>`).join('')}</div>
       </div>`).join('')}
       <div class="botones-fila mt-16">
         <button class="btn btn-sm" data-click="marcarVentanas(true)">Marcar todo</button>
@@ -168,9 +169,9 @@ export function pantallaConfig(negId){
       <p class="nota">Cada sucursal maneja su <strong>caja, base, pedidos y cierres</strong> por separado. Inventario, clientes, numeración de facturas, reportes y contabilidad son de todo el negocio.</p>
       ${(neg.sucursales||[]).length?(neg.sucursales||[]).map((x,i)=>`<div class="suc-fila">
         <input type="text" class="campo c-suc" value="${escapeHtml(x.nombre)}" placeholder="Nombre">
-        <button class="btn btn-sm btn-rojo" data-click="quitarSucursal('${negId}',${i})">×</button>
+        <button class="btn btn-sm btn-rojo" data-click="quitarSucursal('${escapeHtml(negId)}',${escapeHtml(i)})">×</button>
       </div>`).join(''):'<p class="gris chico">Sin sucursales: funciona como un solo punto de venta.</p>'}
-      <button class="btn btn-sm" data-click="agregarSucursal('${negId}')">+ Agregar sucursal</button>`);
+      <button class="btn btn-sm" data-click="agregarSucursal('${escapeHtml(negId)}')">+ Agregar sucursal</button>`);
   }
   return `
   <div class="topbar">
@@ -183,11 +184,11 @@ export function pantallaConfig(negId){
   </div>
   <div class="contenido">
     <div class="cats mb-18">
-      ${tabs.map(x=>`<button class="cat ${t===x[0]?'on':''}" data-click="cfgTab('${x[0]}')">${x[1]}</button>`).join('')}
+      ${tabs.map(x=>`<button class="cat ${t===x[0]?'on':''}" data-click="cfgTab('${escapeHtml(x[0])}')">${x[1]}</button>`).join('')}
     </div>
     ${cuerpo}
     <div class="tarjeta">
-      <button class="btn btn-gold btn-block btn-grande" data-click="guardarConfig('${negId}')">Guardar configuración</button>
+      <button class="btn btn-gold btn-block btn-grande" data-click="guardarConfig('${escapeHtml(negId)}')">Guardar configuración</button>
       <p class="nota centrado mt-10">Se guarda todo lo de esta pestaña. Las demás conservan lo que ya tenían.</p>
     </div>
   </div>`;
@@ -202,10 +203,10 @@ export function aplicarPlantillaPlan(){
 }
 
 export function guardarConfig(negId){
-  if(!esAdminSistema()){ toast('No tienes permiso para configurar negocios','error'); return; }
+  if(!esAdminSistema()){ toast(MSJ.noTienesPermisoParaConfigurarNegocios,'error'); return; }
   const negocios=JSON.parse(JSON.stringify(DB.get('negocios')||[]));
   const i=negocios.findIndex(n=>n.id===negId);
-  if(i<0){ toast('Negocio no encontrado','error'); return; }
+  if(i<0){ toast(MSJ.negocioNoEncontrado,'error'); return; }
   const n=negocios[i];
   // Solo se guarda lo que existe en la pestaña abierta: así una pestaña no
   // borra lo configurado en otra.
@@ -219,7 +220,7 @@ export function guardarConfig(negId){
     n.tema=val('c-tema')||'oscuro';
     const col=val('c-color'); n.colorTema=/^#[0-9a-fA-F]{6}$/.test(col)?col:'#01c38e';
     n.tipoFactura=val('c-fact'); n.pctDatafono=parseFloat(val('c-pct'))||0;
-    if(window._logoNuevo!==undefined){ n.logo=window._logoNuevo; window._logoNuevo=undefined; }
+    if(window._logoNuevo!==undefined){ if(window._logoNuevo==='' || Dominio.negocio.logoValido(window._logoNuevo)) n.logo=window._logoNuevo; window._logoNuevo=undefined; }
   }
   if(hay('c-plan')){
     n.plan=planDe({plan:val('c-plan')}); n.precioMes=parseInt(val('c-precio'))||0;
@@ -256,13 +257,13 @@ export function guardarConfig(negId){
   negocios[i]=n;
   DB.set('negocios',negocios);
   if(STATE.negocio && STATE.negocio.id===negId) STATE.negocio=JSON.parse(JSON.stringify(n));
-  toast('Configuración guardada','success');
+  toast(MSJ.configuracionGuardada,'success');
   render();
 }
 
 export function agregarSucursal(negId){
-  if(!esAdminSistema()){ toast('No tienes permiso para crear sucursales','error'); return; }
-  abrirModal({titulo:'Nueva sucursal', textoBoton:'Agregar', campos:[
+  if(!esAdminSistema()){ toast(MSJ.noTienesPermisoParaCrearSucursales,'error'); return; }
+  abrirModal({titulo:'Nueva sucursal', textoBoton:BOTON.agregar, campos:[
     {id:'nombre', label:'Nombre de la sede', requerido:true, placeholder:'Ej: Sede Cabecera'}
   ], onGuardar:(d)=>{
     const negocios=JSON.parse(JSON.stringify(DB.get('negocios')||[]));
@@ -273,11 +274,11 @@ export function agregarSucursal(negId){
     }
     negocios[i].sucursales.push({id:uid(), nombre:d.nombre});
     DB.set('negocios',negocios);
-    cerrarModal(); toast('Sucursal agregada','success'); render();
+    cerrarModal(); toast(MSJ.sucursalAgregada,'success'); render();
   }});
 }
 export async function quitarSucursal(negId,idx){
-  if(!esAdminSistema()){ toast('No tienes permiso para quitar sucursales','error'); return; }
+  if(!esAdminSistema()){ toast(MSJ.noTienesPermisoParaQuitarSucursales,'error'); return; }
   const negocios=JSON.parse(JSON.stringify(DB.get('negocios')||[]));
   const i=negocios.findIndex(n=>n.id===negId); if(i<0) return;
   const s=(negocios[i].sucursales||[])[idx]; if(!s) return;
@@ -294,7 +295,7 @@ export async function quitarSucursal(negId,idx){
     negocios[i].sucursales.splice(idx,1);
     if(negocios[i].sucursales.length<=1) negocios[i].sucursales=[];
     DB.set('negocios',negocios);
-    toast('Sucursal quitada','info'); render();
+    toast(MSJ.sucursalQuitada,'info'); render();
   },'Quitar');
 }
 export function marcarVentanas(todas){ document.querySelectorAll('.c-fun').forEach(c=>{ c.checked=!!todas; }); }

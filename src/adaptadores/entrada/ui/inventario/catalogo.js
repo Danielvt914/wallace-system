@@ -6,10 +6,12 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/06-inventory-recipes/06-inventory-recipes.md
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, fmtDate, fmtMoney, now } from '../nucleo/estado.js';
+import { BOTON, MSJ } from '../nucleo/textos.js';
 import { tienePermiso, usaInventario } from '../nucleo/permisos.js';
-import { abrirModal, cerrarModal, confirmarModal, ic, pPedidos, pProd, pProds, toast } from '../nucleo/componentes.js';
+import { abrirModal, cerrarModal, confirmarModal, fotoProducto, ic, pPedidos, pProd, pProds, reducirImagen, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
 import { logAudit } from '../usuarios/auditoria.js';
+import { avisoEjemplos } from '../super-admin/pruebas.js';
 import { diasAvisoVence, fmtSoloFecha, lotesAlerta, moverInventario, registrarMovimientos } from './motor.js';
 
 
@@ -41,11 +43,12 @@ export function inventario(){
         <div class="stat verde"><div class="stat-ico verde">${ic('box')}</div><div class="stat-lbl">Con receta</div><div class="stat-val">${conReceta}</div><div class="stat-sub">descuentan insumos</div></div>
         <div class="stat"><div class="stat-ico">${ic('cart')}</div><div class="stat-lbl">Insumos disponibles</div><div class="stat-val">${insumos.length}</div><div class="stat-sub">para armar recetas</div></div>
       </div>
+      ${avisoEjemplos()}
       <div class="tarjeta">
         <div class="t-cab">
           <span class="t-tit">${ic('chef')} ${neg.usaRecetas?'Menú':'Catálogo'} de ${pProds()}</span>
           <div class="t-acc">
-            <input type="text" class="busca" placeholder="🔍 Buscar ${pProd()}..." value="${escapeHtml(_iBusca)}" data-input="buscarInventario(this.value)">
+            <input type="text" class="busca" placeholder="🔍 Buscar ${escapeHtml(pProd())}..." value="${escapeHtml(_iBusca)}" data-input="buscarInventario(this.value)">
             ${tienePermiso('editarprod')?`<button class="btn btn-gold" data-click="editarProducto(null)">+ Agregar ${pProd()}</button>`:''}
           </div>
         </div>
@@ -54,15 +57,16 @@ export function inventario(){
         ${lista.length?`<div class="prods inv">
           ${lista.map(p=>{
             const nRec=(p.receta||[]).length;
-            return `<div class="prod">
-              <div class="prod-ico">${p.imagen?`<img src="${p.imagen}" alt="">`:ic('chef')}</div>
+            return `<div class="prod ${p.agotado?'off':''}">
+              <div class="prod-ico">${fotoProducto(p,'chef')}${p.agotado?'<span class="badge-off">AGOTADO</span>':''}</div>
               <div class="prod-nom">${escapeHtml(p.nombre)}</div>
               <div class="prod-cat">${escapeHtml(p.categoria||'General')}</div>
               <div class="prod-pre">${fmtMoney(p.precio)}</div>
               <div class="prod-stock ${nRec?'':'poco'}">${nRec?nRec+' insumo(s)':'Sin receta'}</div>
               <div class="prod-acc">
-                ${tienePermiso('editarprod')?`<button class="btn btn-sm btn-verde" data-click="editarProducto('${p.id}')">Receta</button>`:''}
-                ${tienePermiso('editarprod')?`<button class="btn btn-sm btn-rojo" data-click="eliminarProducto('${p.id}')">×</button>`:''}
+                ${tienePermiso('editarprod')?`<button class="btn btn-sm" data-click="alternarAgotado('${escapeHtml(p.id)}')" title="${p.agotado?'Volver a ofrecerlo en Nueva Venta':'Ocultarlo de Nueva Venta (se acabó por hoy)'}">${p.agotado?'✓ Disponible':'Agotado'}</button>`:''}
+                ${tienePermiso('editarprod')?`<button class="btn btn-sm btn-verde" data-click="editarProducto('${escapeHtml(p.id)}')">Receta</button>`:''}
+                ${tienePermiso('editarprod')?`<button class="btn btn-sm btn-rojo" data-click="eliminarProducto('${escapeHtml(p.id)}')">×</button>`:''}
               </div>
             </div>`;
           }).join('')}
@@ -106,6 +110,7 @@ export function inventario(){
           </tr>`).join('')}</tbody>
         </table></div>
       </div>`; })()}
+    ${avisoEjemplos()}
     ${(agotados.length||bajos.length)?`<div class="tarjeta alerta">
       <span class="t-tit chico">⚠️ Alertas de inventario</span>
       ${agotados.length?`<p><strong class="rojo">AGOTADOS (${agotados.length}):</strong> ${agotados.map(p=>escapeHtml(p.nombre)).join(', ')}</p>`:''}
@@ -138,11 +143,11 @@ export function inventario(){
               const d=diasHasta(conFecha[0].vence);
               const clase = d<0?'pill-rojo':d<=diasAvisoVence()?'pill-gold':'pill-verde';
               const txt = d<0?('venció '+fmtSoloFecha(conFecha[0].vence)):d===0?'vence hoy':('vence en '+d+'d');
-              vencePill=`<div class="mt-4"><span class="pill ${clase} chico">📅 ${txt}</span></div>`;
+              vencePill=`<div class="mt-4"><span class="pill ${escapeHtml(clase)} chico">📅 ${txt}</span></div>`;
             }
           }
           return `<div class="prod ${p.agotado||sin?'off':''}">
-            <div class="prod-ico">${p.imagen?`<img src="${p.imagen}" alt="">`:ic('box')}
+            <div class="prod-ico">${fotoProducto(p,'box')}
               ${p.agotado?'<span class="badge-off">AGOTADO</span>':sin?'<span class="badge-off">SIN STOCK</span>':poco?'<span class="badge-off amarillo">POCOS</span>':''}</div>
             <div class="prod-nom">${escapeHtml(p.nombre)}${p.usaLotes?' <span class="gris chico">📦 lotes</span>':''}</div>
             <div class="prod-cat">${escapeHtml(p.categoria||'General')}</div>
@@ -150,11 +155,12 @@ export function inventario(){
             ${p.stock!=null?`<div class="prod-stock ${sin?'sin':poco?'poco':''}">Stock: ${p.stock}</div>`:''}
             ${vencePill}
             <div class="prod-acc">
-              ${(p.stock!=null&&tienePermiso('editarstock'))?`<button class="btn btn-sm btn-verde" data-click="entradaStock('${p.id}')">+ Stock</button>`:''}
-              ${(p.stock!=null&&tienePermiso('editarstock'))?`<button class="btn btn-sm btn-naranja" data-click="salidaStock('${p.id}')" title="Sacar sin vender: daño, vencido, consumo interno">− Salida</button>`:''}
-              ${p.usaLotes?`<button class="btn btn-sm" data-click="verLotes('${p.id}')" title="Ver lotes">📦 Lotes</button>`:''}
-              ${tienePermiso('editarprod')?`<button class="btn btn-sm" data-click="editarProducto('${p.id}')">Editar</button>`:''}
-              ${tienePermiso('editarprod')?`<button class="btn btn-sm btn-rojo" data-click="eliminarProducto('${p.id}')">×</button>`:''}
+              ${(p.stock!=null&&tienePermiso('editarstock'))?`<button class="btn btn-sm btn-verde" data-click="entradaStock('${escapeHtml(p.id)}')">+ Stock</button>`:''}
+              ${(p.stock!=null&&tienePermiso('editarstock'))?`<button class="btn btn-sm btn-naranja" data-click="salidaStock('${escapeHtml(p.id)}')" title="Sacar sin vender: daño, vencido, consumo interno">− Salida</button>`:''}
+              ${p.usaLotes?`<button class="btn btn-sm" data-click="verLotes('${escapeHtml(p.id)}')" title="Ver lotes">📦 Lotes</button>`:''}
+              ${tienePermiso('editarprod')?`<button class="btn btn-sm" data-click="alternarAgotado('${escapeHtml(p.id)}')" title="${p.agotado?'Volver a ofrecerlo en Nueva Venta':'Ocultarlo de Nueva Venta sin tocar el stock'}">${p.agotado?'✓ Disponible':'Agotado'}</button>`:''}
+              ${tienePermiso('editarprod')?`<button class="btn btn-sm" data-click="editarProducto('${escapeHtml(p.id)}')">Editar</button>`:''}
+              ${tienePermiso('editarprod')?`<button class="btn btn-sm btn-rojo" data-click="eliminarProducto('${escapeHtml(p.id)}')">×</button>`:''}
             </div>
           </div>`;
         }).join('')}
@@ -163,14 +169,46 @@ export function inventario(){
 }
 
 export let _recetaTmp=[];   // receta que se está armando en el modal del plato
+// ---------- Foto del producto (en la base, reducida: dominio/inventario.js) ----------
+export let _fotoProducto=undefined;
+export function fotoEditorHTML(p){
+  const actual=p && Dominio.inventario.imagenValida(p.imagen) ? p.imagen : '';
+  return `<div class="cobro-caja mb-12"><div class="d-flex items-centro gap-10">
+      <div class="prod-ico" id="foto-vista">${actual?'<img src="'+escapeHtml(actual)+'" alt="">':ic('box')}</div>
+      <div><button type="button" class="btn btn-sm" data-click="elegirFotoProducto()">📷 Foto</button>
+        <button type="button" class="btn btn-sm btn-ghost" data-click="quitarFotoProducto()">Quitar</button>
+        <input type="file" id="foto-archivo" accept="image/*" class="oculto" data-change="cargarFotoProducto(this)">
+        <p class="nota mt-4">Se reduce a ${Dominio.inventario.FOTO_MAX_PX} px para que no pese.</p></div></div></div>`;
+}
+export function elegirFotoProducto(){ const e=document.getElementById('foto-archivo'); if(e) e.click(); }
+export function quitarFotoProducto(){ _fotoProducto=''; const v=document.getElementById('foto-vista'); if(v) v.innerHTML=ic('box'); }
+export function cargarFotoProducto(input){
+  const f=input && input.files && input.files[0]; if(!f) return;
+  reducirImagen(f, Dominio.inventario.FOTO_MAX_PX).then(url=>{
+    if(!Dominio.inventario.imagenValida(url)){ toast(MSJ.laFotoQuedoMuyPesadaPrueba,'error'); return; }
+    _fotoProducto=url;
+    const v=document.getElementById('foto-vista'); if(v) v.innerHTML='<img src="'+escapeHtml(url)+'" alt="">';
+  }).catch(e=>toast(e.message,'error'));
+}
+// "Agotado": se oculta de Nueva Venta sin tocar el stock (p. ej. se acabó un plato del día)
+export function alternarAgotado(id){
+  if(!tienePermiso('editarprod')){ toast(MSJ.noTienesPermisoParaEditarProductos,'error'); return; }
+  const arr=misDatos('productos'); const p=arr.find(x=>x.id===id); if(!p) return;
+  p.agotado=!p.agotado;
+  guardarMisDatos('productos',arr);
+  logAudit(p.agotado?'Marcó agotado':'Volvió a ofrecer', p.nombre);
+  toast(p.agotado?p.nombre+': no aparece en la venta':p.nombre+': vuelve a la venta','info');
+  render();
+}
 export function editarProducto(id){
-  if(!tienePermiso('editarprod')){ toast('No tienes permiso para crear o editar productos','error'); return; }
+  if(!tienePermiso('editarprod')){ toast(MSJ.noTienesPermisoParaCrearO,'error'); return; }
   const productos=misDatos('productos');
   const p=id?productos.find(x=>x.id===id):null;
   const neg=STATE.negocio;
   const esResto=!!neg.usaRecetas;
   const cats=Array.from(new Set(productos.map(x=>x.categoria||'General')));
   _recetaTmp = p&&p.receta ? JSON.parse(JSON.stringify(p.receta)) : [];
+  _fotoProducto = undefined;   // undefined = sin cambios; '' = quitarla; data: URL = nueva
 
   const campos=[
     {id:'nombre', label:'Nombre', valor:p?p.nombre:'', requerido:true},
@@ -215,8 +253,8 @@ export function editarProducto(id){
 
   abrirModal({
     titulo:(p?'Editar':'Nuevo')+' '+(neg.palabraProducto||'producto').toLowerCase(),
-    textoBoton:'Guardar', campos:campos,
-    extraHTML: esResto ? recetaEditorHTML() : extraLotes,
+    textoBoton:BOTON.guardar, campos:campos,
+    extraHTML: fotoEditorHTML(p) + (esResto ? recetaEditorHTML() : extraLotes),
     onGuardar:(d)=>{
       const arr=misDatos('productos');
       const datos={
@@ -225,6 +263,7 @@ export function editarProducto(id){
         categoria:(d.categoria||'General').trim()||'General'
       };
       if(neg.usaCodBarras && d.codbarras!==undefined){ datos.codBarras=(d.codbarras||'').trim(); }
+      if(_fotoProducto!==undefined) datos.imagen=_fotoProducto;
       if(esResto || !llevaStock){
         datos.stock=null;                                  // sin control de existencias
         if(esResto) datos.receta=_recetaTmp.filter(r=>r.insumoId && r.cantidad>0);
@@ -288,7 +327,7 @@ export function editarProducto(id){
       if(p) logAudit('Editó '+(neg.palabraProducto||'producto').toLowerCase(), datos.nombre);
       else logAudit('Creó '+(neg.palabraProducto||'producto').toLowerCase(), datos.nombre+(nuevo&&nuevo.stock!=null?' · stock '+nuevo.stock:''));
       _recetaTmp=[];
-      cerrarModal(); toast('Guardado','success'); render();
+      cerrarModal(); toast(MSJ.guardado,'success'); render();
     }});
 }
 
@@ -306,7 +345,7 @@ export function recetaEditorHTML(){
     <div id="receta-lista" class="m-10-0">${recetaFilasHTML()}</div>
     <div class="d-flex gap-8 flex-wrap items-centro">
       <select id="rec-insumo" class="campo flex-2 minw-130 m-0">
-        ${insumos.map(i=>`<option value="${i.id}">${escapeHtml(i.nombre)}${i.unidad?' ('+escapeHtml(i.unidad)+')':''}</option>`).join('')}
+        ${insumos.map(i=>`<option value="${escapeHtml(i.id)}">${escapeHtml(i.nombre)}${i.unidad?' ('+escapeHtml(i.unidad)+')':''}</option>`).join('')}
       </select>
       <input id="rec-cant" type="number" class="campo flex-1 minw-70 m-0" placeholder="Cant.">
       <button type="button" class="btn btn-verde btn-sm" data-click="agregarInsumoReceta()">+ Añadir</button>
@@ -321,15 +360,15 @@ export function recetaFilasHTML(){
     return `<div class="c-row p-6-0">
       <span>${ins?escapeHtml(ins.nombre):'(insumo eliminado)'}</span>
       <span><strong>${r.cantidad}</strong> ${ins?escapeHtml(ins.unidad||''):''}
-        <button type="button" class="mini-x" data-click="quitarInsumoReceta(${idx})">×</button></span>
+        <button type="button" class="mini-x" data-click="quitarInsumoReceta(${escapeHtml(idx)})">×</button></span>
     </div>`;
   }).join('');
 }
 export function agregarInsumoReceta(){
   const sel=document.getElementById('rec-insumo');
   const cant=parseFloat((document.getElementById('rec-cant')||{}).value)||0;
-  if(!sel||!sel.value){ toast('Elige un insumo','error'); return; }
-  if(cant<=0){ toast('Escribe la cantidad','error'); return; }
+  if(!sel||!sel.value){ toast(MSJ.eligeUnInsumo,'error'); return; }
+  if(cant<=0){ toast(MSJ.escribeLaCantidad,'error'); return; }
   const ya=_recetaTmp.find(r=>r.insumoId===sel.value);
   if(ya){ ya.cantidad=cant; } else { _recetaTmp.push({insumoId:sel.value, cantidad:cant}); }
   const cont=document.getElementById('receta-lista');
@@ -342,20 +381,20 @@ export function quitarInsumoReceta(idx){
   if(cont) cont.innerHTML=recetaFilasHTML();
 }
 export function eliminarProducto(id){
-  if(!tienePermiso('editarprod')){ toast('No tienes permiso para borrar productos','error'); return; }
+  if(!tienePermiso('editarprod')){ toast(MSJ.noTienesPermisoParaBorrarProductos,'error'); return; }
   const p=misDatos('productos').find(x=>x.id===id);
   confirmarModal('¿Eliminar "'+(p?p.nombre:'')+'"?',()=>{
     eliminarMisDatos('productos',id);
-    toast('Eliminado','info'); render();
+    toast(MSJ.eliminado,'info'); render();
   },'Eliminar');
 }
 // Sacar mercancía sin vender: daño, vencido, consumo interno, regalo.
 // Es la causa #1 de descuadres cuando no queda registrado.
 export function salidaStock(id){
-  if(!tienePermiso('editarstock')){ toast('No tienes permiso para modificar el stock','error'); return; }
+  if(!tienePermiso('editarstock')){ toast(MSJ.noTienesPermisoParaModificarEl,'error'); return; }
   const productos=misDatos('productos');
   const p=productos.find(x=>x.id===id); if(!p) return;
-  abrirModal({titulo:'Salida de inventario · '+p.nombre, textoBoton:'Registrar salida', campos:[
+  abrirModal({titulo:'Salida de inventario · '+p.nombre, textoBoton:BOTON.registrarSalida, campos:[
     {id:'cant', label:'¿Cuántas unidades salen?', tipo:'number', requerido:true},
     {id:'motivo', label:'Motivo', tipo:'select', opciones:[
       {valor:'Producto dañado',label:'Producto dañado'},
@@ -368,16 +407,16 @@ export function salidaStock(id){
   ], extraHTML:`<p class="nota">Existencias actuales: <strong>${p.stock||0}</strong>. Esto NO es una venta: no entra plata, solo sale mercancía.</p>`,
   onGuardar:(d)=>{
     const cant=parseFloat(d.cant)||0;
-    if(cant<=0){ toast('Cantidad inválida','error'); return; }
+    if(cant<=0){ toast(MSJ.cantidadInvalida,'error'); return; }
     if(cant>(p.stock||0)){ toast('Solo hay '+(p.stock||0)+' unidades','error'); return; }
     const req={prod:{},ins:{}}; req.prod[id]=cant;
     moverInventario(req, -1, d.motivo+(d.nota?' · '+d.nota:''), true);
     logAudit('Salida de inventario', p.nombre+' ×'+cant+' · '+d.motivo);
-    cerrarModal(); toast('Salida registrada','info'); render();
+    cerrarModal(); toast(MSJ.salidaRegistrada,'info'); render();
   }});
 }
 export function entradaStock(id){
-  if(!tienePermiso('editarstock')){ toast('No tienes permiso para modificar el stock','error'); return; }
+  if(!tienePermiso('editarstock')){ toast(MSJ.noTienesPermisoParaModificarEl,'error'); return; }
   const productos=misDatos('productos');
   const p=productos.find(x=>x.id===id); if(!p) return;
   const campos=[
@@ -389,11 +428,11 @@ export function entradaStock(id){
   // Si aún NO los maneja y ponen una fecha, se convierte a lotes desde este ingreso.
   campos.push({id:'vence', label:p.usaLotes?'Fecha de vencimiento de este lote (opcional)':'Fecha de vencimiento (opcional — si es perecedero)', tipo:'date', valor:''});
   const lotesHTML = p.usaLotes ? lotesDetalleHTML(p) : '';
-  abrirModal({titulo:'Entrada de stock · '+p.nombre, textoBoton:'Agregar', campos:campos,
+  abrirModal({titulo:'Entrada de stock · '+p.nombre, textoBoton:BOTON.agregar, campos:campos,
   extraHTML:`<p class="nota">Stock actual: <strong>${p.stock||0}</strong></p>${lotesHTML}`,
   onGuardar:(d)=>{
     const cant=parseFloat(d.cant)||0;
-    if(cant<=0){ toast('Cantidad inválida','error'); return; }
+    if(cant<=0){ toast(MSJ.cantidadInvalida,'error'); return; }
     const vence=(d.vence||'').trim();
     // Ids y fecha fuera de la función: la transacción puede repetirla
     const idLoteAnt=uid(), idLote=uid(), cuando=now();
@@ -415,7 +454,7 @@ export function entradaStock(id){
     registrarMovimientos([{id:uid(), productoId:id, nombre:p.nombre, tipo:'entrada', cantidad:cant,
       motivo:d.motivo+(vence?' · vence '+vence:''), por:STATE.user.nombre, fecha:cuando}]);
     logAudit('Entrada de stock', p.nombre+' +'+cant+' · '+(d.motivo||'')+(vence?' · vence '+vence:''));
-    cerrarModal(); toast('Stock actualizado','success'); render();
+    cerrarModal(); toast(MSJ.stockActualizado,'success'); render();
   }});
 }
 // Muestra el detalle de lotes de un producto (dentro de un modal)
@@ -431,7 +470,7 @@ export function lotesDetalleHTML(p){
         const txt = !l.vence?'sin fecha' : d<0?('venció hace '+Math.abs(d)+'d') : d===0?'vence hoy' : ('vence en '+d+'d');
         return `<div class="c-row p-5-0">
           <span>${l.cantidad} und ${l.vence?'· '+fmtSoloFecha(l.vence):''}</span>
-          <span><span class="pill ${clase}">${txt}</span></span>
+          <span><span class="pill ${escapeHtml(clase)}">${txt}</span></span>
         </div>`;
       }).join('')}
     </div>
@@ -450,21 +489,21 @@ export function verLotes(id){
         return `<div class="c-row p-8-0 borde-abajo-1-solid-linea2">
           <span><strong>${l.cantidad} und</strong> ${l.vence?'· '+fmtSoloFecha(l.vence):''}<br><span class="gris chico">${escapeHtml(l.motivo||'')}</span></span>
           <span class="txt-der">
-            <span class="pill ${clase}">${txt}</span><br>
-            ${tienePermiso('editarstock')?`<button class="btn btn-sm btn-rojo mt-5" data-click="retirarLote('${p.id}','${l.id}')">Retirar</button>`:''}
+            <span class="pill ${escapeHtml(clase)}">${txt}</span><br>
+            ${tienePermiso('editarstock')?`<button class="btn btn-sm btn-rojo mt-5" data-click="retirarLote('${escapeHtml(p.id)}','${escapeHtml(l.id)}')">Retirar</button>`:''}
           </span>
         </div>`;
       }).join('')}
     </div>
     <p class="nota mt-10">Usa <strong>Retirar</strong> para sacar del inventario un lote vencido o dañado. Al vender, el sistema descuenta primero el lote más próximo a vencer.</p>`
     : `<p class="nota">Este producto no tiene lotes con existencias. Registra una entrada de stock para crear un lote.</p>`;
-  abrirModal({titulo:'Lotes · '+p.nombre, textoBoton:'Cerrar', campos:[],
+  abrirModal({titulo:'Lotes · '+p.nombre, textoBoton:BOTON.cerrar, campos:[],
     extraHTML:`<p class="nota">Stock total: <strong>${p.stock||0}</strong></p>${cuerpo}`,
     onGuardar:()=>{ cerrarModal(); }});
 }
 // Retira (elimina) un lote y descuenta su cantidad del stock total
 export function retirarLote(prodId, loteId){
-  if(!tienePermiso('editarstock')){ toast('No tienes permiso para modificar el stock','error'); return; }
+  if(!tienePermiso('editarstock')){ toast(MSJ.noTienesPermisoParaModificarEl,'error'); return; }
   const arr=misDatos('productos');
   const p=arr.find(x=>x.id===prodId); if(!p||!p.lotes) return;
   const l=p.lotes.find(x=>x.id===loteId); if(!l) return;
@@ -478,7 +517,7 @@ export function retirarLote(prodId, loteId){
     registrarMovimientos([{id:uid(), productoId:prodId, nombre:p.nombre, tipo:'retiro_lote', cantidad:l.cantidad,
       motivo:'Retiro de lote'+(l.vence?' vencido/dañado ('+l.vence+')':''), por:STATE.user.nombre, fecha:now()}]);
     logAudit('Retiró lote', p.nombre+' · '+l.cantidad+' und'+(l.vence?' · vence '+l.vence:''));
-    cerrarModal(); toast('Lote retirado','info'); render();
+    cerrarModal(); toast(MSJ.loteRetirado,'info'); render();
   },'Retirar');
 }
 export function buscarInventario(v){ _iBusca=v; render(); }

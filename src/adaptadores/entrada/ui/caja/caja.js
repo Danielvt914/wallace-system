@@ -6,8 +6,9 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/03-cash-register/03-cash-register.md
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, fmtDate, fmtMoney, jornadaActual, now } from '../nucleo/estado.js';
-import { cajaActual, guardarCajaActual, sucursalActual, tienePermiso } from '../nucleo/permisos.js';
-import { abrirModal, cerrarModal, ic, pPedidos, pPersonal, pProds, toast } from '../nucleo/componentes.js';
+import { BOTON, MSJ } from '../nucleo/textos.js';
+import { cajaActual, sucursalActual, tienePermiso } from '../nucleo/permisos.js';
+import { abrirModal, cerrarModal, ic, logoNegocio, pPedido, pPedidos, pPersonal, pProds, reportarError, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
 import { logAudit } from '../usuarios/auditoria.js';
 import { _guardando, fijarGuardando } from '../ventas/nueva-venta.js';
@@ -36,7 +37,7 @@ export function caja(){
              <input type="number" id="caja-base" value="0" class="campo">
            </div>`
         : `<p class="gris">La caja abre con <strong class="oro">${fmtMoney(bs)}</strong>, que fue lo que quedó guardado en el último cierre. No se puede cambiar al abrir.</p>
-           <input type="hidden" id="caja-base" value="${bs}">`}
+           <input type="hidden" id="caja-base" value="${escapeHtml(bs)}">`}
       <button class="btn btn-gold" data-click="abrirCaja()">Abrir caja con ${bs===null?'esa base':fmtMoney(bs)}</button>
       ${(bs!==null&&puedeRetirarJefe())?`
         <div class="mt-18 pt-14 borde-arriba-1-solid-linea2">
@@ -86,7 +87,7 @@ export function caja(){
       return `<div class="tarjeta alerta">
         <span class="t-tit chico">⚠️ ${pv.length} transferencia(s) sin verificar — ${fmtMoney(tot)}</span>
         <p>Estos pagos por banco todavía no se han confirmado en la cuenta. Verifícalos antes de cerrar: si no llegaron, la plata no está.</p>
-        <div class="botones-fila mt-8">${pv.slice(0,8).map(v=>`<button class="btn btn-sm btn-verde" data-click="marcarVerificada('${v.id}')">${escapeHtml(v.factura||'')} · ${fmtMoney(pagosDe(v).banco)}</button>`).join('')}</div>
+        <div class="botones-fila mt-8">${pv.slice(0,8).map(v=>`<button class="btn btn-sm btn-verde" data-click="marcarVerificada('${escapeHtml(v.id)}')">${escapeHtml(v.factura||'')} · ${fmtMoney(pagosDe(v).banco)}</button>`).join('')}</div>
       </div>`; })()}
     <p class="nota m-n6-0-14">💵 VENTA (solo ${pProds()}) recibida por cada método. Total venta: <strong class="oro">${fmtMoney(totalVenta)}</strong>.${domBancoTotal>0?` Además entraron <strong>${fmtMoney(domBancoTotal)}</strong> de domicilios por banco (se le pagan al domiciliario en efectivo).`:''}</p>
     <div class="grid2">
@@ -151,7 +152,7 @@ export function caja(){
 }
 
 export function abrirCaja(){
-  if(!tienePermiso('abrircaja')){ toast('No tienes permiso para abrir la caja','error'); return; }
+  if(!tienePermiso('abrircaja')){ toast(MSJ.noTienesPermisoParaAbrirLa,'error'); return; }
   const abierta=cajaActual();
   if(abierta){ toast('Ya hay una caja abierta por '+(abierta.cajero||'otro usuario'),'info'); render(); return; }
   const bs=baseSiguiente();
@@ -173,45 +174,62 @@ export function abrirCaja(){
       toast('Caja abierta con '+fmtMoney(base),'success');
       render();
     })
-    .catch(e=>{ console.error(e); toast('No se pudo abrir la caja','error'); })
+    .catch(e=>{ console.error(e); toast(MSJ.noSePudoAbrirLaCaja,'error'); })
     .then(()=>{ fijarGuardando(false); });
 }
+// D7: agrega un movimiento (gasto, retiro, entrada) a la caja abierta de esta sede con una
+// transacción sobre el valor REAL del servidor. true = quedó guardado.
+export function agregarMovimientoCaja(mov){
+  const suc=sucursalActual();
+  return transaccionUnica('caja_actual', cur=>{
+    if(cur===null) return null;                 // sin copia local: Firebase reintenta con el valor real
+    const c=cajaDe(cur,suc); if(!c) return;     // ya no hay caja abierta: no se toca
+    return Dominio.caja.conCaja(cur, suc, Object.assign({}, c, {movimientos:[mov].concat(c.movimientos||[])}));
+  }).then(r=>{ const c=cajaDe(r.valor,suc); return !!(r.committed && c && (c.movimientos||[]).some(m=>m.id===mov.id)); });
+}
 export function movimientoCaja(tipo){
-  if(!(tienePermiso('abrircaja')||puedeRetirarJefe())){ toast('No tienes permiso para registrar movimientos de caja','error'); return; }
+  if(!(tienePermiso('abrircaja')||puedeRetirarJefe())){ toast(MSJ.noTienesPermisoParaRegistrarMovimientos,'error'); return; }
   const titulos={gasto:'Registrar gasto de caja',retiro:'Registrar retiro',entrada:'Registrar entrada'};
-  abrirModal({titulo:titulos[tipo], textoBoton:'Registrar', campos:[
+  abrirModal({titulo:titulos[tipo], textoBoton:BOTON.registrar, campos:[
     {id:'concepto', label:'Concepto', requerido:true},
     {id:'valor', label:'Valor', tipo:'number', requerido:true}
   ], onGuardar:(d)=>{
     const c=cajaActual();
-    if(!c){ toast('No hay caja abierta','error'); return; }
+    if(!c){ toast(MSJ.noHayCajaAbierta,'error'); return; }
     const valor=parseFloat(d.valor)||0;
-    if(valor<=0){ toast('Valor inválido','error'); return; }
-    c.movimientos=c.movimientos||[];
-    c.movimientos.unshift({id:uid(), tipo, concepto:d.concepto, valor, por:STATE.user.nombre, fecha:now()});
-    guardarCajaActual(c);
-    // Un GASTO de caja es un egreso del negocio: queda en Gastos del Negocio
-    // y por tanto en el Reporte Contable (restando de ingresos).
-    if(tipo==='gasto'){
-      const g=misDatos('gastos_negocio');
-      // fecha = día de la jornada (no la hora UTC, que de noche caía en el día o mes siguiente)
-      g.unshift({id:uid(), concepto:d.concepto, valor, categoria:'Caja', origen:'caja',
-        por:STATE.user.nombre, fecha:jornadaActual(), creado:now(), cajaId:c.id});
-      guardarMisDatos('gastos_negocio',g);
-    }
+    if(valor<=0){ toast(MSJ.valorInvalido,'error'); return; }
+    // D7: en una transacción sobre la caja del servidor (dos equipos a la vez ya no se pisan)
+    const mov={id:uid(), tipo, concepto:d.concepto, valor, por:STATE.user.nombre, fecha:now()};
+    const jornada=jornadaActual();
+    agregarMovimientoCaja(mov)
+      .then(ok=>{
+        if(!ok){ toast(MSJ.noSeRegistroLaCajaYa,'error'); render(); return; }
+        // Un GASTO de caja es un egreso del negocio: queda en Gastos del Negocio
+        // y por tanto en el Reporte Contable (restando de ingresos). Solo si el
+        // movimiento entró; movId los cruza para no contar el mismo dos veces.
+        if(tipo==='gasto'){
+          const g=misDatos('gastos_negocio');
+          // fecha = día de la jornada (no la hora UTC, que de noche caía en el día o mes siguiente)
+          g.unshift({id:uid(), movId:mov.id, concepto:d.concepto, valor, categoria:'Caja', origen:'caja',
+            por:STATE.user.nombre, fecha:jornada, creado:mov.fecha, cajaId:c.id});
+          guardarMisDatos('gastos_negocio',g);
+        }
+        render();
+      })
+      .catch(e=>reportarError('el movimiento de caja', e));
     logAudit(tipo==='gasto'?'Gasto de caja':tipo==='retiro'?'Retiro de caja':'Entrada a caja',
       d.concepto+' · '+fmtMoney(valor));
-    cerrarModal(); toast('Registrado','success'); render();
+    cerrarModal(); toast(MSJ.registrado,'success'); render();
   }});
 }
 export function cerrarCaja(){
-  if(!tienePermiso('abrircaja')){ toast('No tienes permiso para cerrar la caja','error'); return; }
+  if(!tienePermiso('abrircaja')){ toast(MSJ.noTienesPermisoParaCerrarLa,'error'); return; }
   // No dejar cerrar con cobros a medio ajustar: eso es lo que descuadra la caja
   const sinAjustar=ventasJornada(true).filter(v=>v.pagoDescuadrado);
   if(sinAjustar.length){
-    abrirModal({titulo:'Hay cobros sin ajustar', textoBoton:'Entendido', campos:[],
+    abrirModal({titulo:'Hay cobros sin ajustar', textoBoton:BOTON.entendido, campos:[],
       extraHTML:`<p class="nota">Estos ${pPedidos()} se editaron después de cobrados y su pago no cuadra con el total. Ajústalos antes de cerrar la caja:</p>
-        <div class="botones-fila mt-10">${sinAjustar.map(v=>`<button class="btn btn-sm btn-naranja" data-click="ajustarPagoDesdeModal('${v.id}')">${escapeHtml(v.factura||'')} · ${fmtMoney(v.total)}</button>`).join('')}</div>`,
+        <div class="botones-fila mt-10">${sinAjustar.map(v=>`<button class="btn btn-sm btn-naranja" data-click="ajustarPagoDesdeModal('${escapeHtml(v.id)}')">${escapeHtml(v.factura||'')} · ${fmtMoney(v.total)}</button>`).join('')}</div>`,
       onGuardar:()=>cerrarModal()});
     return;
   }
@@ -229,10 +247,14 @@ export function cerrarCaja(){
   const recEf=Math.round(sumaPorMetodo(ventas, v=>(v.recargo||0)).efectivo);
   const esperado=efectivoEsperado(c,ventas);
   const sugerida = baseFija()!==null ? baseFija() : (c.base||0);
-  abrirModal({titulo:'Cerrar caja', textoBoton:'Cerrar caja', campos:[
+  // F19: lo que no se cobró no se pierde: sigue en Pedidos y se cobra en el turno siguiente
+  const pendientes=ventasJornada(false).filter(v=>v.estado==='abierta');
+  abrirModal({titulo:'Cerrar caja', textoBoton:BOTON.cerrarCaja, campos:[
     {id:'contado', label:'Cuenta el efectivo del cajón. Esperado: '+fmtMoney(esperado), tipo:'number', valor:String(esperado), requerido:true},
     {id:'base', label:'¿Cuánto dejas en el cajón para mañana?', tipo:'number', valor:String(sugerida), requerido:true}
-  ], extraHTML:`${porVerificar.length?`<div class="alerta radio-10 p-11-14 mb-10">
+  ], extraHTML:`${pendientes.length?`<div class="alerta radio-10 p-11-14 mb-10">
+      <strong class="oro">⏳ ${pendientes.length} ${pendientes.length===1?pPedido():pPedidos()} sin cobrar (${fmtMoney(pendientes.reduce((a,v)=>a+(v.total||0),0))})</strong>
+      <p class="nota mt-4">No entran en este cierre. Siguen en ${escapeHtml(pPedidos(true))} para cobrarlos (o anularlos) en el turno siguiente.</p></div>`:''}${porVerificar.length?`<div class="alerta radio-10 p-11-14 mb-10">
       <strong class="rojo">⚠️ ${porVerificar.length} transferencia(s) sin verificar (${fmtMoney(porVerificar.reduce((a,v)=>a+pagosDe(v).banco,0))})</strong>
       <p class="nota mt-4">Ese dinero se está contando como recibido. Si no llegó a la cuenta, revísalo antes de cerrar.</p></div>`:''}
     <div class="cobro-caja">
@@ -261,7 +283,7 @@ export function cerrarCaja(){
   onGuardar:(d)=>{
     const contado=parseFloat(d.contado)||0;
     const baseManana=parseFloat(d.base)||0;
-    if(baseManana>contado){ toast('La base para mañana no puede ser mayor a lo contado','error'); return; }
+    if(baseManana>contado){ toast(MSJ.laBaseParaMananaNoPuede,'error'); return; }
     if(_guardando) return;
     fijarGuardando(true);
     // Transacción: se cierra SOLO si en la nube sigue abierta esta misma caja.
@@ -275,9 +297,9 @@ export function cerrarCaja(){
       enServidor=ab;
       return Dominio.caja.conCaja(cur, suc, null);   // sin caja en ESTA sede (las otras siguen)
     }).then(r=>{
-      if(!r.committed){ cerrarModal(); toast('Esta caja ya fue cerrada desde otro equipo','error'); render(); return; }
+      if(!r.committed){ cerrarModal(); toast(MSJ.estaCajaYaFueCerradaDesde,'error'); render(); return; }
       terminarCierre(enServidor||c, ventas, contado, baseManana, d.motivo);
-    }).catch(e=>{ console.error(e); toast('No se pudo cerrar la caja. Revisa la conexión.','error'); })
+    }).catch(e=>{ console.error(e); toast(MSJ.noSePudoCerrarLaCaja,'error'); })
       .then(()=>{ fijarGuardando(false); });
   }});
 }
@@ -324,7 +346,7 @@ export function imprimirCierre(c){
   const dif=c.diferencia||0;
   const html=`<div style="font-family:Arial,sans-serif;color:#000;width:72mm;padding:4mm;margin:0 auto;font-weight:600;">
     <div style="text-align:center;">
-      ${neg.logo?`<img src="${neg.logo}" style="max-height:90px;max-width:200px;margin-bottom:4px;">`:''}
+      ${logoNegocio(neg,'style="max-height:90px;max-width:200px;margin-bottom:4px;"')||''}
       <div style="font-size:20px;font-weight:800;">${escapeHtml(neg.nombre||'')}</div>
     </div>
     <div style="text-align:center;font-size:17px;font-weight:800;border-top:2px solid #000;border-bottom:2px solid #000;padding:6px 0;margin:8px 0;">CIERRE DE CAJA</div>
@@ -364,7 +386,7 @@ export function imprimirCierre(c){
     <div style="text-align:center;font-size:9px;margin-top:12px;border-top:1px dashed #000;padding-top:6px;">Software por WALLACE COMPANY SYSTEM</div>
   </div>`;
   const w=window.open('','_blank','width=400,height=680');
-  if(!w){ toast('Permite las ventanas emergentes para imprimir','error'); return; }
+  if(!w){ toast(MSJ.permiteLasVentanasEmergentesParaImprimir,'error'); return; }
   w.document.write('<html><head><title>Cierre '+fmtDate(c.cierre)+'</title><meta charset="utf-8"><style>@page{size:80mm auto;margin:0;}body{margin:0;padding:4mm 3mm;width:80mm;box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;background:#fff;}</style></head><body>'+html+'</body></html>');
   w.document.close();
   setTimeout(()=>w.print(),400);
@@ -389,7 +411,7 @@ export function reporteDescuadre(c){
       <div class="c-row"><span>Contado real</span><span class="negrita">${fmtMoney(c.contado||0)}</span></div>
       <div class="c-row c-total"><span>Diferencia</span><strong class="${dif<0?'rojo':'oro'}">${dif<0?'−':'+'}${fmtMoney(Math.abs(dif))}</strong></div>
     </div>`;
-  abrirModal({titulo:'📋 Reporte de descuadre', textoBoton:'Entendido', campos:[
+  abrirModal({titulo:'📋 Reporte de descuadre', textoBoton:BOTON.entendido, campos:[
     {id:'motivo', label:'¿Sabes por qué el descuadre? (opcional, queda registrado)', valor:c.motivoDescuadre||''}
   ], extraHTML:cuerpo, onGuardar:(d)=>{
     if(d.motivo){
@@ -434,10 +456,10 @@ export function puedeRetirarJefe(){
 }
 // El jefe saca dinero cuando la caja YA está cerrada: baja la base de mañana
 export function retiroCajaCerrada(){
-  if(!puedeRetirarJefe()){ toast('Solo el administrador o el dueño pueden retirar','error'); return; }
+  if(!puedeRetirarJefe()){ toast(MSJ.soloElAdministradorOElDuenoPuedenRetirar,'error'); return; }
   const base=baseSiguiente();
-  if(base===null){ toast('Todavía no hay una base guardada','error'); return; }
-  abrirModal({titulo:'Retirar dinero de la caja cerrada', textoBoton:'Retirar', campos:[
+  if(base===null){ toast(MSJ.todaviaNoHayUnaBaseGuardada,'error'); return; }
+  abrirModal({titulo:'Retirar dinero de la caja cerrada', textoBoton:BOTON.retirar, campos:[
     {id:'monto', label:'¿Cuánto va a retirar?', tipo:'number', requerido:true},
     {id:'motivo', label:'Motivo (opcional)', valor:'Retiro del dueño'}
   ], extraHTML:`<div class="cobro-caja">
@@ -446,7 +468,7 @@ export function retiroCajaCerrada(){
     </div>`,
   onGuardar:(d)=>{
     const monto=parseFloat(d.monto)||0;
-    if(monto<=0){ toast('Monto inválido','error'); return; }
+    if(monto<=0){ toast(MSJ.montoInvalido,'error'); return; }
     if(monto>base){ toast('No puede retirar más de '+fmtMoney(base),'error'); return; }
     const nueva=base-monto;
     const cfg=cfgCaja();
@@ -462,9 +484,9 @@ export function retiroCajaCerrada(){
 }
 // Solo el admin/dueño puede cambiar a mano la base de apertura (queda registrado)
 export function cambiarBaseApertura(){
-  if(!puedeRetirarJefe()){ toast('Solo el administrador o el dueño pueden cambiar la base','error'); return; }
+  if(!puedeRetirarJefe()){ toast(MSJ.soloElAdministradorOElDuenoPuedenCambiar,'error'); return; }
   const base=baseSiguiente();
-  abrirModal({titulo:'Corregir la base de apertura', textoBoton:'Guardar', campos:[
+  abrirModal({titulo:'Corregir la base de apertura', textoBoton:BOTON.guardar, campos:[
     {id:'base', label:'Base con la que abrirá la caja', tipo:'number', valor:String(base||0), requerido:true},
     {id:'motivo', label:'¿Por qué se corrige?', requerido:true}
   ], extraHTML:`<p class="nota">Úsalo solo si el dinero del cajón no coincide con lo que quedó al cerrar. Queda en la auditoría.</p>`,
@@ -472,6 +494,6 @@ export function cambiarBaseApertura(){
     const nueva=parseFloat(d.base)||0;
     const cfg=cfgCaja(); ponerBaseSiguiente(cfg, nueva); guardarCfgCaja(cfg);
     logAudit('Corrigió la base de apertura', fmtMoney(base||0)+' → '+fmtMoney(nueva)+' · '+(d.motivo||''));
-    cerrarModal(); toast('Base corregida','success'); render();
+    cerrarModal(); toast(MSJ.baseCorregida,'success'); render();
   }});
 }

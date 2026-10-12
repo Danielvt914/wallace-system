@@ -33,7 +33,8 @@ function dobleCuentas({legado, reglasCerradas}={}){
     async leerIndice(){ return {perfiles, login}; },
     legado: legado||{superadmins:[], usuarios:[]},
     async leerLegado(){ return reglasCerradas ? null : JSON.parse(JSON.stringify(d.legado)); },
-    async necesitaDueno(){ return false; }
+    async necesitaDueno(){ return false; },
+    async fijarNegocioActivo(){}
   };
   return verificarPuertoCuentas(d);
 }

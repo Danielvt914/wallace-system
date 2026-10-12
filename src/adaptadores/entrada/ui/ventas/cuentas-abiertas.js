@@ -6,14 +6,15 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/02-pos-catalog/02-pos-catalog.md
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, fmtMoney, now } from '../nucleo/estado.js';
-import { tienePermiso, usaInventario } from '../nucleo/permisos.js';
+import { BOTON, MSJ } from '../nucleo/textos.js';
+import { puedeVerPantalla, tienePermiso, usaInventario } from '../nucleo/permisos.js';
 import { abrirModal, cerrarModal, confirmarModal, ic, pProds, toast } from '../nucleo/componentes.js';
 import { sonidoError, sonidoPedido } from '../nucleo/sonidos.js';
 import { render } from '../nucleo/navegacion.js';
 import { logAudit } from '../usuarios/auditoria.js';
 import { _carrito, _guardando, _vObs, armarVenta, bloquearBoton, cargarPedidoEnVenta, fijarGuardando, limpiarPedido, validarClientePedido } from './nueva-venta.js';
 import { ventasJornada } from './pedidos.js';
-import { imprimirComanda } from '../cocina/comanda.js';
+import { imprimirComandaSegura } from '../cocina/comanda.js';
 import { ajustarStockPorEdicion, descontarStock, devolverStock, faltantesPara, requerimientos } from '../inventario/motor.js';
 
 
@@ -64,7 +65,8 @@ export function tiempoTxt(min){
 }
 // Abre la cuenta con lo que hay en el carrito (negocios de cobro directo)
 export function abrirCuentaNueva(){
-  if(!_carrito.length){ toast('Agrega productos primero','error'); return; }
+  if(!puedeUsarCuentas()){ toast(MSJ.noTienesAccesoALasCuentas,'error'); return; }   // S7
+  if(!_carrito.length){ toast(MSJ.agregaProductosPrimero,'error'); return; }
   if(!validarClientePedido()) return;
   if(_guardando) return;
   if(descuentaAlPedir()){
@@ -82,18 +84,18 @@ export function abrirCuentaNueva(){
     guardarMisDatos('ventas',ventas);
     logAudit('Abrió cuenta', (venta.factura||'')+' · '+nombreCuenta(venta)+(venta.stockAplicado?' · inventario descontado':''));
     sonidoPedido();
-    if(STATE.negocio.usaCocina){ try{ imprimirComanda(venta); }catch(e){} }
+    if(STATE.negocio.usaCocina) imprimirComandaSegura(venta);
     limpiarPedido(); fijarEscribiendo(false); STATE.pageNeg='cuentas'; render();
     toast('Cuenta abierta: '+nombreCuenta(venta),'success');
-  }catch(e){ console.error(e); toast('Error al abrir la cuenta','error'); }
+  }catch(e){ console.error(e); toast(MSJ.errorAlAbrirLaCuenta,'error'); }
   finally{ fijarGuardando(false); }
 }
 // Entra al modo "agregar productos a esta cuenta"
 export function irAgregarACuenta(id){
   const v=misDatos('ventas').find(x=>x.id===id);
-  if(!v){ toast('Cuenta no encontrada','error'); return; }
-  if(v.estado!=='abierta'){ toast('Esa cuenta ya fue cobrada','error'); return; }
-  if(STATE.editandoVentaId){ toast('Termina la edición que tienes abierta','error'); return; }
+  if(!v){ toast(MSJ.cuentaNoEncontrada,'error'); return; }
+  if(v.estado!=='abierta'){ toast(MSJ.esaCuentaYaFueCobrada,'error'); return; }
+  if(STATE.editandoVentaId){ toast(MSJ.terminaLaEdicionQueTienesAbierta,'error'); return; }
   STATE.agregandoCuentaId=id;
   cargarPedidoEnVenta(v, false);
   fijarEscribiendo(true);
@@ -107,14 +109,15 @@ export function salirDeCuenta(){
 }
 // Suma lo del carrito a la cuenta (no la reemplaza)
 export function agregarACuenta(){
+  if(!puedeUsarCuentas()){ toast(MSJ.noTienesAccesoALasCuentas,'error'); return; }   // S7
   if(_guardando) return;
   const id=STATE.agregandoCuentaId;
-  if(!id){ toast('No hay ninguna cuenta abierta seleccionada','error'); return; }
-  if(!_carrito.length){ toast('Agrega productos primero','error'); return; }
+  if(!id){ toast(MSJ.noHayNingunaCuentaAbiertaSeleccionada,'error'); return; }
+  if(!_carrito.length){ toast(MSJ.agregaProductosPrimero,'error'); return; }
   const ventas=misDatos('ventas');
   const v=ventas.find(x=>x.id===id);
-  if(!v){ toast('Esa cuenta ya no existe','error'); salirDeCuenta(); return; }
-  if(v.estado!=='abierta'){ toast('Esa cuenta ya fue cobrada','error'); salirDeCuenta(); return; }
+  if(!v){ toast(MSJ.esaCuentaYaNoExiste,'error'); salirDeCuenta(); return; }
+  if(v.estado!=='abierta'){ toast(MSJ.esaCuentaYaFueCobrada,'error'); salirDeCuenta(); return; }
   // Si el inventario ya se había descontado (raro en cuentas), revisar que alcance
   if(v.stockAplicado===true){
     const faltan=faltantesPara(requerimientos(_carrito));
@@ -143,26 +146,29 @@ export function agregarACuenta(){
     sonidoPedido();
     // Comanda solo de lo NUEVO, para que cocina no repita lo anterior
     if(STATE.negocio.usaCocina){
-      try{ imprimirComanda(Object.assign({}, v, {items:nuevos, obs:'AGREGADO A '+nombreCuenta(v)})); }catch(e){}
+      imprimirComandaSegura(Object.assign({}, v, {items:nuevos, obs:'AGREGADO A '+nombreCuenta(v)}));
     }
     const nom=nombreCuenta(v), tot=v.total;
     STATE.agregandoCuentaId=null;
     limpiarPedido(); fijarEscribiendo(false); STATE.pageNeg='cuentas'; render();
     toast('Agregado a '+nom+' · va en '+fmtMoney(tot),'success');
-  }catch(e){ console.error(e); toast('Error al agregar','error'); }
+  }catch(e){ console.error(e); toast(MSJ.errorAlAgregar,'error'); }
   finally{ fijarGuardando(false); }
 }
 // Cambiar el nombre o la mesa de una cuenta
+// S7: abrir, agregar y renombrar cuentas = quien vende o maneja las cuentas
+export function puedeUsarCuentas(){ return puedeVerPantalla('ventas') || puedeVerPantalla('cuentas'); }
 export function renombrarCuenta(id){
+  if(!puedeUsarCuentas()){ toast(MSJ.noTienesAccesoALasCuentas,'error'); return; }   // S7
   const v=misDatos('ventas').find(x=>x.id===id); if(!v) return;
-  abrirModal({titulo:'Nombre de la cuenta', textoBoton:'Guardar', campos:[
+  abrirModal({titulo:'Nombre de la cuenta', textoBoton:BOTON.guardar, campos:[
     {id:'nombre', label:'Mesa o nombre del cliente', valor:v.mesa||v.cliNombre||'', requerido:true, placeholder:'Ej: Mesa 4, Don Jorge'}
   ], onGuardar:(d)=>{
     const ventas=misDatos('ventas');
     const x=ventas.find(y=>y.id===id); if(!x){ cerrarModal(); return; }
     if(x.tipo==='mesa') x.mesa=d.nombre.trim(); else x.cliNombre=d.nombre.trim();
     guardarMisDatos('ventas',ventas);
-    cerrarModal(); toast('Cuenta renombrada','success'); render();
+    cerrarModal(); toast(MSJ.cuentaRenombrada,'success'); render();
   }});
 }
 export function cuentas(){
@@ -192,7 +198,7 @@ export function cuentas(){
         ${lista.map(v=>{
           const min=minutosAbierta(v);
           const cls=min<60?'krono-verde':min<180?'krono-amar':'krono-rojo';
-          return `<div class="kds-card ${cls}">
+          return `<div class="kds-card ${escapeHtml(cls)}">
             <div class="kds-top">
               <span class="kds-ref">${escapeHtml(nombreCuenta(v))}</span>
               <span class="kds-krono">${fmtMoney(v.total||0)}</span>
@@ -203,11 +209,11 @@ export function cuentas(){
               ${(v.items||[]).length>6?`<div class="gris chico">+ ${(v.items||[]).length-6} más…</div>`:''}
             </div>
             <div class="kds-acc">
-              <button class="btn btn-sm btn-verde" data-click="irAgregarACuenta('${v.id}')">➕ Agregar</button>
-              ${tienePermiso('cobrar')?`<button class="btn btn-sm btn-gold" data-click="cobrarPedido('${v.id}')">💵 Cobrar</button>`:''}
-              ${tienePermiso('imprimir')?`<button class="btn btn-sm" data-click="imprimirFactura('${v.id}')" title="Imprimir la cuenta para que la revise el cliente">🧾</button>`:''}
-              <button class="btn btn-sm btn-ghost" data-click="renombrarCuenta('${v.id}')" title="Cambiar mesa o nombre">✏️</button>
-              ${tienePermiso('anular')?`<button class="btn btn-sm btn-rojo" data-click="cancelarCuenta('${v.id}')" title="Se fueron sin consumir o sin pagar">🚫 Cancelar</button>`:''}
+              <button class="btn btn-sm btn-verde" data-click="irAgregarACuenta('${escapeHtml(v.id)}')">➕ Agregar</button>
+              ${tienePermiso('cobrar')?`<button class="btn btn-sm btn-gold" data-click="cobrarPedido('${escapeHtml(v.id)}')">💵 Cobrar</button>`:''}
+              ${tienePermiso('imprimir')?`<button class="btn btn-sm" data-click="imprimirFactura('${escapeHtml(v.id)}')" title="Imprimir la cuenta para que la revise el cliente">🧾</button>`:''}
+              <button class="btn btn-sm btn-ghost" data-click="renombrarCuenta('${escapeHtml(v.id)}')" title="Cambiar mesa o nombre">✏️</button>
+              ${tienePermiso('anular')?`<button class="btn btn-sm btn-rojo" data-click="cancelarCuenta('${escapeHtml(v.id)}')" title="Se fueron sin consumir o sin pagar">🚫 Cancelar</button>`:''}
             </div>
           </div>`;
         }).join('')}
@@ -219,10 +225,10 @@ export function cuentas(){
 // Cancelar una cuenta: no consumieron o no pagaron. Devuelve el producto al
 // inventario (si ya se había descontado) y queda registrado quién la canceló.
 export function cancelarCuenta(id){
-  if(!tienePermiso('anular')){ toast('No tienes permiso para cancelar cuentas','error'); return; }
+  if(!tienePermiso('anular')){ toast(MSJ.noTienesPermisoParaCancelarCuentas,'error'); return; }
   const v=misDatos('ventas').find(x=>x.id===id);
-  if(!v){ toast('Cuenta no encontrada','error'); return; }
-  if(v.estado!=='abierta'){ toast('Esa cuenta ya fue cobrada. Usa Anular desde Pedidos.','error'); return; }
+  if(!v){ toast(MSJ.cuentaNoEncontrada,'error'); return; }
+  if(v.estado!=='abierta'){ toast(MSJ.esaCuentaYaFueCobradaUsa,'error'); return; }
   const und=(v.items||[]).reduce((a,i)=>a+i.qty,0);
   const devuelve = v.stockAplicado===true && usaInventario();
   confirmarModal('¿Cancelar la cuenta de '+nombreCuenta(v)+' por '+fmtMoney(v.total||0)+'?'
@@ -243,5 +249,5 @@ export function nuevaCuentaDesdeCero(){
   STATE.pageNeg='ventas';
   fijarEscribiendo(true);
   render();
-  toast('Arma el pedido y usa "Dejar como cuenta abierta"','info');
+  toast(MSJ.armaElPedidoYUsaDejar,'info');
 }

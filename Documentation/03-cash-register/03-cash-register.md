@@ -165,3 +165,18 @@ Todo lo de la caja +
 - Una cita cobrada sin caja abierta crea una venta con `cajaId:null` ([05](../05-appointments-shifts/05-appointments-shifts.md)).
 
 Ver [-01-to-review](../-01-to-review/-01-to-review.md).
+
+## Cambios del 2026-10-12 (segunda revisión)
+- **D6**: un pedido se cuenta en la caja abierta **al cobrarlo** (`cajaId`), y con caja no se cobra sin caja abierta.
+- **F19**: los pedidos y cuentas sin cobrar de turnos anteriores siguen en Pedidos y Cuentas, y el cierre avisa cuántos quedan.
+- **D7**: gastos, retiros y entradas se guardan con transacción (`agregarMovimientoCaja`).
+- **F20**: anular una venta de una caja cerrada (solo admin o dueño) registra un retiro "Devolución por anulación" en la caja abierta.
+Detalle: [-01-to-review](../-01-to-review/-01-to-review.md), segunda revisión.
+
+## Avisos entre equipos (2026-10-12, portado del original `5425800`)
+
+- **Otro equipo abre o cierra la caja de esta sede**: aviso "✅ Ana abrió la caja · ya puedes vender" (con sonido) o "🔒 Se cerró la caja", y la pantalla se redibuja de una vez (aunque haya un campo enfocado; con una ventana abierta, al cerrarla). Solo la caja **de la sede del equipo** (F1). Un gasto o una entrada no avisan.
+- **Otro equipo toma un pedido**: "🔔 Nuevo Pedido F-77 · Otro · $ 12.000" con sonido. No se avisa lo propio (`vendedorId`, F15), lo de otra sede ni lo que llega al cargar.
+- **Nueva Venta** ya no congela el refresco si no hay pedido a medio armar (antes, con la caja cerrada, el equipo no se enteraba de que otro la abrió).
+- **Gasto de caja**: la copia en Gastos del Negocio lleva `movId` y solo se guarda si el movimiento entró en la caja. El Contable suma los movimientos y, además, las copias cuyo movimiento no aparece (`Dominio.gastos.copiasSinMovimiento`), sin contar nada dos veces.
+- Código: `ui/nucleo/avisos-nube.js` (avisos), ganchos `alRegistroNuevo` / `alCambiarTabla` de `firebase-datos.js`, `ui/nucleo/estado.js` (`campoDelicado`, `refrescarSiSePuede(forzar)`, revisión cada 20 s). Detalle: [union-con-original](../-00-execution-protocol/union-con-original.md), 3.2.

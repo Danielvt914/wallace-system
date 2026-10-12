@@ -15,11 +15,15 @@ Registro de las correcciones aplicadas a `app.js` para los hallazgos de **seguri
 | S4 | Permisos validados solo ocultando botones | ✅ Corregido | `exigirPermiso`, `esAdminSistema`, `puedeVerPantalla` (768–799) y más de 25 funciones |
 | S5 | Todos los roles aterrizaban en el Dashboard | ✅ Corregido | `pantallaValida` (794), `login` |
 | S6 | El nombre de una categoría ejecutaba código dentro de un `onclick` (XSS almacenado) | ✅ Corregido (fase 8, 2026-10-09) | `ui/ventas/nueva-venta.js`, `ui/inventario/catalogo.js`, `ui/nucleo/eventos.js` |
+| S8 | El logo del negocio y otros datos dentro de atributos HTML sin validar ni escapar (XSS almacenado con escalada al super-admin) | ✅ Corregido (2026-10-12) | `logoNegocio` (`ui/nucleo/componentes.js`), `Dominio.negocio.logoValido`, 151 atributos con `escapeHtml`, `database.rules*.json` |
 | D1 | Consecutivo de factura repetible entre equipos | ✅ Corregido | `reservarFactura` / `siguienteFactura` (2256–2290) |
 | D2 | Stock "última escritura gana" | ✅ Corregido | `cambiarStock` (3581) y todos los que mueven stock |
 | D3 | Recortes de historial que no recortaban | ✅ Corregido | `logAudit`, `moverInventario`, `guardarConteo` |
 | D4 | `conceptos_gasto` sin sincronizar | ✅ Corregido | `TABLAS` / `TABLAS_UNICAS` (22, 73) |
 | D5 | Apertura de caja simultánea | ✅ Corregido (también el cierre) | `abrirCaja`, `cerrarCaja`, `transaccionUnica` (4024–4180) |
+| D6 | Pedido de otro turno (o cobrado sin caja) fuera de todo cierre | ✅ Corregido (2026-10-12) | `abrirCobro` (`ui/ventas/cobro.js`), `ventasJornada` (`ui/ventas/pedidos.js`) |
+| D7 | Movimientos de caja sin transacción | ✅ Corregido (2026-10-12) | `agregarMovimientoCaja` (`ui/caja/caja.js`) |
+| D8 | Conteo: lo vendido durante el conteo se restaba dos veces | ✅ Corregido (2026-10-12) | `contarItem`, `stockActualDe` (`ui/inventario/conteo.js`) |
 
 Además, como parte de S2, se agregó la casilla **"Usuario activo"** al formulario de usuarios (hallazgo F7).
 
@@ -79,7 +83,7 @@ No se probó contra un proyecto real de Firebase (no existe todavía el de prueb
 
 **Fases 1–5 en producción**: igual que B.8. Para producción hay que agregar el alias (`npx firebase use --add` → `produccion`) solo en ese momento, llenar `HOSTS_PRODUCCION` en `firebase-config.js` antes de publicar, y desplegar con `--config firebase.transicion.json -P produccion` (fase 2) y luego sin `--config` (fase 4).
 
-**Pendiente de decidir**: qué ve el super-admin vendedor (hoy, todo); plazo de migración; si el respaldo debe incluir `perfiles/` y `login/` (hoy solo `data`).
+**Pendiente de decidir**: plazo de migración; si el respaldo debe incluir `perfiles/` y `login/` (hoy solo `data`). **Decidido (2026-10-12)**: el super-admin vendedor ve y toca solo sus negocios y sus demos ([01-super-admin-panel](../01-super-admin-panel/01-super-admin-panel.md), sección 12).
 
 ### Diseño original
 
@@ -256,6 +260,8 @@ Notas:
 
 #### B.5 Flujos de cuentas (sin servidor)
 
+> Los fragmentos de código de esta sección son del diseño original, con el SDK *compat* (`firebase.auth()`, `FB.ref()`). El flujo es el mismo; desde el 2026-10-11 los adaptadores lo hacen con el SDK **modular** (equivalencias en [modulos-es](../-03-architecture/modulos-es.md), sección 8.2).
+
 ##### B.5.1 Iniciar sesión
 1. El usuario escribe usuario y contraseña.
 2. La app lee `login/<claveUsuario>` (permitido sin sesión).
@@ -360,6 +366,8 @@ Encabezado con el conteo: *"42 de 57 cuentas migradas · 15 pendientes · 0 por 
 
 #### B.7 Cambios en el código
 
+> Diseño original con el SDK *compat*. Desde el 2026-10-11 el SDK es el **modular**: `index.html` ya no carga librerías de Firebase; las carga `src/adaptadores/salida/firebase-sdk.js` ([modulos-es](../-03-architecture/modulos-es.md), sección 8).
+
 | Archivo / función | Cambio |
 |---|---|
 | `index.html` | Agregar `<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js">`. |
@@ -419,10 +427,17 @@ Encabezado con el conteo: *"42 de 57 cuentas migradas · 15 pendientes · 0 por 
 
 #### B.9 Pruebas de aceptación
 
+> **Lector para la consola** (desde el 2026-10-11 no existe el objeto global `firebase`):
+> ```js
+> // En la consola (F12), con la sesión iniciada: el mismo SDK que cargó la app
+> const {database:D, app:A}=(await import('/src/adaptadores/salida/firebase-sdk.js')).sdkCargado();
+> const leer=r=>D.get(D.ref(D.getDatabase(A.getApp()), r));
+> ```
+
 | # | Prueba | Resultado esperado |
 |---|---|---|
 | 1 | Abrir `https://<proyecto>-default-rtdb.firebaseio.com/data.json` sin sesión | `"Permission denied"` |
-| 2 | Empleado de N1, en la consola del navegador: `firebase.database().ref('data/data_N2_ventas_r').once('value')` | Falla con *permission denied* |
+| 2 | Empleado de N1, en la consola del navegador: `await leer('data/data_N2_ventas_r')` (el lector `leer` se prepara como dice la nota de abajo) | Falla con *permission denied* |
 | 3 | Empleado: leer `data/superadmins` o `perfiles` de otro | Falla |
 | 4 | Empleado: escribir `perfiles/<su uid>/rol = 'superadmin'` | Falla |
 | 5 | Admin del negocio: cambiar `negocios_r/<su neg>/activo` o `plan` | Falla; cambiar `nombre` o `logo` funciona |
@@ -571,6 +586,58 @@ Validación agregada **al inicio** de cada función:
 **Probado**: `tests/navegador/recorrido.test.mjs` pone la categoría `Niño's` a un producto, hace clic real en su botón y comprueba que filtra. `tests/ui/estructura.test.mjs` falla ante cualquier `on…="…"` en una plantilla. El recorrido revisa además que el HTML ya dibujado de las 327 pantallas no tenga atributos `on…`.
 
 **Pendiente**: activar una Content-Security-Policy que bloquee código en línea, por si en otro lugar faltara `escapeHtml` ([csp.md](../-03-architecture/csp.md): política propuesta, probada en local con `node scripts/probar-csp.mjs` y pasos para activarla en Render).
+
+---
+
+## S8 — Código inyectable por el logo del negocio ✅ (2026-10-12)
+
+**Error**: diez plantillas dibujaban `<img src="${neg.logo}">` sin escapar ni validar, y las reglas aceptaban cualquier texto en `negocios_r/<id>/logo` (campo editable por el negocio). Escribiéndolo por consola o API con un valor como `x" onerror="…`, el código corría en la sesión de quien abriera el negocio: **el dueño del sistema al supervisar o sacar el informe mensual**. Desde ahí podía subir de rango a cualquiera (`rolSuper`), crear cuentas o borrar negocios. Lo mismo pasaba con otros datos metidos en atributos: ids en `data-click`, `pctDatafono`, `baseFija`, `diasAvisoVence`, `valorDom`, `contado`… Detalle del ataque: [seguridad-interfaz](../-03-architecture/seguridad-interfaz.md), sección 7.
+
+**Corrección**:
+- `Dominio.negocio.logoValido` (`src/dominio/negocio.js`, sobre `Dominio.inventario.esImagenData`) y `logoNegocio(neg, atributos)` en los 10 lugares.
+- Elegir y guardar el logo: solo una imagen válida (JPEG si el PNG pesa mucho).
+- `escapeHtml` en las **151** interpolaciones dentro de atributos que no lo tenían, más la inicial del nombre y las vistas previas.
+- Reglas (cerradas y de transición): `.validate` del logo (imagen `data:` o vacío, ≤ 400.000), del `id` de cada registro (`^[A-Za-z0-9_-]{1,64}$`) y del id del negocio.
+- Migración tolerante: limpia un logo inválido y no copia registros con id inválido (`negocioParaGuardar`, `idSeguro`).
+
+**Probado**:
+- Estructura: ningún dato sin escapar dentro de un atributo.
+- Dominio, reglas (cerradas y de transición) e integración (migración con un logo inválido).
+- Recorrido con el ataque real: falla con la línea vieja y pasa con la corrección.
+- Capturas: 121 idénticas.
+
+---
+
+## D6 — Pedido de otro turno fuera de todo cierre ✅ (2026-10-12)
+
+**Error**:
+- un pedido creado en un turno y cobrado en otro conservaba el `cajaId` del turno en que se creó, y su fecha era anterior a la apertura actual: no entraba en ningún cierre;
+- `cobrarPedido` dejaba cobrar con la caja cerrada (mismo efecto);
+- además (F19), al abrir la caja siguiente esos pedidos desaparecían de Pedidos y Cuentas.
+
+**Corrección**:
+- al cobrar, `venta.cajaId` = la caja abierta;
+- con caja, no se cobra sin caja abierta;
+- `ventasJornada` incluye siempre lo abierto de cualquier turno;
+- `cerrarCaja` avisa de lo que queda sin cobrar.
+
+**Probado**: recorrido "D6/F19". Falla con el código anterior.
+
+## D7 — Movimientos de caja sin transacción ✅ (2026-10-12)
+
+**Error**: `movimientoCaja` reescribía `caja_actual` entera: dos equipos a la vez perdían un movimiento.
+
+**Corrección**: `agregarMovimientoCaja` con `transaccionUnica` sobre el valor del servidor, como D5.
+
+**Probado**: recorrido "D7" (que el movimiento quede guardado). La concurrencia la cubre la misma transacción de D5.
+
+## D8 — Conteo: lo vendido durante el conteo se restaba dos veces ✅ (2026-10-12)
+
+**Error**: la diferencia se calculaba contra el stock del inicio del conteo y se sumaba al stock actual, así que lo vendido mientras se contaba se restaba dos veces.
+
+**Corrección**: cada ítem se compara con el stock del momento en que se escribe su cantidad.
+
+**Probado**: recorrido "D8". Falla con el código anterior.
 
 ---
 

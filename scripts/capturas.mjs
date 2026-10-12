@@ -24,6 +24,9 @@ const [,, modo, a, b]=process.argv;
 function determinista(){
   let s=20261008;
   Math.random=function(){ s|=0; s=s+0x6D2B79F5|0; let t=Math.imul(s^s>>>15,1|s); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; };
+  // Se vuelve a fijar justo antes de crear los demos: así los datos no dependen de cuántos
+  // números al azar gastaron las librerías al cargar (las de Firebase -compat gastaban uno)
+  window.__semilla=n=>{ s=n; };
   // Hora FIJA (el reloj de la app consulta cada segundo: una hora que avanza daría capturas distintas)
   const BASE=new Date(2026,9,8,15,30,0).getTime();
   const D=Date;
@@ -69,7 +72,7 @@ async function tomar(dir){
     await foto('login');
     await foto('login-movil', 390);
     await en(()=>{ document.getElementById('l-user').value='dueno'; document.getElementById('l-pass').value='clave1234'; WS.hacerLogin(); });
-    await en(()=>{ ['Restaurante','Tienda / Accesorios','Barbería / Salón'].forEach(t=>WS.crearDemoDeTipo(t,false)); WS.render(); });
+    await en(()=>{ window.__semilla(20261008); ['Restaurante','Tienda / Accesorios','Barbería / Salón'].forEach(t=>WS.crearDemoDeTipo(t,false)); WS.render(); });
     await foto('panel');
     await foto('panel-movil', 390);
     await en(()=>{ WS.STATE.page='superadmins'; WS.render(); }); await foto('superadmins');
@@ -124,6 +127,11 @@ async function tomar(dir){
       }
       await en(()=>WS.volverSuperAdmin());
     }
+  } catch(e){
+    // Que se vea claro dónde se detuvo (la traza completa queda debajo)
+    console.error('✖ Las capturas se detuvieron después de la '+n+' ('+(readdirSync(dir).filter(f=>f.endsWith('.png')).sort().pop()||'ninguna')+'): '+(e&&e.message));
+    process.exitCode=1;
+    throw e;
   } finally {
     await nav.close();
     try{ if(process.platform==='win32') execSync('taskkill /pid '+srv.pid+' /T /F',{stdio:'ignore'}); else srv.kill(); }catch(e){}

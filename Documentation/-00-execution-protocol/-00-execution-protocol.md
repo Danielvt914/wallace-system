@@ -8,7 +8,7 @@ Cómo poner a correr Wallace System, configurarlo contra Firebase, desplegarlo, 
 |---|---|
 | Navegador | Chrome/Edge/Firefox recientes. Usa `localStorage`, `AudioContext`, `FileReader`, `canvas`, `window.open` + `print()`. |
 | Servidor estático | Cualquiera. El proyecto trae `npx serve` (`package.json`) y `render.yaml` para Render. |
-| Internet | Para Google Fonts y el SDK de Firebase (`gstatic.com`, v10.12.2 *compat*). Sin internet la app arranca en modo local. |
+| Internet | Para Google Fonts y el SDK **modular** de Firebase (`gstatic.com`, v10.12.2; `src/adaptadores/salida/firebase-sdk.js`). Solo se descarga si hay base configurada: en modo local la app no lo necesita. |
 | Firebase (opcional) | Proyecto con **Realtime Database** y **Authentication (correo y contraseña)**. Se usan `firebase-app-compat`, `firebase-database-compat` y `firebase-auth-compat` (no Firestore, no Storage). |
 | Ventanas emergentes | Deben estar permitidas: facturas, comandas, cierres e informes se imprimen abriendo una ventana nueva. |
 
@@ -64,7 +64,7 @@ El código está organizado en arquitectura hexagonal dentro de `src/` (detalle 
 #### Opción 1 (en uso): qué tener en cuenta
 - Servir siempre por HTTP (local o Render). Los tipos MIME deben ser correctos (`text/javascript` para `.js`); `serve`, `python -m http.server` y Render ya lo hacen.
 - Rutas de `import` **relativas y con extensión** (`'./dominio/pagos.js'`, nunca `'./dominio/pagos'`).
-- El orden de carga lo maneja `src/arranque.js`: los scripts clásicos de `index.html` (Firebase, `logo.js`, `firebase-config.js`) cargan primero; luego los módulos (dominio, adaptadores, puente); al final `arranque.js` importa `src/adaptadores/entrada/ui/manifiesto.js`, cuya `cargarInterfaz()` importa los 47 módulos de la interfaz, y llama `iniciarInterfaz()` (`-03-architecture`, sección 11.3).
+- `index.html` carga **un solo** script, el módulo `src/arranque.js`, que importa todo lo demás: `firebase-config.js` (elige la base por dominio), el SDK modular de Firebase (solo si hay base), los módulos de dominio, adaptadores y puente; al final `arranque.js` importa `src/adaptadores/entrada/ui/manifiesto.js`, cuya `cargarInterfaz()` importa los 47 módulos de la interfaz, y llama `iniciarInterfaz()` (`-03-architecture`, sección 11.3).
 - Caché: `render.yaml` sirve `/src/*` con `Cache-Control: no-cache` (el navegador revalida cada módulo y recibe 304 si no cambió), así no se mezclan módulos viejos y nuevos tras publicar. Los módulos **no** llevan `?v=` (un módulo con dos URL serían dos copias). Los estilos sí: `?v=VERSION_UI` en `index.html`.
 
 #### Opción 2 (documentada, no activa): cómo migrar si se decide
@@ -79,7 +79,7 @@ El código está organizado en arquitectura hexagonal dentro de `src/` (detalle 
      "test": "node --test \"tests/**/*.test.mjs\""
    }
    ```
-3. `index.html` no cambia: Vite entiende `<script type="module" src="src/arranque.js">`. Los scripts clásicos (`logo.js`, `firebase-config.js`) se mueven a `public/` para que se copien tal cual.
+3. `index.html` no cambia: Vite entiende `<script type="module" src="src/arranque.js">`. Ya no hay scripts clásicos (desde el 2026-10-11 `firebase-config.js` es un módulo y el logo está en `ui/nucleo/logo.js`). El SDK de Firebase podría pasar a instalarse con npm (`firebase`) en vez de bajarse de gstatic.
 4. La interfaz ya son módulos ES, pero `cargarInterfaz()` los importa con `import('./'+archivo)` (rutas calculadas): con Vite hay que cambiarlo por `import.meta.glob('./**/*.js')` o importaciones fijas.
 5. En `render.yaml`: `buildCommand: npm install && npm run build` y `staticPublishPath: dist`.
 6. Desarrollo local: `npm run dev` (recarga automática). Verificar el resultado final con `npm run build && npm run preview`.
@@ -117,14 +117,14 @@ Cuenta de desarrollo (solo existe en el emulador): **`dev` / `dev12345`**. Cómo
 | **Local** | Sin configuración, `apiKey==='TU_API_KEY'`, o el SDK no cargó | Todo vive en `localStorage` con prefijo `ws_`. Ideal para pruebas; los datos no salen del navegador. |
 | **Nube lenta** | La nube no responde en 12 s | Arranca con el respaldo local (`iniciarInterfaz` en `ui/nucleo/arranque.js`) y sigue intentando sincronizar. |
 
-Secuencia de arranque: `index.html` → `src/arranque.js` (crea los adaptadores y el puente) → carga los archivos de `ui/manifiesto.js` → `iniciarInterfaz()` → `Datos.iniciar()` → con cuentas de Firebase: sesión guardada o login (`arrancarCuentas`); sin ellas: `Datos.cargarGlobales()` → `arrancar()` → `seed()` + `render()`.
+Secuencia de arranque: `index.html` → `src/arranque.js` (elige la base con `firebase-config.js`, carga el SDK modular si hay base, crea los adaptadores y el puente) → importa los módulos de `ui/manifiesto.js` → `iniciarInterfaz()` → `Datos.iniciar()` → con cuentas de Firebase: sesión guardada o login (`arrancarCuentas`); sin ellas: `Datos.cargarGlobales()` → `arrancar()` → `seed()` + `render()`.
 
 ## 3. Configurar Firebase
 
 1. Crear un proyecto en Firebase y habilitar **Realtime Database**.
-2. Copiar la configuración web en `firebase-config.js`:
+2. Copiar la configuración web en `firebase-config.js`, en el bloque que corresponda (`PRUEBAS` para un proyecto de pruebas; `PRODUCCION` solo el de la empresa):
    ```js
-   window.FIREBASE_CONFIG = { apiKey, authDomain, databaseURL, projectId, storageBucket, messagingSenderId, appId };
+   export const PRUEBAS = { apiKey, authDomain, databaseURL, projectId, storageBucket, messagingSenderId, appId };
    ```
    `databaseURL` es obligatorio; sin él el sistema se queda en modo local.
    `firebase-config.js` elige la base según el dominio: producción solo en `HOSTS_PRODUCCION`, el resto usa `PRUEBAS` (o modo local si está vacío). Activar también *Authentication → Email/Password*.
@@ -196,7 +196,7 @@ git add . && git commit -m "mensaje" && git push   # Render despliega solo
 
 ### Otro hosting estático
 
-Subir `index.html`, la carpeta `src/` completa, `firebase-config.js`, `logo.js` (y opcionalmente `prueba.html`). No requiere backend. El servidor debe entregar los `.js` con tipo `text/javascript`.
+Subir `index.html`, la carpeta `src/` completa y `firebase-config.js` (y opcionalmente `prueba.html` + `prueba.js`). No requiere backend. El servidor debe entregar los `.js` con tipo `text/javascript`.
 
 ### Caché del navegador
 
@@ -241,11 +241,12 @@ Ejecutar después de cada cambio en la interfaz (`src/adaptadores/entrada/ui/`);
 | "El inicio de sesión no está activado en Firebase…" (antes: "No se pudo iniciar sesión") al crear el dueño o entrar | Firebase responde `CONFIGURATION_NOT_FOUND` u `OPERATION_NOT_ALLOWED`: en ese proyecto no se pulsó **Authentication → Comenzar** o no está activo **Correo electrónico/contraseña** | Activarlo en la consola y reintentar; no queda nada escrito a medias |
 | `npm : No se puede cargar el archivo …\npm.ps1 porque la ejecución de scripts está deshabilitada` | PowerShell de Windows bloquea scripts `.ps1` por defecto | Ver [1.1](#11-windows-la-ejecución-de-scripts-está-deshabilitada): `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`, o usar `npm.cmd` |
 | Punto rojo "Sin conexión" | Sin internet o `databaseURL` vacío | Revisar `firebase-config.js` y `prueba.html` |
+| En la consola: `WebSocket connection to 'wss://…firebaseio.com/.ws…' failed: Page entered Back-Forward Cache` | **Normal.** Al salir de la página (otra dirección, `prueba.html`, otro sitio), Chrome la congela para volver al instante con "Atrás" y cierra su conexión en tiempo real | Nada: al volver, Firebase se reconecta solo en 1–2 s y sincroniza lo pendiente. Ver 8.1 |
 | Punto naranja parpadeando "Error de nube" | Firebase rechazó una escritura (reglas) | Revisar reglas (`prueba.html`). Lo que la red no pudo subir queda en la cola local; lo que las reglas negaron se descarta (no bloquea la cola) |
 | "Usuario o contraseña incorrectos" para alguien que nunca entró a la versión nueva | Reglas cerradas antes de que migrara | Super-admin → 🔐 Cuentas → "Crear cuenta" con una contraseña nueva |
 | "Esta cuenta ya fue activada…" | Otra persona creó primero la cuenta de ese usuario (reglas de transición) | Super-admin → 🔐 Cuentas → "Reemplazar cuenta"; revisar la fila ⚠️ |
 | "Tu usuario fue desactivado o su contraseña se restableció" | El super-admin lo desactivó o le puso contraseña nueva (la cuenta vieja queda sin perfil) | Entrar con la contraseña nueva |
-| "Sin Firebase Auth" en la consola | No cargó `firebase-auth-compat.js` | Revisar internet o bloqueadores; la app cae al login viejo (solo funciona con reglas de transición) |
+| "No se pudo cargar Firebase" en la consola | No se descargó el SDK modular de `gstatic.com` (`src/adaptadores/salida/firebase-sdk.js`) | Revisar internet o bloqueadores; la app sigue en modo local con lo guardado en el equipo |
 | En el login aparece "Modo local" o "Entorno de PRUEBAS" en el dominio público | El dominio no está en `HOSTS_PRODUCCION` de `firebase-config.js` | Agregarlo y publicar |
 | "Nube lenta: modo local" en consola | La nube no respondió en 12 s | Esperar; la app sigue sincronizando cuando conecte |
 | Un equipo no ve lo que hizo otro | Pantalla con un campo enfocado o modal abierto (no se refresca a propósito) | Salir del campo o usar "🔄 Actualizar" |
@@ -254,6 +255,18 @@ Ejecutar después de cada cambio en la interfaz (`src/adaptadores/entrada/ui/`);
 | Pantalla en blanco y en la consola "Failed to load module script" o un error de CORS | Se abrió con `file://` o el servidor entrega los `.js` con un tipo incorrecto | Servir por HTTP (sección 2) |
 | "No se pudo cargar la aplicación" | Falta un archivo de `ui/manifiesto.js` en el servidor (la consola dice cuál: "No cargó la interfaz: …") | Subir la carpeta `src/` completa |
 | "El adaptador de datos no cumple el puerto…" en la consola | Se cambió `firebase-datos.js` y le falta una operación del puerto | Ver `src/aplicacion/puertos/datos.js` |
+
+### 8.1 Mensajes de la consola que son normales
+
+La consola del navegador (F12) muestra a veces errores que **no** son fallas de la app:
+
+| Mensaje | Qué significa | Cuándo preocuparse |
+|---|---|---|
+| `WebSocket connection to 'wss://<base>.firebaseio.com/.ws?…' failed: Page entered Back-Forward Cache` | La app mantiene un WebSocket con Firebase para recibir cambios al instante. Al salir de la página, Chrome la guarda congelada (*Back-Forward Cache*) para mostrarla sin recargar si se vuelve con "Atrás", y para eso cierra el WebSocket. Al volver, la librería de Firebase se reconecta sola; mientras tanto la app usa su copia local, y no se pierde nada | Si el indicador se queda en "Sin conexión" después de volver, o si salen errores de WebSocket **sin** "Back-Forward Cache" mientras se usa la página. Causas posibles: red o bloqueador, clave web restringida sin ese dominio ([conexion-firebase](conexion-firebase.md), paso 4), o la CSP ([csp.md](../-03-architecture/csp.md)) |
+| `Failed to load resource: … 404` en `/favicon.ico` | El sitio no tiene ícono de pestaña; el navegador lo pide igual | Nunca: es solo el ícono |
+| `[Report Only] Refused to …` | La CSP en modo "solo informar" avisa lo que **bloquearía** si estuviera activa. No bloquea nada | Sí, cuando se va a activar la CSP: cada aviso es algo que dejaría de funcionar ([csp.md](../-03-architecture/csp.md), sección 7) |
+
+Para comprobar que la conexión está bien: recargar (F5), usar la app sin salir de la pestaña y ver que el error no vuelva, y que el indicador de conexión quede en verde. Para revisar `prueba.html` sin congelar la app, abrirla en **otra pestaña**.
 
 ## 9. Entorno de pruebas en Firebase
 
@@ -306,7 +319,7 @@ Con la sesión del paso 5, desde la terminal del proyecto:
 |---|---|---|
 | Local | `npx serve -s . -l 3000` → `http://localhost:3000` | Desarrollo y pruebas diarias |
 | Desplegado aparte | Un servicio de Render (o Netlify / GitHub Pages) conectado al **fork**, con su propia URL | Probar desde el celular o con otras personas |
-| Sin nube | `window.FIREBASE_CONFIG = null;` en `firebase-config.js` | Pruebas rápidas sin Firebase (todo en el navegador) |
+| Sin nube | Abrir con `?local` (`http://localhost:3000/?local`) | Pruebas rápidas sin Firebase (todo en el navegador) |
 
 El dominio público de producción sirve el repositorio **original**, no el fork: los cambios del fork no aparecen ahí hasta que se unan al original. Si el fork se despliega aparte, su dominio debe agregarse en *Authentication → Settings → Authorized domains* del proyecto de pruebas (para S1).
 

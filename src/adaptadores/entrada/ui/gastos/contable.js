@@ -6,6 +6,7 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/09-expenses-accounting/09-expenses-accounting.md
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, fmtMoney } from '../nucleo/estado.js';
+import { MSJ } from '../nucleo/textos.js';
 import { ic, pProd, pProds, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
 import { imprimirCierre } from '../caja/caja.js';
@@ -26,19 +27,20 @@ export function contable(){
   const vs=misDatos('ventas').filter(v=>v.estado==='pagada');
   const delMes=vs.filter(v=>mesDeJornada(v)===mes);
   const delPrev=vs.filter(v=>mesDeJornada(v)===mesPrev);
-  const totalVentas=delMes.reduce((a,v)=>a+(v.subtotal||0),0);
-  const totalPrev=delPrev.reduce((a,v)=>a+(v.subtotal||0),0);
+  const totalVentas=delMes.reduce((a,v)=>a+Dominio.ventas.ventaDelNegocio(v),0);
+  const totalPrev=delPrev.reduce((a,v)=>a+Dominio.ventas.ventaDelNegocio(v),0);
   const difV=totalVentas-totalPrev;
   const pctV=totalPrev>0?Math.round((difV/totalPrev)*100):0;
-  const metodos=sumaPorMetodo(delMes, v=>(v.subtotal||0));
+  const metodos=sumaPorMetodo(delMes, v=>Dominio.ventas.ventaDelNegocio(v));
   const propinas=delMes.reduce((a,v)=>a+(v.propina||0),0);
   const domis=delMes.reduce((a,v)=>a+(v.valorDom||0),0);
   const recargos=delMes.reduce((a,v)=>a+(v.recargo||0),0);
   // ---- EGRESOS ----
   // Los gastos de caja se leen de los MOVIMIENTOS REALES del cajón (caja abierta
-  // y cierres del mes), no de una copia. Así el informe nunca se queda corto
-  // aunque la copia falle, y los del negocio se cuentan aparte para no duplicar.
-  const gastos=misDatos('gastos_negocio').filter(g=>Dominio.fechas.mesDe(g.fecha)===mes && g.origen!=='caja');
+  // y cierres del mes); las copias en Gastos del Negocio solo suman si su
+  // movimiento no aparece (Dominio.gastos.copiasSinMovimiento). Los del negocio, aparte.
+  const gastosMes=misDatos('gastos_negocio').filter(g=>Dominio.fechas.mesDe(g.fecha)===mes);
+  const gastos=gastosMes.filter(g=>g.origen!=='caja');
   const totalGastos=gastos.reduce((a,g)=>a+g.valor,0);      // solo los del negocio
   const cierres=misDatos('cierres').filter(c=>(jornadaCierre(c)||'').substring(0,7)===mes);
   const movsMes=[];
@@ -55,6 +57,10 @@ export function contable(){
     gastosCaja+=m.valor||0;
     acumConcepto(gCaja, m.concepto||'Otros', m.valor||0, ofi);
   });
+  Dominio.gastos.copiasSinMovimiento(gastosMes, movsMes).forEach(g=>{
+    gastosCaja+=g.valor||0;
+    acumConcepto(gCaja, g.concepto||'Otros', g.valor||0, ofi);
+  });
   const egresos=totalGastos+gastosCaja;
   const utilidad=totalVentas-egresos;
   const sumaDif=cierres.reduce((a,c)=>a+(c.diferencia||0),0);
@@ -64,7 +70,7 @@ export function contable(){
   // Productos más vendidos del mes
   const topProd=Dominio.ventas.vendidoPorProducto(delMes).sort((a,b)=>b[1].qty-a[1].qty).slice(0,10);   // F15
   // Días de mayor venta
-  const porDia={}; delMes.forEach(v=>{ const d=jornadaDe(v); porDia[d]=(porDia[d]||0)+(v.subtotal||0); });
+  const porDia={}; delMes.forEach(v=>{ const d=jornadaDe(v); porDia[d]=(porDia[d]||0)+Dominio.ventas.ventaDelNegocio(v); });
   const topDias=Object.entries(porDia).sort((a,b)=>b[1]-a[1]).slice(0,5);
   const mesesSet={}; mesesSet[today().substring(0,7)]=1;
   vs.forEach(v=>{ const m2=mesDeJornada(v); if(m2) mesesSet[m2]=1; });
@@ -82,7 +88,7 @@ export function contable(){
           <p class="gris">Informe interno de gestión para el dueño. No es tributario ni tiene relación con la DIAN.</p></div>
         <div class="t-acc">
           <select class="busca" data-change="elegirMesContable(this.value)">
-            ${meses.map(m=>`<option value="${m}" ${m===mes?'selected':''}>${nombreMes(m)}</option>`).join('')}
+            ${meses.map(m=>`<option value="${escapeHtml(m)}" ${m===mes?'selected':''}>${nombreMes(m)}</option>`).join('')}
           </select>
           <button class="btn btn-gold btn-sm" data-click="imprimirContable()">🖨️ PDF / Imprimir</button>
         </div>
@@ -143,13 +149,13 @@ export function contable(){
           <td class="oro">${c.baseManana!==undefined?fmtMoney(c.baseManana):'—'}</td>
           <td class="negrita">${c.retiroJefe?fmtMoney(c.retiroJefe):'—'}</td>
           <td>${(c.diferencia||0)===0?'<span class="pill pill-verde">Cuadró</span>':(c.diferencia>0?'<span class="pill pill-azul">Sobró '+fmtMoney(c.diferencia)+'</span>':'<span class="pill pill-rojo">Faltó '+fmtMoney(Math.abs(c.diferencia))+'</span>')}</td>
-          <td><button class="btn btn-sm" data-click="reimprimirCierre('${c.id}')" title="Reimprimir cuadre">🖨️</button></td>
+          <td><button class="btn btn-sm" data-click="reimprimirCierre('${escapeHtml(c.id)}')" title="Reimprimir cuadre">🖨️</button></td>
         </tr>`).join('')}</tbody>
       </table></div></div>`:''}`;
 }
 export function reimprimirCierre(id){
   const c=misDatos('cierres').find(x=>x.id===id);
-  if(!c){ toast('Cierre no encontrado','error'); return; }
+  if(!c){ toast(MSJ.cierreNoEncontrado,'error'); return; }
   imprimirCierre(c);
 }
 export function nombreMes(m){

@@ -103,11 +103,16 @@ test('reglas cerradas: al recargar la sesión sigue y no se ve otro negocio', {s
   await ponerReglas('database.rules.json');
   await pagina.reload({waitUntil:'networkidle2'});
   await esperarTexto('Mi Negocio');
-  const r=await pagina.evaluate(()=>Promise.all([
-    firebase.database().ref('data/data_n2_ventas_r').once('value').then(()=>'leyó', e=>'negado'),
-    firebase.database().ref('data/usuarios').once('value').then(()=>'leyó', e=>'negado'),
-    firebase.database().ref('data/data_n1_productos_r').once('value').then(s=>s.exists()?'propio':'vacío', e=>'negado')
-  ]));
+  // Con la misma sesión y el mismo SDK modular que cargó la app (firebase-sdk.js → sdkCargado)
+  const r=await pagina.evaluate(async ()=>{
+    const { database:D, app:A }=(await import('/src/adaptadores/salida/firebase-sdk.js')).sdkCargado();
+    const db=D.getDatabase(A.getApp()), leer=ruta=>D.get(D.ref(db, ruta));
+    return Promise.all([
+      leer('data/data_n2_ventas_r').then(()=>'leyó', e=>'negado'),
+      leer('data/usuarios').then(()=>'leyó', e=>'negado'),
+      leer('data/data_n1_productos_r').then(s=>s.exists()?'propio':'vacío', e=>'negado')
+    ]);
+  });
   assert.deepEqual(r, ['negado','negado','propio']);
   await salir();
 });
@@ -164,6 +169,59 @@ test('R1: el panel no descarga ventas; usa el resumen y supervisar carga el nego
   await pagina.waitForFunction(()=>datosDe('n2','ventas').length===1, {timeout:15000});
   await pagina.evaluate(()=>WS.volverSuperAdmin());
   await salir();
+});
+test('vendedor con reglas cerradas: ve solo lo suyo, crea un negocio a prueba con ejemplos, entra a su demo y la borra', {skip:omitir}, async ()=>{
+  // Cuenta del vendedor (como la crearía el dueño en Administradores) y una demo suya
+  const alta=await (await fetch('http://'+AUTH_HOST+'/identitytoolkit.googleapis.com/v1/accounts:signUp?key=demo-key', {method:'POST',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({email:'vende@usuarios.wallace-system.app', password:'vende2026', returnSecureToken:true})})).json();
+  await rest('perfiles/'+alta.localId, 'PUT', {rol:'superadmin', rolSuper:'vendedor', superId:'sv1', usuario:'vende', nombre:'Vendedora', activo:true});
+  await rest('login/vende', 'PUT', {correo:'vende@usuarios.wallace-system.app', uid:alta.localId});
+  const hoy=Date.now();
+  await rest('data/negocios_r/ndemo', 'PUT', Object.assign(NEG('ndemo','Demo de Vendedora'), {esDemo:true, demoDe:'sv1', pruebaDesde:hoy, pruebaHasta:hoy+15*86400000}));
+  await rest('data/data_ndemo_productos_r/pd', 'PUT', {id:'pd', nombre:'Producto demo', precio:1000, creado:'2026-10-01T00:00:00Z'});
+
+  const negados=[]; const oirNegados=m=>{ if(/permission/i.test(m.text())) negados.push(m.text().slice(0,200)); };
+  pagina.on('console', oirNegados);
+  await entrar('vende', 'vende2026');
+  await esperarTexto('Panel de');
+  await pagina.waitForFunction(()=>(DB.get('negocios')||[]).length===1, {timeout:15000});
+  assert.deepEqual(await pagina.evaluate(()=>DB.get('negocios').map(n=>n.id)), ['ndemo'], 'solo su demo, ni n1 ni n2');
+
+  // Negocio a prueba con ejemplos, a su nombre
+  await pagina.evaluate(()=>WS.nuevoNegocio());
+  // Valores directos (escribir con el teclado en un modal recién abierto a veces pierde el foco)
+  await pagina.waitForSelector('#m-nombre', {visible:true});
+  await pagina.evaluate(()=>{ const v={'m-nombre':'Cliente de Vendedora', 'm-tipo':'Restaurante', 'm-usuario':'clientev', 'm-pass':'clientev1'};
+    Object.keys(v).forEach(id=>{ document.getElementById(id).value=v[id]; }); });
+  await pagina.$eval('#m-ejemplos', e=>{ e.checked=true; });
+  await pagina.click('#modal-ok');
+  let neg=null;
+  for(let i=0;i<60 && !neg;i++){ await espera(250); neg=Object.values((await rest('data/negocios_r'))||{}).find(n=>n.nombre==='Cliente de Vendedora'); }
+  assert.ok(neg, 'negocio creado. Avisos: '+(await pagina.$$eval('#toasts .toast', l=>l.map(t=>t.textContent).join(' | ')))+' · negados: '+negados.join(' || ')+' · local: '+(await pagina.evaluate(()=>JSON.stringify((DB.get('negocios')||[]).map(n=>[n.id,n.nombre,n.vendedorId,n.pruebaHasta]))))+' · modal: '+(await pagina.$eval('#modal-container', e=>e.className+' '+e.innerText.slice(0,300)).catch(()=>'')));
+  assert.equal(neg.vendedorId, 'sv1');
+  assert.ok(neg.pruebaHasta > hoy+29*86400000);
+  let ejemplos=0, login=null;
+  for(let i=0;i<60 && !(ejemplos && login);i++){ await espera(250);
+    ejemplos=Object.values((await rest('data/data_'+neg.id+'_productos_r'))||{}).filter(x=>x.ejemplo).length;
+    login=await rest('login/clientev'); }
+  assert.ok(ejemplos>0, 'productos de ejemplo');
+  assert.ok(login && login.uid, 'cuenta del administrador');
+  const us=Object.values((await rest('data/data_'+neg.id+'_usuarios_r'))||{});
+  assert.ok(us.some(u=>u.usuario==='clientev' && u.uid===login.uid), 'registro del administrador en su negocio');
+
+  // Entrar a su demo: carga sus datos (negocio activo); borrarla: se va todo
+  await pagina.evaluate(()=>WS.entrarComoNegocio('ndemo'));
+  await pagina.waitForFunction(()=>datosDe('ndemo','productos').length===1, {timeout:15000});
+  assert.equal(await rest('perfiles/'+alta.localId+'/negocioActivo'), 'ndemo');
+  await pagina.evaluate(()=>WS.volverSuperAdmin());
+  await pagina.evaluate(()=>WS.eliminarDemoVendedor('ndemo'));
+  await pagina.click('#modal-ok');
+  let queda=true;
+  for(let i=0;i<60 && queda;i++){ await espera(250); queda=!!(await rest('data/negocios_r/ndemo')) || !!(await rest('data/data_ndemo_productos_r')); }
+  assert.equal(queda, false, 'demo y sus datos borrados');
+  await salir();
+  pagina.off('console', oirNegados);
+  assert.deepEqual(negados, [], 'ninguna escritura o lectura negada por las reglas');
 });
 test('sin errores de JavaScript en la página', {skip:omitir}, ()=>{
   assert.deepEqual(errores, []);

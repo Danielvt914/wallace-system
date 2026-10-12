@@ -7,9 +7,9 @@ Qué apunta a dónde (Firebase y Render), qué hay que cambiar antes de llevar e
 `firebase-config.js` ya tiene **las dos** configuraciones y elige una **al cargar la página, según el dominio**:
 
 ```
-var PRODUCCION = { … projectId: "wallace-system" … };            // la base de la empresa
-var PRUEBAS    = { … projectId: "wallacesys-dev-sandbox" … };     // el proyecto de simulación
-var HOSTS_PRODUCCION = [];                                         // ← lo único que falta
+export const PRODUCCION = { … projectId: "wallace-system" … };            // la base de la empresa
+export const PRUEBAS    = { … projectId: "wallacesys-dev-sandbox" … };     // el proyecto de simulación
+export const HOSTS_PRODUCCION = [];                                       // ← lo único que falta
 
 dominio en HOSTS_PRODUCCION      → PRODUCCION
 localhost / el fork / otro       → PRUEBAS
