@@ -144,3 +144,47 @@ export function camposCambiados(antes, despues){
   Object.keys(a).forEach(k=>{ if(!(k in b)) out[k]=null; });
   return out;
 }
+
+// ---------- "Olvidé mi contraseña": recuperación asistida (Plan B, sin servidor) ----------
+// La persona deja una solicitud desde el login (sin sesión); el dueño o el ayudante del
+// sistema verifica por teléfono que es ella y le genera una contraseña temporal; al entrar,
+// la app la obliga a poner una nueva (perfil.debeCambiarPass). Las reglas validan lo mismo
+// (recuperaciones/<claveUsuario>). Documentation/-03-architecture/recuperar-contrasena.md
+export const RECUPERACION_ESPERA_MS=60*60*1000;   // una solicitud por usuario cada hora
+export const CONTACTO_MAX=40;
+// Lo que guarda el login (la hora la pone el servidor). null si no escribió usuario.
+export function solicitudRecuperacion(usuario, contacto){
+  const clave=claveUsuario(usuario);
+  if(!clave) return null;
+  return {usuario:clave, contacto:String(contacto||'').trim().slice(0,CONTACTO_MAX), estado:'pendiente'};
+}
+// Pendientes, la más vieja primero
+export function recuperacionesPendientes(todas){
+  return Object.values(todas||{}).filter(r=>r && r.estado==='pendiente').sort((a,b)=>(a.fecha||0)-(b.fecha||0));
+}
+// ¿Tiene que cambiar la contraseña antes de usar la app? (entró con una temporal)
+export function debeCambiarPass(perfil){ return !!(perfil && perfil.debeCambiarPass===true); }
+
+// ---------- Super-admin con correo real (recuperación por correo de Firebase) ----------
+// Mientras no se active "Entrar con Google", el dueño o el ayudante pueden pasar su cuenta
+// a su correo de verdad: entran ESCRIBIENDO el correo y "olvidé mi contraseña" les manda el
+// enlace de Firebase. Su usuario queda en login/ con esta marca, que no revela el correo.
+// Documentation/-03-architecture/recuperar-contrasena.md (sección 9)
+export const MARCA_SOLO_CORREO='@correo';
+export function esCorreo(s){ return typeof s==='string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim()); }
+export function esCorreoInterno(s){ return typeof s==='string' && s.trim().toLowerCase().endsWith('@'+DOMINIO_CORREO); }
+// Un correo real que sirve para recibir el enlace (no el interno inventado)
+export function correoRealValido(s){ return esCorreo(s) && !esCorreoInterno(s); }
+// ¿Esta entrada del índice dice "entra con su correo"?
+export function entraConCorreo(entrada){ return !!(entrada && entrada.correo===MARCA_SOLO_CORREO); }
+
+// ---------- Nombres de usuario (4.ª revisión, V4) ----------
+// Sin "@": el login toma un texto con "@" como correo (super-admin con correo real) y ese
+// usuario nunca podría entrar. De 3 a 40 caracteres, sin espacios en los extremos.
+export const USUARIO_MIN=3, USUARIO_MAX=40;
+export function usuarioValido(u){
+  const s=String(u==null?'':u).trim();
+  return s.length>=USUARIO_MIN && s.length<=USUARIO_MAX && s.indexOf('@')<0 && !/[\u0000-\u001f]/.test(s);
+}
+// "Ana" y "ana" son el mismo usuario para no confundir a nadie (el índice sí distingue)
+export function mismoUsuario(a, b){ return String(a||'').trim().toLowerCase()===String(b||'').trim().toLowerCase(); }

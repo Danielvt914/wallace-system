@@ -79,3 +79,33 @@ test('camposCambiados: solo lo distinto, y null para lo que se quitó', ()=>{
   assert.deepEqual(dc.camposCambiados({a:1, b:[1], c:3}, {a:1, b:[1,2], d:4}), {b:[1,2], d:4, c:null});
   assert.deepEqual(dc.camposCambiados(null, {a:1}), {a:1});
 });
+
+test('olvidé mi contraseña: solicitud, pendientes y cambio obligatorio', ()=>{
+  const s=dc.solicitudRecuperacion('  Ana.Pérez ', ' 300 123 4567 ');
+  assert.deepEqual(s, {usuario:dc.claveUsuario('Ana.Pérez'), contacto:'300 123 4567', estado:'pendiente'});
+  assert.equal(dc.solicitudRecuperacion('   ', 'x'), null);
+  assert.equal(dc.solicitudRecuperacion('ana', 'x'.repeat(80)).contacto.length, dc.CONTACTO_MAX);
+  const todas={b:{usuario:'b', estado:'pendiente', fecha:20}, a:{usuario:'a', estado:'pendiente', fecha:10}, c:{usuario:'c', estado:'resuelta', fecha:5}};
+  assert.deepEqual(dc.recuperacionesPendientes(todas).map(r=>r.usuario), ['a','b']);
+  assert.equal(dc.debeCambiarPass({debeCambiarPass:true}), true);
+  assert.equal(dc.debeCambiarPass({debeCambiarPass:'si'}), false);
+  assert.equal(dc.debeCambiarPass(null), false);
+});
+
+test('super-admin con correo real: qué es un correo real y la marca del índice', ()=>{
+  assert.equal(dc.correoRealValido('dueno@ejemplo.com'), true);
+  assert.equal(dc.correoRealValido(' dueno@ejemplo.com '), true);
+  assert.equal(dc.correoRealValido('roldan'), false);
+  assert.equal(dc.correoRealValido('a@b'), false);
+  assert.equal(dc.correoRealValido(dc.correoInterno('abcdefgh12')), false);   // el interno no recibe correos
+  assert.equal(dc.entraConCorreo({correo:dc.MARCA_SOLO_CORREO, uid:'x'}), true);
+  assert.equal(dc.entraConCorreo({correo:'u1@'+dc.DOMINIO_CORREO, uid:'x'}), false);
+  assert.equal(dc.entraConCorreo(null), false);
+});
+
+test('V4: nombres de usuario', ()=>{
+  for(const u of ['admin','MARCE','ana.perez','Don José']) assert.equal(dc.usuarioValido(u), true, u);
+  for(const u of ['', '  ', 'ab', 'ana@tienda.com', 'x'.repeat(41), 'a\tb']) assert.equal(dc.usuarioValido(u), false, JSON.stringify(u));
+  assert.equal(dc.mismoUsuario('Ana', ' ana '), true);
+  assert.equal(dc.mismoUsuario('Ana', 'Anna'), false);
+});

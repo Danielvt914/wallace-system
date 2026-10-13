@@ -63,8 +63,10 @@ export function editarSuperAdmin(id){
   ], onGuardar:(d)=>{
     const usuario=d.usuario.trim();
     // No permitir usuarios repetidos (ni con empleados de negocios)
-    const dup=(DB.get('superadmins')||[]).some(x=>x.usuario===usuario && (!s||x.id!==s.id))
-           || (DB.get('usuarios')||[]).some(u=>u.usuario===usuario);
+    if(!Dominio.cuentas.usuarioValido(usuario)){ toast(MSJ.usuarioInvalido,'error'); return; }   // V4
+    const igual=x=>Dominio.cuentas.mismoUsuario(x.usuario, usuario);
+    const dup=(DB.get('superadmins')||[]).some(x=>igual(x) && (!s||x.id!==s.id))
+           || (DB.get('usuarios')||[]).some(igual);
     if(dup){ toast(MSJ.eseUsuarioYaExiste,'error'); return; }
     const nuevaPass=d.pass.trim();
     const cuentas=conCuentasFirebase(), minPass=cuentas?6:5;

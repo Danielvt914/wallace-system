@@ -64,3 +64,11 @@ export function liquidarCierre(esperado, contado, baseManana){
   if(baseManana>contado) return null;
   return {diferencia:contado-esperado, retiroJefe:contado-baseManana};
 }
+
+// Pago al domiciliario de los domicilios que entraron por banco: sale del cajón como un
+// retiro marcado con pagoDomi (la clave del domiciliario en el cuadre). Cuánto ya se le pagó
+// en esta caja, para no pagarle dos veces (flujo a medias de la 3.ª revisión).
+export function pagadoADomiciliario(caja, clave){
+  return ((caja && caja.movimientos)||[]).filter(m=>m && m.tipo==='retiro' && m.pagoDomi===clave)
+    .reduce((a,m)=>a+(Number(m.valor)||0),0);
+}

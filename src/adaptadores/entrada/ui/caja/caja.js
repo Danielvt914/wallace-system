@@ -7,7 +7,7 @@
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, fmtDate, fmtMoney, jornadaActual, now } from '../nucleo/estado.js';
 import { BOTON, MSJ } from '../nucleo/textos.js';
-import { cajaActual, sucursalActual, tienePermiso } from '../nucleo/permisos.js';
+import { cajaActual, exigirEscritura, sucursalActual, tienePermiso } from '../nucleo/permisos.js';
 import { abrirModal, cerrarModal, ic, logoNegocio, pPedido, pPedidos, pPersonal, pProds, reportarError, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
 import { logAudit } from '../usuarios/auditoria.js';
@@ -152,12 +152,14 @@ export function caja(){
 }
 
 export function abrirCaja(){
+  if(!exigirEscritura()) return;   // D10: solo lectura
   if(!tienePermiso('abrircaja')){ toast(MSJ.noTienesPermisoParaAbrirLa,'error'); return; }
   const abierta=cajaActual();
   if(abierta){ toast('Ya hay una caja abierta por '+(abierta.cajero||'otro usuario'),'info'); render(); return; }
   const bs=baseSiguiente();
   // Si ya hubo un cierre, la base es OBLIGATORIA: la que quedó guardada
   const base = bs!==null ? bs : (parseFloat((document.getElementById('caja-base')||{}).value)||0);
+  if(!Dominio.pagos.montoValido(base)){ toast(MSJ.losMontosNoPuedenSerNegativos,'error'); return; }   // V3: abrir debiendo
   if(_guardando) return;
   fijarGuardando(true);
   const nueva={id:uid(), base, apertura:now(), cajero:STATE.user.nombre, movimientos:[]};
@@ -174,7 +176,7 @@ export function abrirCaja(){
       toast('Caja abierta con '+fmtMoney(base),'success');
       render();
     })
-    .catch(e=>{ console.error(e); toast(MSJ.noSePudoAbrirLaCaja,'error'); })
+    .catch(e=>{ reportarError('abrir la caja', e); toast(MSJ.noSePudoAbrirLaCaja,'error'); })
     .then(()=>{ fijarGuardando(false); });
 }
 // D7: agrega un movimiento (gasto, retiro, entrada) a la caja abierta de esta sede con una
@@ -188,6 +190,7 @@ export function agregarMovimientoCaja(mov){
   }).then(r=>{ const c=cajaDe(r.valor,suc); return !!(r.committed && c && (c.movimientos||[]).some(m=>m.id===mov.id)); });
 }
 export function movimientoCaja(tipo){
+  if(!exigirEscritura()) return;   // D10: solo lectura
   if(!(tienePermiso('abrircaja')||puedeRetirarJefe())){ toast(MSJ.noTienesPermisoParaRegistrarMovimientos,'error'); return; }
   const titulos={gasto:'Registrar gasto de caja',retiro:'Registrar retiro',entrada:'Registrar entrada'};
   abrirModal({titulo:titulos[tipo], textoBoton:BOTON.registrar, campos:[
@@ -223,6 +226,7 @@ export function movimientoCaja(tipo){
   }});
 }
 export function cerrarCaja(){
+  if(!exigirEscritura()) return;   // D10: solo lectura
   if(!tienePermiso('abrircaja')){ toast(MSJ.noTienesPermisoParaCerrarLa,'error'); return; }
   // No dejar cerrar con cobros a medio ajustar: eso es lo que descuadra la caja
   const sinAjustar=ventasJornada(true).filter(v=>v.pagoDescuadrado);
@@ -283,6 +287,7 @@ export function cerrarCaja(){
   onGuardar:(d)=>{
     const contado=parseFloat(d.contado)||0;
     const baseManana=parseFloat(d.base)||0;
+    if(!Dominio.pagos.montoValido(contado) || !Dominio.pagos.montoValido(baseManana)){ toast(MSJ.losMontosNoPuedenSerNegativos,'error'); return; }   // V3
     if(baseManana>contado){ toast(MSJ.laBaseParaMananaNoPuede,'error'); return; }
     if(_guardando) return;
     fijarGuardando(true);
@@ -299,7 +304,7 @@ export function cerrarCaja(){
     }).then(r=>{
       if(!r.committed){ cerrarModal(); toast(MSJ.estaCajaYaFueCerradaDesde,'error'); render(); return; }
       terminarCierre(enServidor||c, ventas, contado, baseManana, d.motivo);
-    }).catch(e=>{ console.error(e); toast(MSJ.noSePudoCerrarLaCaja,'error'); })
+    }).catch(e=>{ reportarError('cerrar la caja', e); toast(MSJ.noSePudoCerrarLaCaja,'error'); })
       .then(()=>{ fijarGuardando(false); });
   }});
 }
@@ -492,6 +497,7 @@ export function cambiarBaseApertura(){
   ], extraHTML:`<p class="nota">Úsalo solo si el dinero del cajón no coincide con lo que quedó al cerrar. Queda en la auditoría.</p>`,
   onGuardar:(d)=>{
     const nueva=parseFloat(d.base)||0;
+    if(!Dominio.pagos.montoValido(nueva)){ toast(MSJ.losMontosNoPuedenSerNegativos,'error'); return; }   // V3: una base negativa abriría la caja debiendo
     const cfg=cfgCaja(); ponerBaseSiguiente(cfg, nueva); guardarCfgCaja(cfg);
     logAudit('Corrigió la base de apertura', fmtMoney(base||0)+' → '+fmtMoney(nueva)+' · '+(d.motivo||''));
     cerrarModal(); toast(MSJ.baseCorregida,'success'); render();

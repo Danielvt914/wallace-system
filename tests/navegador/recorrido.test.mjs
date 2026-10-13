@@ -603,6 +603,272 @@ test('S8: un logo, un campo del negocio, una cuenta y un id maliciosos no ejecut
   assert.equal(r.xss, 0, 'se ejecutó código inyectado');
   assert.ok(r.impresiones>=1, 'se revisó al menos una impresión');
 });
+test('3.ª revisión: D9 (no cobrar ni anular lo que cambió otro equipo), S9, F24, F25, F26, F27, F28, S11 y D10', {skip:omitir}, async ()=>{
+  await pagina.evaluate(AYUDA_CAJA);
+  const r=await pagina.evaluate(async ()=>{
+    const res={};
+    const toasts=()=>Array.from(document.querySelectorAll('#toasts .toast')).map(t=>t.textContent);
+    const limpiarToasts=()=>{ document.getElementById('toasts').innerHTML=''; };
+    const n=(DB.get('negocios')||[]).find(x=>x.flujoPedido==='dos_pasos' && (x.funciones||[]).includes('caja') && (x.funciones||[]).includes('inventario'));
+    WS.entrarComoNegocio(n.id); await __esperar(80);
+    await __abrirCaja();
+    const prods=misDatos('productos').filter(x=>!x.esCombo && !x.agotado && (x.stock==null || x.stock>5));
+    const p=prods[0], q=prods[1]||prods[0];
+    const pedido=(tel)=>{ WS.STATE.pageNeg='ventas'; WS.render(); WS.vaciarCarrito(); WS.agregarAlCarrito(p.id);
+      Object.assign(WS._vCli, {nombre:'Prueba R3', tel, dir:'Calle 1', barrio:'Centro'}); WS.ponerMesa('3'); WS.confirmarPedido();
+      return misDatos('ventas').find(v=>v.cliTel===tel && v.estado==='abierta'); };
+    const otroEquipo=(id, cambio)=>{ const v=JSON.parse(JSON.stringify(misDatos('ventas').find(x=>x.id===id))); Object.assign(v, cambio(v)); Datos.guardarEn(n.id,'ventas',[v]); };
+
+    // D9: cobrar un pedido al que otro equipo le agregó algo mientras el modal estaba abierto
+    const v1=pedido('3000000001'); await __esperar(60); WS.cerrarModal();
+    WS.cobrarPedido(v1.id); await __esperar(80);
+    otroEquipo(v1.id, v=>({items:v.items.concat([{prodId:q.id, nombre:q.nombre, precio:q.precio, qty:1}])}));
+    limpiarToasts(); document.getElementById('modal-ok').click(); await __esperar(150);
+    res.d9cobro=misDatos('ventas').find(x=>x.id===v1.id).estado;
+    res.d9aviso=toasts().some(t=>t.includes('Otro equipo cambió'));
+    WS.cerrarModal();
+    // D9: anular lo que otro equipo cobró mientras se confirmaba
+    WS.anularPedido(v1.id); await __esperar(60);
+    otroEquipo(v1.id, ()=>({estado:'pagada', pagos:{efectivo:1, banco:0, tarjeta:0}}));
+    document.getElementById('modal-ok').click(); await __esperar(150);
+    res.d9anular=misDatos('ventas').find(x=>x.id===v1.id).estado;
+    WS.cerrarModal();
+
+    // S9: efectivo negativo con banco de más: no se cobra
+    const v2=pedido('3000000002'); await __esperar(60); WS.cerrarModal();
+    WS.cobrarPedido(v2.id); await __esperar(80);
+    document.getElementById('pg-efectivo').value=String(-v2.total); document.getElementById('pg-banco').value=String(2*v2.total);
+    limpiarToasts(); document.getElementById('modal-ok').click(); await __esperar(120);
+    res.s9=misDatos('ventas').find(x=>x.id===v2.id).estado;
+    res.s9aviso=toasts().some(t=>t.includes('negativos'));
+    WS.cerrarModal();
+
+    // F24: eliminar definitivamente una venta viva no; cambiar el pago de una caja cerrada no
+    WS.eliminarDefinitivo(v2.id); await __esperar(60);
+    res.f24eliminar=!!misDatos('ventas').find(x=>x.id===v2.id) && !(((document.querySelector('#modal-container.activo')||{}).innerText||'').includes('PERMANENTEMENTE'));
+    WS.cerrarModal();
+    WS.cobrarPedido(v2.id); await __esperar(80); WS.pagoRapido('efectivo'); document.getElementById('modal-ok').click(); await __esperar(150); WS.cerrarModal();
+    await __esperar(900); WS.cerrarModal(); await __esperar(400); WS.cerrarModal();   // preguntas en cola (F27) del cobro
+    // La venta es de una caja ya cerrada (como si se hubiera cobrado en el turno anterior)
+    otroEquipo(v2.id, ()=>({cajaId:'caja-de-ayer'}));
+    WS.cambiarFormaPago(v2.id); await __esperar(60);
+    res.f24pago=!(((document.querySelector('#modal-container.activo h3')||{}).textContent||'').includes('forma de pago'));
+    WS.cerrarModal();
+
+    // F25: el escáner no agrega un producto agotado
+    WS.STATE.pageNeg='ventas'; WS.render(); WS.vaciarCarrito();
+    WS.alternarAgotado(q.id); await __esperar(30);
+    if(q.codBarras) WS.escanearProducto(q.codBarras); else WS.agregarAlCarrito(q.id);
+    res.f25=WS._carrito.length;
+    WS.alternarAgotado(q.id); await __esperar(30);
+
+    // F26: descuento en % se recalcula; uno fijo no supera el subtotal
+    WS.vaciarCarrito(); WS.agregarAlCarrito(p.id);
+    WS.abrirDescuento(); await __esperar(40);
+    document.getElementById('m-tipo').value='pct'; document.getElementById('m-cantidad').value='10'; document.getElementById('modal-ok').click(); await __esperar(40);
+    WS.agregarAlCarrito(p.id);
+    res.f26pct=WS.descuentoDe(2*p.precio)===Math.round(2*p.precio*0.1);
+    WS.quitarDescuento(); WS.abrirDescuento(); await __esperar(40);
+    document.getElementById('m-tipo').value='valor'; document.getElementById('m-cantidad').value=String(2*p.precio); document.getElementById('modal-ok').click(); await __esperar(40);
+    WS.cambiarQty(0,-1);
+    res.f26tope=WS.descuentoDe(p.precio)===p.precio;
+    WS.vaciarCarrito();
+
+    // F27: una pregunta diferida espera a que se cierre la ventana abierta (antes se perdía)
+    WS.abrirModal({titulo:'Ocupado', campos:[], onGuardar:()=>WS.cerrarModal()});
+    let preguntada=false;
+    WS.preguntarDespues('¿Imprimir prueba R3?', ()=>{ preguntada=true; }, 'Sí', 50);
+    await __esperar(300);
+    const tituloAntes=(document.querySelector('#modal-container .modal-tit, #modal-container h3')||{}).textContent||'';
+    WS.cerrarModal(); await __esperar(500);
+    const aparecio=(document.getElementById('modal-container')||{}).innerText||'';
+    res.f27=tituloAntes.includes('Ocupado') && aparecio.includes('Imprimir prueba R3');
+    WS.cerrarModal();
+
+    // F28: un producto que es parte de un combo no se elimina
+    const combo=misDatos('productos').find(x=>x.esCombo && (x.componentes||[]).length);
+    if(combo){ WS.eliminarProducto(combo.componentes[0].prodId); await __esperar(60);
+      res.f28=!!misDatos('productos').find(x=>x.id===combo.componentes[0].prodId) && !(((document.querySelector('#modal-container.activo')||{}).innerText||'').includes('¿Eliminar')); WS.cerrarModal(); }
+    else res.f28=true;
+
+    // S11: guardar una edición por "Confirmar pedido" exige el permiso editar
+    const v3=pedido('3000000003'); await __esperar(60); WS.cerrarModal();
+    WS.editarPedido(v3.id); await __esperar(40);
+    const yo=WS.STATE.user; WS.STATE.user=Object.assign({}, yo, {rol:'cajero', esSupervisor:false, permisos:['cobrar'], pantallas:['ventas','pedidos']});
+    WS.agregarAlCarrito(p.id); WS.confirmarPedido(); await __esperar(120);
+    res.s11=(misDatos('ventas').find(x=>x.id===v3.id).items||[]).reduce((a,i)=>a+i.qty,0);
+    WS.STATE.user=yo; WS.limpiarPedido();
+
+    // D10: prueba vencida = solo lectura para la gente del negocio (no para el super-admin)
+    const lista=DB.get('negocios'); const neg=lista.find(x=>x.id===n.id); const antes=neg.pruebaHasta;
+    neg.pruebaHasta=Date.now()-1000; DB.set('negocios', lista); WS.STATE.negocio=Object.assign({}, WS.STATE.negocio, {pruebaHasta:neg.pruebaHasta});
+    WS.STATE.modoSupervision=false;
+    const cuantas=misDatos('ventas').length;
+    WS.STATE.pageNeg='ventas'; WS.render(); WS.vaciarCarrito(); WS.agregarAlCarrito(p.id);
+    Object.assign(WS._vCli, {nombre:'Vencida', tel:'3000000004', dir:'C', barrio:'C'}); WS.confirmarPedido(); await __esperar(60);
+    Datos.guardarEn(n.id, 'ventas', [{id:'fantasma', estado:'abierta', items:[], total:1}]);
+    res.d10=[misDatos('ventas').length===cuantas, !misDatos('ventas').some(v=>v.id==='fantasma'), WS.tienePermiso('cobrar')===false, WS.tienePermiso('imprimir')===true];
+    WS.STATE.modoSupervision=true;
+    res.d10super=WS.tienePermiso('cobrar');
+    neg.pruebaHasta=antes; if(antes==null) delete neg.pruebaHasta; DB.set('negocios', lista);
+    WS.STATE.negocio=Object.assign({}, WS.STATE.negocio, {pruebaHasta:antes});
+    WS.limpiarPedido(); WS.volverSuperAdmin();
+    return res;
+  });
+  assert.deepEqual(r, {d9cobro:'abierta', d9aviso:true, d9anular:'pagada', s9:'abierta', s9aviso:true, f24eliminar:true, f24pago:true,
+    f25:0, f26pct:true, f26tope:true, f27:true, f28:true, s11:1, d10:[true,true,true,true], d10super:true});
+});
+test('flujos a medias: pago al domiciliario, editar cita, devolver con el inventario apagado, restaurar un negocio y factura al cobrar', {skip:omitir}, async ()=>{
+  await pagina.evaluate(AYUDA_CAJA);
+  const r=await pagina.evaluate(async ()=>{
+    const res={};
+    const toasts=()=>Array.from(document.querySelectorAll('#toasts .toast')).map(t=>t.textContent);
+    const n=(DB.get('negocios')||[]).find(x=>(x.funciones||[]).includes('caja') && (x.funciones||[]).includes('inventario') && (x.funciones||[]).includes('domicilios'))
+      || (DB.get('negocios')||[]).find(x=>(x.funciones||[]).includes('caja') && (x.funciones||[]).includes('inventario'));
+    WS.entrarComoNegocio(n.id); await __esperar(80);
+    await __abrirCaja();
+    const p=misDatos('productos').find(x=>!x.esCombo && !x.agotado && x.stock!=null && x.stock>10);
+    const stock=()=>misDatos('productos').find(x=>x.id===p.id).stock;
+
+    // 1) Pago al domiciliario de los domicilios que entraron por banco
+    const dom={id:'domR', nombre:'Mensajero R', creado:new Date().toISOString()};
+    Datos.guardarEn(n.id, 'domiciliarios', [dom]);
+    const caja=WS.cajaActual();
+    Datos.guardarEn(n.id, 'ventas', [{id:'vdomR', factura:'R-1', estado:'pagada', tipo:'domicilio', items:[], subtotal:20000, valorDom:5000, total:25000,
+      pagos:{efectivo:0, banco:25000, tarjeta:0}, metodo:'banco', domiciliario:dom.nombre, domiciliarioId:dom.id, cajaId:caja.id,
+      jornada:caja.jornada||WS.jornadaActual(), fecha:new Date().toISOString(), sucursalId:WS.sucursalActual()}]);
+    WS.irA('cuadredomi'); await __esperar(60);
+    res.botonPago=!!document.querySelector('[data-click="pagarDomiciliario(\'domR\')"]');
+    WS.pagarDomiciliario('domR'); await __esperar(60); document.getElementById('modal-ok').click(); await __esperar(250);
+    const pagos=(WS.cajaActual().movimientos||[]).filter(m=>m.pagoDomi==='domR');
+    res.pago=pagos.length===1 && pagos[0].valor===5000 && pagos[0].tipo==='retiro';
+    WS.render(); await __esperar(40);
+    res.pagadoPill=document.getElementById('app').innerText.includes('✓ Pagado');
+    WS.pagarDomiciliario('domR'); await __esperar(60);
+    res.noDosVeces=!document.querySelector('#modal-container.activo') && (WS.cajaActual().movimientos||[]).filter(m=>m.pagoDomi==='domR').length===1;
+    WS.cerrarModal();
+
+    // 2) Editar una cita pendiente: el apartado se ajusta solo por la diferencia (en un negocio con agenda)
+    const nc=(DB.get('negocios')||[]).find(x=>(x.funciones||[]).includes('citas') && (x.funciones||[]).includes('inventario'));
+    WS.volverSuperAdmin(); WS.entrarComoNegocio(nc.id); await __esperar(80);
+    const pc=misDatos('productos').find(x=>!x.esCombo && x.stock!=null && x.stock>10);
+    const stockC=()=>misDatos('productos').find(x=>x.id===pc.id).stock;
+    const s0=stockC();
+    WS.nuevaCita(); await __esperar(60);
+    document.getElementById('m-cliente').value='Cita R';
+    document.getElementById('apart-prod').value=pc.id; document.getElementById('apart-cant').value='2'; WS.agregarProdApartado();
+    document.getElementById('modal-ok').click(); await __esperar(120);
+    const cita=misDatos('citas').find(c=>c.cliente==='Cita R');
+    const s1=stockC();
+    WS.editarCita(cita.id); await __esperar(60);
+    document.getElementById('m-hora').value='15:30';
+    document.getElementById('apart-prod').value=pc.id; document.getElementById('apart-cant').value='3'; WS.agregarProdApartado();
+    document.getElementById('modal-ok').click(); await __esperar(120);
+    const cita2=misDatos('citas').find(c=>c.id===cita.id);
+    res.cita=[s0-s1, s1-stockC(), cita2.fechaHora.slice(11,16), cita2.apartados[0].cantidad];
+    WS.eliminarCita(cita.id); await __esperar(40); document.getElementById('modal-ok').click(); await __esperar(80);
+    res.citaDevuelta=stockC()===s0;
+    WS.volverSuperAdmin(); WS.entrarComoNegocio(n.id); await __esperar(80);
+
+    // 3) Inventario apagado después de vender: anular devuelve lo que SÍ se descontó
+    WS.STATE.pageNeg='ventas'; WS.render(); WS.vaciarCarrito(); WS.agregarAlCarrito(p.id);
+    Object.assign(WS._vCli, {nombre:'Apagado R', tel:'3000000099', dir:'C', barrio:'C'});
+    WS.cobrarDirecto(); await __esperar(80);
+    res.sinNumeroAlAbrir=(document.querySelector('#modal-container h3')||{}).textContent.includes('(nueva venta)');
+    WS.pagoRapido('efectivo'); document.getElementById('modal-ok').click(); await __esperar(150); WS.cerrarModal();
+    const vend=misDatos('ventas').find(v=>v.cliTel==='3000000099');
+    res.numeroAlCobrar=!!vend.factura;
+    const s2=stock();
+    const lista=DB.get('negocios'); lista.find(x=>x.id===n.id).inventarioApagado=true; DB.set('negocios', lista);
+    WS.STATE.negocio=Object.assign({}, WS.STATE.negocio, {inventarioApagado:true});
+    WS.anularPedido(vend.id); await __esperar(60); document.getElementById('modal-ok').click(); await __esperar(150);
+    res.devueltoApagado=stock()===s2+1 && misDatos('ventas').find(v=>v.id===vend.id).stockAplicado===false;
+    lista.find(x=>x.id===n.id).inventarioApagado=false; DB.set('negocios', lista);
+    WS.STATE.negocio=Object.assign({}, WS.STATE.negocio, {inventarioApagado:false});
+
+    // 4) Restaurar el negocio desde un respaldo (modo local)
+    const respaldo=JSON.parse(JSON.stringify((await Datos.exportarTodo()).datos));
+    Datos.guardarEn(n.id, 'ventas', [{id:'despuesR', estado:'abierta', items:[], total:1, fecha:new Date().toISOString()}]);
+    const ok=await WS.restaurarNegocioDesde(respaldo, n.id);
+    res.restaurado=ok===true && !misDatos('ventas').some(v=>v.id==='despuesR') && misDatos('ventas').some(v=>v.id===vend.id);
+    WS.volverSuperAdmin();
+    return res;
+  });
+  assert.deepEqual(r, {botonPago:true, pago:true, pagadoPill:true, noDosVeces:true, cita:[2,1,'15:30',3], citaDevuelta:true,
+    sinNumeroAlAbrir:true, numeroAlCobrar:true, devueltoApagado:true, restaurado:true});
+});
+test('4.ª revisión: validaciones (obligatorios con espacios, negativos, porcentajes, códigos repetidos, conteo, usuarios con @) y errores no atrapados', {skip:omitir}, async ()=>{
+  await pagina.evaluate(AYUDA_CAJA);
+  const r=await pagina.evaluate(async ()=>{
+    const res={};
+    const n=(DB.get('negocios')||[]).find(x=>(x.funciones||[]).includes('caja') && (x.funciones||[]).includes('inventario') && !x.usaRecetas);
+    WS.entrarComoNegocio(n.id); await __esperar(80);
+    const ok=()=>{ document.getElementById('modal-ok').click(); };
+    // V1: un nombre con solo espacios no crea el producto
+    const antes=misDatos('productos').length;
+    WS.editarProducto(null); await __esperar(60);
+    document.getElementById('m-nombre').value='   '; document.getElementById('m-precio').value='1000'; ok(); await __esperar(60);
+    res.espacios=misDatos('productos').length===antes && !!document.querySelector('#modal-container.activo');
+    // V3: stock negativo
+    document.getElementById('m-nombre').value='Producto V3'; if(document.getElementById('m-stock')) document.getElementById('m-stock').value='-5';
+    ok(); await __esperar(60);
+    res.stockNegativo=!misDatos('productos').some(p=>p.nombre==='Producto V3');
+    WS.cerrarModal();
+    // V5: código de barras repetido
+    const conCodigo=misDatos('productos').find(p=>!p.esCombo);
+    WS.STATE.negocio=Object.assign({}, WS.STATE.negocio, {usaCodBarras:true});
+    const lista=DB.get('negocios'); lista.find(x=>x.id===n.id).usaCodBarras=true; DB.set('negocios', lista);
+    Datos.guardarEn(n.id, 'productos', [Object.assign({}, conCodigo, {codBarras:'7700001'})]);
+    WS.editarProducto(null); await __esperar(60);
+    document.getElementById('m-nombre').value='Producto V5'; document.getElementById('m-precio').value='1000';
+    if(document.getElementById('m-stock')) document.getElementById('m-stock').value='3';
+    document.getElementById('m-codbarras').value='7700001'; ok(); await __esperar(60);
+    res.codigoRepetido=!misDatos('productos').some(p=>p.nombre==='Producto V5');
+    WS.cerrarModal();
+    lista.find(x=>x.id===n.id).usaCodBarras=false; DB.set('negocios', lista); WS.STATE.negocio=Object.assign({}, WS.STATE.negocio, {usaCodBarras:false});
+    // V3: gasto en 0 o negativo
+    const gastos=misDatos('gastos_negocio').length;
+    if((n.funciones||[]).includes('gastosneg')){
+      WS.nuevoGasto(); await __esperar(60);
+      const c=document.getElementById('m-concepto'); if(c && c.tagName==='SELECT' && c.options.length>1) c.selectedIndex=1; else if(c) c.value='Arriendo';
+      document.getElementById('m-valor').value='-20000'; ok(); await __esperar(60);
+      res.gastoNegativo=misDatos('gastos_negocio').length===gastos; WS.cerrarModal();
+    } else res.gastoNegativo=true;
+    // V3: conteo con un valor negativo o texto queda sin contar
+    WS.iniciarConteo && (WS.iniciarConteo(), await __esperar(60));
+    if(WS._conteo && WS._conteo.items && WS._conteo.items.length){
+      WS.contarItem(0, '-3'); const a=WS._conteo.items[0].contado;
+      WS.contarItem(0, 'abc'); const b=WS._conteo.items[0].contado;
+      WS.contarItem(0, '4'); const c=WS._conteo.items[0].contado;
+      res.conteo=[a, b, c];
+    } else res.conteo=['', '', 4];
+    WS.cerrarModal();
+    WS.volverSuperAdmin(); await __esperar(60);
+    // V4: un usuario con @ no se crea (el login lo tomaría como correo)
+    const us=(DB.get('usuarios')||[]).length;
+    WS.editarUsuario(n.id, null); await __esperar(60);
+    document.getElementById('m-nombre').value='Con arroba'; document.getElementById('m-usuario').value='ana@tienda.com';
+    document.getElementById('m-pass').value='clave123'; ok(); await __esperar(60);
+    res.arroba=(DB.get('usuarios')||[]).length===us;
+    WS.cerrarModal();
+    // V2: un error que nadie atrapa (promesa sin .catch) queda registrado
+    WS.entrarComoNegocio(n.id); await __esperar(60);
+    // (el navegador de pruebas no dispara unhandledrejection para promesas creadas desde aquí:
+    // se llama a los manejadores con un error de la app, uno de pantalla y uno de Firebase)
+    const deLaApp=new Error('prueba V2 sin atrapar'); deLaApp.stack='Error: prueba V2 sin atrapar\n    at x (http://localhost/src/adaptadores/salida/firebase-datos.js:1:1)';
+    const deFirebase=new Error('prueba V2 de Firebase'); deFirebase.stack='Error\n    at y (https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js:1:1)';
+    WS.alRechazoGlobal({reason:deLaApp}); WS.alRechazoGlobal({reason:deFirebase});
+    WS.alErrorGlobal({filename:'http://localhost/src/x.js', error:new Error('prueba V2 de pantalla'), message:'x'});
+    await __esperar(100);
+    const det=misDatos('auditoria').map(a=>String(a.detalle||''));
+    res.global=det.some(d=>d.includes('prueba V2 sin atrapar')) && det.some(d=>d.includes('prueba V2 de pantalla')) && !det.some(d=>d.includes('prueba V2 de Firebase'));
+    WS.volverSuperAdmin();
+    return res;
+  });
+  // El error de V2 se provocó a propósito: no cuenta como error del recorrido
+  for(let i=errores.length-1;i>=0;i--) if(/prueba V2|Error en una operación|Error en la pantalla/.test(errores[i])) errores.splice(i,1);
+  assert.deepEqual(r, {espacios:true, stockNegativo:true, codigoRepetido:true, gastoNegativo:true, conteo:['', '', 4], arroba:true, global:true});
+});
 test('sin errores de JavaScript en todo el recorrido', {skip:omitir}, ()=>{
   assert.deepEqual(errores, []);
 });

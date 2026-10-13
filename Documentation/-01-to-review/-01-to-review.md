@@ -6,7 +6,7 @@ Cada hallazgo corregido tiene debajo su **Solución aplicada** y lo que queda pe
 
 **Severidad**: 🔴 Alta (seguridad o pérdida/corrupción de datos) · 🟠 Media (resultado incorrecto visible) · 🟡 Baja (inconsistencia, deuda técnica).
 
-> **Estado al 2026-10-12:** de la primera revisión, **los 34 hallazgos están cerrados**. La **segunda revisión** (2026-10-12, sección [Segunda revisión](#segunda-revisión-2026-10-12)) encontró 10 nuevos (uno grave de dinero en caja, D6): **los 10 corregidos el mismo día**, cada uno con su prueba. **S8** (logo del negocio sin validar, 🔴), encontrado después: corregido el mismo día. Primera revisión: (`npm test` 67/67 · `npm run test:firebase` 36/36). S6 se encontró y corrigió en la fase 8 (2026-10-09). **S1** quedó desplegado y verificado en el proyecto de simulación `wallacesys-dev-sandbox` (base desde cero, dueño creado, reglas cerradas: sin sesión todo responde "Permission denied"); **F17** se cerró por decisión comercial (planes iguales en ventanas). **En la empresa no hay nada desplegado:** su producción sigue con la versión original, con las contraseñas en texto plano y la base abierta, hasta que se repitan las fases de S1 en su proyecto. **Lo que falta no son hallazgos sin corregir sino pruebas con Firebase real, decisiones y el despliegue en la empresa**: ver [Pendientes](#pendientes) y la guía paso a paso [conexion-firebase](../-00-execution-protocol/conexion-firebase.md).
+> **Estado al 2026-10-12:** de la primera revisión, **los 34 hallazgos están cerrados**. La **segunda revisión** (2026-10-12, sección [Segunda revisión](#segunda-revisión-2026-10-12)) encontró 10 nuevos (uno grave de dinero en caja, D6): **los 10 corregidos el mismo día**, cada uno con su prueba. **S8** (logo del negocio sin validar, 🔴), encontrado después: corregido el mismo día. **Tercera revisión** (2026-10-12, [sección](#tercera-revisión-2026-10-12)): 11 hallazgos (D9 🔴, D10, S9, F24 🟠 y 7 menores), **corregidos el mismo día** con sus pruebas, y sus 5 flujos a medias también. **Cuarta revisión** (validaciones, [sección](#cuarta-revisión-2026-10-12)): 6 hallazgos, corregidos el mismo día. Primera revisión: (`npm test` 67/67 · `npm run test:firebase` 36/36). S6 se encontró y corrigió en la fase 8 (2026-10-09). **S1** quedó desplegado y verificado en el proyecto de simulación `wallacesys-dev-sandbox` (base desde cero, dueño creado, reglas cerradas: sin sesión todo responde "Permission denied"); **F17** se cerró por decisión comercial (planes iguales en ventanas). **En la empresa no hay nada desplegado:** su producción sigue con la versión original, con las contraseñas en texto plano y la base abierta, hasta que se repitan las fases de S1 en su proyecto. **Lo que falta no son hallazgos sin corregir sino pruebas con Firebase real, decisiones y el despliegue en la empresa**: ver [Pendientes](#pendientes) y la guía paso a paso [conexion-firebase](../-00-execution-protocol/conexion-firebase.md).
 
 ## Resumen
 
@@ -57,6 +57,23 @@ Cada hallazgo corregido tiene debajo su **Solución aplicada** y lo que queda pe
 | C3 | 🟡 | Código | Errores tragados en flujos importantes: falla al imprimir la comanda (la cocina no se entera) y al cobrar no queda en auditoría | ✅ Corregido (2026-10-12) |
 | S7 | 🟡 | Seguridad | Algunas acciones no validan permiso propio (guardar edición de pedido, conceptos de gasto, cuentas abiertas) | ✅ Corregido (2026-10-12) |
 | S8 | 🔴 | Seguridad | El logo del negocio (y otros datos dentro de atributos HTML) se metían sin validar ni escapar: quien edita el negocio podía ejecutar código en la sesión del super-admin | ✅ Corregido (2026-10-12) |
+| D9 | 🔴 | Datos | Dos equipos que tocan el mismo pedido o cuenta a la vez se pisan: se pierden productos agregados a una cuenta, o queda cobrada con productos sin cobrar | ✅ Corregido (2026-10-12) |
+| D10 | 🟠 | Datos | Lo que la base rechaza (p. ej. todo lo de una prueba vencida) se pierde en silencio: la venta se ve hecha y desaparece al recargar | ✅ Corregido (2026-10-12) |
+| S9 | 🟠 | Seguridad | Se aceptan montos negativos (formas de pago, propina, recargo, domicilio, precio): permite sacar efectivo cuadrando la caja o dar descuentos sin permiso | ✅ Corregido (2026-10-12) |
+| F24 | 🟠 | Funcional | "Eliminar definitivamente" y "Cambiar forma de pago" no respetan las cajas cerradas (F20 solo cubrió anular y editar); eliminar no revierte cliente ni cita | ✅ Corregido (2026-10-12) |
+| S10 | 🟡 | Seguridad | La auditoría y los movimientos se pueden borrar o reescribir desde la consola por cualquier empleado: no son de solo agregar | ✅ Corregido (2026-10-12) |
+| S11 | 🟡 | Seguridad | Guardar la edición de un pedido por "Confirmar pedido" no valida el permiso `editar` (S7 cubrió solo el otro botón) | ✅ Corregido (2026-10-12) |
+| F25 | 🟡 | Funcional | El escáner de código de barras agrega productos marcados "Agotado" | ✅ Corregido (2026-10-12) |
+| F26 | 🟡 | Funcional | Al editar, un descuento fijo puede quedar mayor que el subtotal (venta en $0); el descuento en % se congela como valor | ✅ Corregido (2026-10-12) |
+| F27 | 🟡 | Funcional | La alerta de stock bajo se abre con `setTimeout` y puede tapar "¿Imprimir factura?" (lo que F16 prohíbe) | ✅ Corregido (2026-10-12) |
+| F28 | 🟡 | Funcional | Eliminar un producto no avisa si está en un combo, no deja movimiento de su stock ni auditoría | ✅ Corregido (2026-10-12) |
+| C4 | 🟡 | Código | 6 errores atrapados con `console.error` en venta, cuentas y respaldo, en vez de `reportarError` (C2) | ✅ Corregido (2026-10-12) |
+| V1 | 🟡 | Validación | Un campo obligatorio con solo espacios pasaba (productos o usuarios "en blanco"); cuando faltaba uno, la ventana lanzaba una excepción | ✅ Corregido (2026-10-12) |
+| V2 | 🟡 | Código | Los errores que nadie atrapaba (promesas sin `.catch`, el botón de las ventanas) no quedaban registrados (C2 solo cubría los atrapados) | ✅ Corregido (2026-10-12) |
+| V3 | 🟠 | Validación | Números negativos o fuera de rango en gastos, cierre y base de caja, stock, mínimos, costos, conteo, % del datáfono y precio del plan | ✅ Corregido (2026-10-12) |
+| V4 | 🟠 | Validación | Un usuario con "@" no podía entrar nunca (el login lo toma como correo); "Ana" y "ana" podían ser dos usuarios distintos | ✅ Corregido (2026-10-12) |
+| V5 | 🟡 | Validación | Dos productos con el mismo código de barras: el escáner vendía siempre el primero | ✅ Corregido (2026-10-12) |
+| V6 | 🟠 | Interfaz | Los avisos (toast) quedaban encima de las ventanas y **bloqueaban los clics**: en un celular, o con varios avisos seguidos, tapaban "Guardar" o "Sí, continuar" por 3 segundos | ✅ Corregido (2026-10-12) |
 
 ---
 
@@ -704,9 +721,9 @@ Revisión de los flujos completos (vender, cobrar, anular, editar, caja, inventa
 | ~~Bandera **`agotado`** del producto~~ | **Hecho (2026-10-12)**: botón "Agotado" / "✓ Disponible" en cada tarjeta del inventario (`alternarAgotado`, permiso `editarprod`, con auditoría) | `ui/inventario/catalogo.js` |
 | ~~**Foto del producto** (`imagen`)~~ | **Hecho (2026-10-12)**: "📷 Foto" en el formulario del producto; se reduce a 200 px JPEG y se guarda en la base. Solo se dibuja si es una imagen `data:` válida (`Dominio.inventario.imagenValida`): antes se metía sin escapar en 4 pantallas | [realtime-vs-storage](../-03-architecture/realtime-vs-storage.md) |
 | ~~**Catálogo de textos**~~ | **Hecho (2026-10-12)**: `ui/nucleo/textos.js` con 199 mensajes fijos (`MSJ`) y 17 botones (`BOTON`); prueba que lo exige. Los mensajes con datos y las plantillas siguen en su módulo | [tema.md](../-03-architecture/tema.md), sección 6 |
-| **Modo claro por componente** y 26 tamaños de letra | Para el rediseño | [tema.md](../-03-architecture/tema.md), sección 4 |
+| **Modo claro por componente** y 26 tamaños de letra | Para el rediseño (cambia el aspecto: espera a que se pida el rediseño) | [tema.md](../-03-architecture/tema.md), sección 4 |
 | ~~**Lo que ve el super-admin vendedor**~~ | **Hecho (2026-10-12)**: las reglas cerradas lo limitan a sus negocios y sus demos; el panel le trae solo esos (consulta por su id); pruebas de reglas y del navegador | [01-super-admin-panel](../01-super-admin-panel/01-super-admin-panel.md), sección 12 |
-| **Herramienta de capturas** que se detuvo 2 de unas 8 veces | Ahora dice dónde se detiene; vigilar | [-03-architecture](../-03-architecture/-03-architecture.md), 11.7 |
+| ~~**Herramienta de capturas** que se detuvo 2 de unas 8 veces~~ | **Cerrado (2026-10-12)**: desde que informa dónde se detiene, no volvió a pasar en las 7 corridas del 2026-10-12. Si vuelve, el mensaje dice en qué captura | [-03-architecture](../-03-architecture/-03-architecture.md), 11.7 |
 
 ### Orden sugerido
 
@@ -716,6 +733,207 @@ Revisión de los flujos completos (vender, cobrar, anular, editar, caja, inventa
 4. **F20, D8, F22, S7, F23.**
 
 Cada uno con su prueba en el recorrido o en el dominio antes de cerrarlo.
+
+## Tercera revisión (2026-10-12)
+
+Lectura de los flujos de punta a punta (cobro, cuentas abiertas, nueva venta, inventario, citas, domicilios, usuarios, sesión, respaldo) buscando lo que la segunda revisión no cubrió: **varios equipos a la vez**, **lo que la base rechaza**, **valores fuera de rango** y **flujos nuevos** (agotado, prueba, vendedor). Hallazgos sacados leyendo el código; **corregidos el mismo día**, cada uno con su prueba. La de integración de D9 muestra que la forma vieja perdía datos contra la base real.
+
+### D9 🔴 Ediciones simultáneas de un pedido o una cuenta se pisan — ✅ Corregido
+- **Dónde**: `agregarACuenta` (`ui/ventas/cuentas-abiertas.js`), `abrirCobro` (`ui/ventas/cobro.js`), `confirmarPedido` / `guardarEdicionPedido` (`ui/ventas/nueva-venta.js`), `anularPedido`.
+- **Qué pasa**: cada flujo lee el pedido de la copia del equipo, lo cambia y lo guarda con `guardarMisDatos`. El adaptador sube **campo por campo** (`subirRegistros`), y `items`, `total` y `estado` viajan enteros: el último que llega gana. Casos reales (un bar con dos meseros y una caja):
+  1. **Dos meseros agregan a la misma mesa** casi a la vez: los `items` del segundo reemplazan los del primero. **Se pierde lo que agregó el primero**: se sirvió y nunca se cobra.
+  2. **El cajero cobra mientras un mesero agrega**: la cuenta queda `pagada` con el total viejo en `pagos`, pero con los productos nuevos en `items` (y `total` según quién llegó último). Productos servidos sin cobrar, y una venta con `total` ≠ suma de pagos.
+  3. **Dos equipos cobran el mismo pedido**: los dos lo ven `abierta`, los dos descuentan el stock (`descontarStock` mira la marca de **su** copia) y los dos registran el pago. Stock descontado dos veces.
+  4. Editar un pedido que otro equipo ya cobró (y aún no llegó al equipo que edita): se suben los `items` nuevos sobre una venta pagada sin ajustar el pago.
+- **Propuesta**: los cambios a una venta existente, con **transacción sobre el registro** (`Datos.modificarRegistro` ya existe y lo usa el stock, D2):
+  - `agregarACuenta`: dentro de la transacción, sumar los productos a los `items` **del servidor** y recalcular el total;
+  - cobro, anulación y edición: verificar dentro de la transacción que el estado del servidor sea el esperado (`abierta` para cobrar, igual `items` al editar). Si no, cancelar con un aviso ("otro equipo cambió este pedido, revísalo").
+
+  El stock se descuenta solo si la transacción del cobro pasó. Prueba: dos clientes del adaptador contra el emulador, como la de avisos entre equipos.
+- **Solución aplicada**:
+  - Operación nueva del puerto `Datos.transaccionRegistro(tabla, id, fn)`: aplica `fn` sobre la versión **del servidor** y `fn` puede negarse (devuelve `undefined`). Resultado `{committed, valor}`.
+  - Sin conexión se aplica sobre la copia del equipo y viaja en la cola, como antes, para que vender sin internet siga funcionando.
+  - Reglas puras en `src/dominio/ventas.js`: `agregarACuenta`, `cobrarSiSigueIgual`, `anularSiSigueIgual`, `editarSiSigueIgual` y `mismosItems`, que compara campo por campo porque Firebase devuelve las claves en otro orden.
+  - Las usan agregar a una cuenta, cobrar un pedido existente, anular, cancelar una cuenta y guardar una edición.
+  - Si otro equipo cambió el pedido, no se pisa: aviso "Otro equipo cambió este pedido…" o "ya lo cobró o anuló otro equipo".
+  - El stock se descuenta o devuelve solo si la transacción pasó.
+- **Probado**:
+  - `tests/dominio/ventas.test.mjs`.
+  - `tests/integracion/s1-migracion.test.mjs` → "D9", contra el emulador. Con la forma vieja, el producto que agregó otro equipo **se pierde**; con la transacción queda. Un cobro con productos que cambiaron no se aplica.
+  - Recorrido: cobrar un pedido al que otro equipo le agregó algo y anular uno que otro equipo cobró. Ninguno de los dos se aplica.
+
+### D10 🟠 Lo que la base rechaza se pierde en silencio — ✅ Corregido
+- **Dónde**: `subirRegistros`, `set` y `setNegocios` en `firebase-datos.js`. Ante un "permiso negado" solo hacen `console.warn` y ponen el punto de conexión en rojo; no se encola (bien, no sirve reintentar), pero **nadie le avisa a la persona**.
+- **Qué pasa**: la pantalla ya mostró la venta hecha (se guarda primero en el equipo). Al recargar, la copia del servidor reemplaza la local y la venta **desaparece**.
+- **El caso principal**: un negocio con la **prueba vencida**. Solo ve un aviso arriba ("solo lectura") pero puede seguir vendiendo, cobrando y abriendo caja en la pantalla; todo se pierde. También un vendedor que da más de un año de prueba, o cualquier dato que las reglas rechacen (S8). La suspensión del negocio y la desactivación del usuario **sí** se atienden (cierran la sesión).
+- **Propuesta**:
+  1. Gancho `alEscrituraNegada(ruta)` del adaptador → aviso fuerte en la interfaz ("No se guardó: …") y quitar de la copia local lo rechazado;
+  2. Con `Dominio.prueba.soloLectura(negocio)`, la interfaz **bloquea** las acciones que escriben (vender, cobrar, caja, inventario, gastos) con un mensaje claro, en un solo lugar (p. ej. en `exigirPermiso` y en la entrada de `guardarMisDatos`).
+
+  Prueba: con las reglas cerradas y una prueba vencida, una venta muestra el aviso y no queda en la lista.
+- **Solución aplicada**:
+  1. `negocioSoloLectura()` (`ui/nucleo/permisos.js`): prueba o demo vencida, salvo para el super-admin y la supervisión.
+     - `tienePermiso` devuelve `false` para todo menos imprimir y reimprimir la comanda, así que los botones desaparecen.
+     - `exigirPermiso` avisa "solo lectura".
+     - `exigirEscritura()` abre las acciones que escriben sin permiso propio (confirmar pedido, cuentas, caja, citas, clientes, gastos, inventario…).
+  2. Gancho `soloLectura(negId)` del adaptador: si algo se escapa, no se escribe **nada** de ese negocio, ni en la nube ni en el equipo. Lo que la pantalla ya cambió en memoria se deshace con la copia guardada.
+  3. Gancho `alEscrituraNegada`: lo que la base rechace se avisa ("La base no aceptó un cambio…"), a lo sumo un aviso cada 4 s. Antes solo iba a la consola.
+- **Probado**: recorrido: con la prueba vencida, un pedido no se guarda, una escritura directa tampoco, `cobrar` = no, `imprimir` = sí, y el super-admin supervisando sí puede.
+
+### S9 🟠 Montos negativos aceptados — ✅ Corregido
+- **Dónde**:
+  - `Dominio.pagos.liquidarCobro` solo revisa que la **suma** alcance; `cambiarFormaPago` y `ajustarPagoVenta` solo que la suma dé el total;
+  - propina, recargo (`abrirCobro`) y valor del domicilio (`valorDomicilio`) se leen con `parseFloat` sin mínimo;
+  - el precio de un producto (`editarProducto`), igual.
+- **Abuso**: un cobro de $50.000 con efectivo **−50.000** y banco **+100.000** suma 50.000 y pasa. La caja espera $50.000 **menos** de efectivo, así que el cajero se lleva ese dinero y **el cierre cuadra**. El banco "recibió" 100.000 que no existen: solo lo detecta "verificar transferencias" si el negocio lo activó. Lo mismo después del cobro, con "Cambiar forma de pago" (permiso `cambiarpago`). Una propina o un domicilio negativos son un **descuento sin el permiso `descuento`**, y un precio negativo baja el total de cualquier venta.
+- **Propuesta**: en el dominio, `liquidarCobro` rechaza cualquier parte negativa; reglas puras `montoValido(x)` (número ≥ 0) para propina, recargo, domicilio y precio, usadas por las pantallas. Pruebas de dominio con cada caso.
+- **Solución aplicada**:
+  - `Dominio.pagos.montoValido` y `pagosValidos`. `liquidarCobro` rechaza cualquier parte negativa (`error:'negativo'`).
+  - El cobro rechaza propina y recargo negativos; ajustar el cobro, cambiar la forma de pago y `guardarAjusteCobro` rechazan pagos negativos.
+  - El domicilio, el precio y el costo de productos y combos no bajan de 0.
+- **Probado**: `tests/dominio/dominio.test.mjs` (el caso efectivo −50.000 / banco +100.000) y el recorrido (el cobro con efectivo negativo no se aplica y avisa).
+
+### F24 🟠 Eliminar definitivamente y cambiar la forma de pago ignoran las cajas cerradas — ✅ Corregido
+- **Dónde**: `eliminarDefinitivo` y `cambiarFormaPago` (`ui/ventas/cobro.js`).
+- **Qué pasa**: F20 hizo que anular o editar una venta de una caja **ya cerrada** exija admin o dueño y registre la devolución en la caja abierta. Estos dos no:
+  - **eliminar** una venta cobrada de una caja cerrada cambia las cifras de ese cierre (Reportes, Contable) sin dejar el dinero en ninguna caja;
+  - **cambiar la forma de pago** de esa venta mueve plata entre efectivo y banco de un cierre ya contado.
+
+  Además, eliminar no revierte las cifras del cliente ni reabre la cita (lo que F22 hizo para anular).
+- **Propuesta**: la misma regla de F20 para los dos (solo de la caja abierta; si es de una cerrada, admin/dueño y con movimiento en la caja abierta, o no permitirlo), y en eliminar, `revertirClienteAuto` + `reabrirCitaDeVenta`. Mejor aún: que eliminar solo se permita sobre ventas **ya anuladas** (la anulación ya hace todo bien).
+- **Solución aplicada**:
+  - "Eliminar definitivamente" solo acepta pedidos **ya anulados**: la anulación ya hace bien el stock, la caja (F20), el cliente y la cita (F22), y eliminar ya no devuelve stock por su cuenta.
+  - "Cambiar forma de pago" no se permite sobre una venta de una caja cerrada (`esDeCajaCerrada`, la misma regla que editar).
+- **Probado**: recorrido: eliminar una venta viva no abre nada; cambiar el pago de una venta de la caja anterior tampoco.
+
+### S10 🟡 Auditoría y movimientos se pueden borrar — ✅ Corregido
+- **Qué pasa**: las reglas dejan a cualquier empleado con sesión escribir **cualquier** registro de las tablas de su negocio (los permisos por acción, como `eliminar` o `anular`, solo los aplica la app: es el límite conocido de S4 sin servidor). Desde la consola, alguien que hizo algo indebido puede borrar o cambiar su rastro en `auditoria` y `movimientos`, que es justo lo que debería servir para descubrirlo.
+- **Propuesta**: en las reglas, esas dos tablas **solo de agregar**: `$clave` sin `.write` para las claves que terminan en `_auditoria_r` / `_movimientos_r`, y un `$reg` con `.write` solo si `!data.exists()` (y la misma pertenencia al negocio). El recorte de historial (D3) pasaría a hacerlo el dueño del sistema, o se deja crecer. Prueba de reglas: crear sí, cambiar o borrar no.
+- **Solución aplicada**: en `database.rules.json`, para la gente del negocio, `$clave` no deja escribir las claves `*_auditoria_r` / `*_movimientos_r`, y `$reg` solo deja **crear** (`!data.exists() && newData.exists()`). El dueño y el ayudante, y el vendedor en su negocio activo, siguen pudiendo borrarlas al eliminar un negocio o una demo. La auditoría ya no se recortaba, así que nada de la app se rompe.
+- **Probado**: `tests/reglas/reglas.test.mjs` → "S10": cajero y admin crean, pero no cambian ni borran; las ventas siguen editables; el dueño del sistema sí borra.
+
+### S11 🟡 Confirmar pedido edita sin validar permiso — ✅ Corregido
+- **Dónde**: `confirmarPedido` (`ui/ventas/nueva-venta.js`). Con un pedido en edición guarda los cambios, pero no llama `exigirPermiso('editar')` como `guardarEdicionPedido` (S7). Hoy solo se llega ahí después de `editarPedido`, que sí lo valida, pero la acción está exportada y se puede llamar sola.
+- **Propuesta**: validar al inicio cuando `STATE.editandoVentaId`.
+- **Solución aplicada**: `confirmarPedido` con un pedido en edición exige `editar` y guarda por el mismo camino que "Guardar cambios" (`guardarEdicion`, con la transacción de D9). `guardarAjusteCobro` también valida.
+- **Probado**: recorrido: un cajero sin `editar` no cambia el pedido.
+
+### F25 🟡 El escáner agrega productos "Agotado" — ✅ Corregido
+- **Dónde**: `agregarAlCarrito` (`ui/ventas/nueva-venta.js`). La lista de Nueva Venta oculta los agotados, pero el escáner y cualquier llamada directa no lo revisan.
+- **Propuesta**: en `agregarAlCarrito`, si `p.agotado`, aviso y no agregar.
+- **Solución aplicada**: `agregarAlCarrito` rechaza un producto agotado, venga del escáner o de cualquier llamada.
+- **Probado**: recorrido.
+
+### F26 🟡 Descuento mayor que el subtotal al editar — ✅ Corregido
+- **Dónde**: `armarVenta` (`total=max(0, bruto−_desc)`). El descuento se guarda como valor; al quitar productos en una edición puede quedar mayor que el nuevo subtotal: la venta queda en **$0** con `descuento` > `subtotalBruto`. Un descuento en % se congela en pesos y no cambia si se agregan o quitan productos.
+- **Propuesta**: guardar también el tipo (`descTipo: 'pct'|'valor'`) y recalcularlo en `armarVenta`, con tope en el subtotal y aviso.
+- **Solución aplicada**:
+  - El descuento en % se guarda (`descPct`) y se recalcula con el subtotal de cada momento (`descuentoDe`); también al editar el pedido.
+  - Cualquier descuento tiene tope en el subtotal, con un aviso si se ajustó. Un % mayor que 100 se rechaza.
+- **Probado**: recorrido (10 % sobre un subtotal que cambia; descuento fijo mayor que el subtotal).
+
+### F27 🟡 La alerta de stock bajo puede tapar "¿Imprimir factura?" — ✅ Corregido
+- **Dónde**: `avisarStockBajo` (`ui/inventario/motor.js`) abre su ventana con `setTimeout(…, 700)`. El cobro pregunta "¿Imprimir factura?" con `preguntarDespues`. Es justo lo que la regla F16 prohíbe: según el orden, una ventana reemplaza a la otra.
+- **Propuesta**: `preguntarDespues` (o una cola de avisos) también para la alerta.
+- **Solución aplicada**: `cuandoNoHayaVentana(abrir, ms)` (`ui/nucleo/componentes.js`) espera a que se cierre la ventana abierta, hasta unos 2 minutos.
+  - Antes, `preguntarDespues` **descartaba** la pregunta si había otra ventana; ahora la usa y espera su turno.
+  - La alerta de stock también la usa, así que ya no reemplaza a "¿Imprimir factura?".
+- **Probado**: recorrido: una pregunta diferida aparece después de cerrar la ventana que estaba abierta.
+
+### F28 🟡 Eliminar un producto deja combos rotos y stock sin rastro — ✅ Corregido
+- **Dónde**: `eliminarProducto` (`ui/inventario/catalogo.js`).
+- **Qué pasa**: si el producto es parte de un combo, el combo sigue a la venta pero ya no descuenta esa parte (`requerimientos` salta lo que no encuentra). Sus unidades desaparecen sin movimiento (la regla de stock pide dejarlo) y el borrado no queda en auditoría.
+- **Propuesta**: avisar y bloquear si está en combos; registrar un movimiento de salida por el stock que tenía y `logAudit`.
+- **Solución aplicada**: no se elimina un producto que sea parte de un combo (dice cuáles). Si tenía stock, queda un movimiento de salida "Producto eliminado", y el borrado queda en la auditoría.
+- **Probado**: recorrido (componente de un combo).
+
+### C4 🟡 Errores tragados con `console.error` — ✅ Corregido
+- **Dónde**:
+  - `ui/ventas/cuentas-abiertas.js:90` y `:155`;
+  - `ui/ventas/nueva-venta.js:472`, `:526` y `confirmarPedido`;
+  - `ui/usuarios/sesion.js:305`;
+  - `ui/super-admin/panel.js:238` (respaldo).
+
+  Muestran un aviso genérico pero no pasan por `reportarError`, así que el recorrido no los ve (C2).
+- **Propuesta**: `reportarError(donde, e)`, y una prueba estructural que no deje `catch(e){ console.error(e); toast(`.
+- **Solución aplicada**: los 10 lugares (los 6 vistos y 4 más: abrir y cerrar caja, crear cuenta, actualizar la cuenta de acceso) usan `reportarError`.
+- **Probado**: `tests/ui/estructura.test.mjs` falla si vuelve `console.error(e); toast(`.
+
+### Flujos a medias y mejoras (tercera revisión)
+
+| Qué | Estado | Dónde |
+|---|---|---|
+| ~~**Pago al domiciliario**~~ | **Hecho (2026-10-12)**: en el Cuadre, "💵 Pagarle $X del cajón" registra un **retiro** de la caja con `pagoDomi` (clave del domiciliario); muestra lo ya pagado y "✓ Pagado", y no deja pagar dos veces (`Dominio.caja.pagadoADomiciliario`) | `ui/clientes/domicilios.js` (`pagarDomiciliario`) |
+| ~~**Respaldo** sin la nube / sin restauración~~ | **Hecho (2026-10-12)**: si no se puede leer la base, pregunta y el archivo se llama `respaldo-wallace-PARCIAL-…` (con `parcial:true`). Nuevo **"♻️ Restaurar"** (solo el dueño del sistema): elige un negocio del respaldo, confirma escribiendo su nombre y reemplaza su registro y todas sus tablas (`Datos.restaurarNegocio`); limpia lo que las reglas rechazarían; las cuentas de acceso no se tocan | `descargarRespaldo`, `elegirRespaldo`, `restaurarNegocioDesde` (`ui/super-admin/panel.js`) |
+| ~~**Saltos en las facturas**~~ | **Hecho (2026-10-12)**: el cobro directo y la entrega de citas toman el número **al confirmar el cobro**; uno cancelado no gasta número (`armarVenta(estado, {sinFactura:true})`). Quedan saltos solo si un equipo se cierra con un número reservado (D1, por diseño) | `ui/ventas/nueva-venta.js`, `ui/ventas/cobro.js`, `ui/citas/citas.js` |
+| ~~**Editar citas**~~ | **Hecho (2026-10-12)**: ✏️ en las citas pendientes (cliente, fecha, hora, detalle, encargado y apartados); el inventario se ajusta **solo por la diferencia**, con movimiento "Cambio de apartado" (`Dominio.inventario.difApartados`) | `editarCita` (`ui/citas/citas.js`) |
+| ~~**Inventario apagado después de vender**~~ | **Hecho (2026-10-12)**: lo que SÍ se descontó (`stockAplicado` / `stockDescontado`) se devuelve aunque hoy el inventario esté apagado (`moverInventario(..., forzar)`): anular, cancelar cuenta y devolver apartados | `ui/inventario/motor.js` |
+
+### Orden sugerido (tercera revisión)
+
+1. **D9**: dinero y productos perdidos en bares y restaurantes con varios equipos.
+2. **S9 y F24**: dinero que sale de la caja cuadrando el cierre.
+3. **D10**: antes de ofrecer periodos de prueba a clientes reales.
+4. **S10, S11, F25–F28, C4.**
+
+Cada uno con una prueba que falle con el código de hoy.
+
+## Cuarta revisión (2026-10-12)
+
+Revisión de **validaciones**: todo número o texto que escribe la gente, más lo nuevo del día (facturas sin conexión, recuperación de contraseña, correo real, restaurar). Se corrigió lo encontrado, cada cosa con su prueba.
+
+### V1 🟡 Obligatorios con espacios y una excepción como control — ✅ Corregido
+- **Qué pasaba**: `abrirModal` (`ui/nucleo/componentes.js`) daba por lleno un campo con "   ", así que quedaban productos o usuarios con nombre en blanco. Cuando faltaba uno, avisaba y **lanzaba una excepción** para cortar.
+- **Solución**: el obligatorio se revisa sin espacios y la ventana se queda abierta, con el foco en el campo, sin excepción. Si `onGuardar` falla, va por `reportarError`.
+
+### V2 🟡 Errores no atrapados sin registro — ✅ Corregido
+- **Qué pasaba**: C2 hizo que los errores **atrapados** se avisaran y quedaran en la auditoría, pero una promesa sin `.catch` o un error dentro de un manejador directo solo llegaba a la consola.
+- **Solución**: `vigilarErroresGlobales()` (`ui/nucleo/arranque.js`) escucha `error` y `unhandledrejection` y los manda a `reportarError`. Solo los del código de la app (`/src/`); los de Firebase o de extensiones del navegador no. También la sesión guardada que falla al entrar.
+- **Probado**: recorrido. Un error de la app y uno de pantalla quedan en la auditoría y uno de Firebase no. Se llama a los manejadores directamente, porque el navegador de pruebas no dispara `unhandledrejection` para promesas creadas desde la prueba.
+
+### V3 🟠 Números fuera de rango — ✅ Corregido
+- **Qué pasaba**: se aceptaban números negativos o fuera de rango en varios lugares:
+  - un gasto negativo, que **subía** la utilidad del Contable;
+  - lo contado y la base de mañana al cerrar la caja, la base al abrir y la base corregida (abrir "debiendo");
+  - stock, mínimo y costo de productos e insumos;
+  - lo contado en el conteo (también texto, que quedaba como `NaN`);
+  - el % del datáfono (negativo o mayor que 100);
+  - el precio del plan.
+- **Solución**:
+  - reglas puras `Dominio.pagos.porcentajeValido` y `Dominio.inventario.cantidadValida`, más `montoValido` (S9);
+  - cada formulario avisa y no guarda;
+  - el conteo deja sin contar lo que no es un número de 0 en adelante;
+  - el precio del plan no baja de 0.
+
+### V4 🟠 Nombres de usuario — ✅ Corregido
+- **Qué pasaba**: desde "📧 Mi correo", el login toma cualquier texto con "@" como correo, así que un usuario creado con "@" (p. ej. `ana@tienda.com`) **nunca podría entrar**. Además "Ana" y "ana" podían ser dos usuarios distintos y confundir a cualquiera.
+- **Solución**: `Dominio.cuentas.usuarioValido` (de 3 a 40 caracteres, sin "@", sin caracteres de control, sin espacios en los extremos) y `mismoUsuario` (sin distinguir mayúsculas). Se usan al crear o editar empleados, al crear un negocio (su administrador), en Administradores y en la configuración inicial. Los 17 usuarios de producción cumplen (revisado por conteo en el export).
+
+### V5 🟡 Códigos de barras repetidos — ✅ Corregido
+- **Qué pasaba**: dos productos podían tener el mismo código; `escanearProducto` toma el primero que encuentra y vendía siempre ese.
+- **Solución**: `Dominio.inventario.codigoRepetido`; al guardar un producto con un código que ya es de otro, avisa de cuál y no guarda.
+
+**Probado (V1–V5)**:
+- Dominio: `usuarioValido`, `mismoUsuario`, `porcentajeValido`, `cantidadValida` y `codigoRepetido`.
+- Recorrido "4.ª revisión", que intenta cada caso:
+  - un nombre con espacios, stock negativo, un código repetido y un gasto negativo;
+  - un conteo con "-3" y con "abc";
+  - un usuario con "@";
+  - errores no atrapados.
+
+### V6 🟠 Los avisos bloqueaban los botones de las ventanas — ✅ Corregido
+- **Qué pasaba**: `#toasts` está arriba a la derecha y por encima de las ventanas (z-index 200 contra 100). En pantallas angostas, o con varios avisos seguidos, un aviso quedaba sobre "Entrar", "Guardar" o "Sí, continuar" y **el clic caía en el aviso** durante sus 3 segundos.
+- **Cómo se encontró**: las pruebas de navegador que hacen clic por coordenadas (ventana de 800×600) fallaban de vez en cuando; con la regla quitada, fallan siempre.
+- **Solución**: `#toasts{pointer-events:none}`. Los avisos se ven igual, pero los clics pasan a lo que hay debajo; ningún aviso tiene botones.
+- **Probado**: `tests/ui/estructura.test.mjs` exige la regla, y las pruebas de `s1-navegador` con clics por coordenadas pasan. No se pudo comprobar dentro del recorrido: su navegador conservó la hoja de estilos anterior aunque se cambió el archivo, y no se averiguó por qué.
+
+### Residuales anotados (no se corrigen)
+
+| De | Residual | Qué hacer |
+|---|---|---|
+| Correo real | Si "📧 Mi correo" crea la cuenta nueva y falla el paso siguiente (sin conexión justo en ese momento), ese correo queda ocupado por una cuenta sin perfil y el siguiente intento dice "ese correo ya tiene una cuenta" | El dueño del proyecto la borra en la consola de Firebase → Authentication y se repite |
+| Recuperación | Alguien podría pedir "olvidé mi contraseña" para muchos usuarios (uno por hora cada uno) y llenar la tarjeta del panel | Descartar en bloque si pasa; las reglas ya impiden usuarios inventados y repeticiones |
+| Correo real | Si otro super-admin le restablece la contraseña, la cuenta vuelve a usuario y contraseña (por diseño) | Volver a usar "📧 Mi correo" |
 
 ## Pendientes
 
@@ -732,6 +950,8 @@ Las pruebas automáticas cubren el modo local, los emuladores y Chrome de escrit
 | Fase 8, S6 | Sitio de pruebas en Render: carga de módulos, `Cache-Control: no-cache` en `/src/*`, CSP en `Report-Only` | Pendiente |
 | S1 | Migración de cuentas viejas con el export real, en el emulador | Pendiente |
 | — | Celulares y otros navegadores (Safari, Firefox), impresoras térmicas reales, lector de código de barras | Pendiente |
+| Recuperación | "Olvidé mi contraseña" (asistida y por correo) con Firebase real: las reglas publicadas, los correos de verificación y restablecimiento de Firebase (plantillas, que no lleguen a no deseado) | Pendiente |
+| Acceso | "Entrar con Google" para super-admins: activar el proveedor en la consola y programarlo ([entrar-con-google](../-03-architecture/entrar-con-google.md)) | Pendiente (decidido) |
 | Operación | Recuperar el acceso del único super-admin sin correo de recuperación ([conexion-firebase](../-00-execution-protocol/conexion-firebase.md), sección 5) | ✅ Hecho en el sandbox (2026-10-10) |
 
 ### Para llevar S1 a la producción de la empresa
@@ -750,11 +970,11 @@ Las pruebas automáticas cubren el modo local, los emuladores y Chrome de escrit
 |---|---|---|
 | S3 | La contraseña inicial vieja sigue en el historial de Git | Confirmar en producción que nadie la usa (al migrar a S1 todas las cuentas pasan a Firebase Authentication) |
 | S2 | Hasta cerrar las reglas de S1 los hashes de contraseñas viajan a los equipos | Se resuelve con la fase 4 de S1 (reglas cerradas) y la limpieza de la fase 5 |
-| D1 | Un equipo **sin conexión desde el inicio** puede repetir un número de factura | Aceptado; con conexión no hay repetidos |
+| ~~D1~~ | ~~Un equipo sin conexión desde el inicio puede repetir un número de factura~~ | **Resuelto (2026-10-12)**: bloques de 20 números por equipo; sin bloque, número provisional por fecha y hora + código del equipo, que recibe el definitivo al reconectar; aviso de repetidos. [facturas-sin-conexion](../-03-architecture/facturas-sin-conexion.md) |
 | D3 | Auditoría, movimientos y conteos crecen sin límite (a propósito, no se pierde historia) | Archivar por mes si el tamaño lo exige |
 | F15 | Las ventas anteriores a la corrección no tienen `prodId`/`vendedorId`/`domiciliarioId` y se siguen agrupando por nombre | Ninguna; las nuevas ya llevan id |
 | R1 | Los negocios donde nadie ha entrado con la versión nueva no tienen resumen | Botón "📊 Calcular cifras" del panel |
 | S6 | Si en otro lugar faltara `escapeHtml`, HTML inyectado con `onerror`/`onload` todavía se ejecutaría (no hay CSP) | Activar la CSP ([csp.md](../-03-architecture/csp.md): probada en local con 0 violaciones; falta `Report-Only` en el sandbox con Firebase real y luego activarla) |
-| S1 | No hay "olvidé mi contraseña": las cuentas usan un correo interno que nadie recibe. Si el **único** super-admin la olvida, solo la recupera el dueño del proyecto desde la consola de Firebase | Tener siempre **dos super-admins dueños** (uno restablece al otro en Administradores). Procedimiento de consola: [conexion-firebase](../-00-execution-protocol/conexion-firebase.md), sección 5. Si se quiere recuperación por correo, habría que guardar un correo real por usuario (decisión del responsable) |
+| S1 | ~~No hay "olvidé mi contraseña"~~ **Resuelto (2026-10-12)**: recuperación asistida para todos, y para el dueño y el ayudante (incluido el **único** super-admin) correo real con el enlace de Firebase ([recuperar-contrasena](../-03-architecture/recuperar-contrasena.md), secciones 8 y 9) | Recomendado: que el dueño use "📧 Mi correo". Pendiente: "Entrar con Google" con verificación en dos pasos ([entrar-con-google](../-03-architecture/entrar-con-google.md)). Seguir con dos super-admins |
 | DOC1 | El historial de commits tiene mensajes genéricos | No se corrige sin reescribir el historial; los commits nuevos son descriptivos |
-| — | Una prueba de navegador ("empleado con contraseña corta") falló una vez de forma intermitente y no se reprodujo | Vigilar en próximas corridas de `npm run test:firebase` |
+| — | ~~Una prueba de navegador ("empleado con contraseña corta") falló una vez de forma intermitente~~ | Causa probable encontrada el 2026-10-12: un aviso tapaba el botón y el clic por coordenadas caía en él (V6, corregido) |

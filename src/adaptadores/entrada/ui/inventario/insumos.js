@@ -7,7 +7,7 @@
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, fmtMoney, now } from '../nucleo/estado.js';
 import { BOTON, MSJ } from '../nucleo/textos.js';
-import { tienePermiso } from '../nucleo/permisos.js';
+import { exigirEscritura, tienePermiso } from '../nucleo/permisos.js';
 import { abrirModal, cerrarModal, confirmarModal, ic, pProd, pProds, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
 import { logAudit } from '../usuarios/auditoria.js';
@@ -70,6 +70,7 @@ export function pantallaInsumos(){
 }
 
 export function editarInsumo(id){
+  if(!exigirEscritura()) return;   // D10: solo lectura
   if(!tienePermiso('editarprod')){ toast(MSJ.noTienesPermisoParaEditarInsumos,'error'); return; }
   const arr=misDatos('insumos');
   const i=id?arr.find(x=>x.id===id):null;
@@ -88,6 +89,7 @@ export function editarInsumo(id){
       costo:d.costo===''?0:(parseFloat(d.costo)||0),
       stockMin:parseFloat(d.stockmin)||0
     };
+    if(!['stock','costo','stockMin'].every(k=>Dominio.inventario.cantidadValida(datos[k]))){ toast(MSJ.lasCantidadesNoPuedenSerNegativas,'error'); return; }   // V3
     // F11: editar las existencias aplica la DIFERENCIA (transacción) y deja rastro
     let ajuste=null;
     if(i){
@@ -112,6 +114,7 @@ export function editarInsumo(id){
   }});
 }
 export function eliminarInsumo(id){
+  if(!exigirEscritura()) return;   // D10: solo lectura
   if(!tienePermiso('editarprod')){ toast(MSJ.noTienesPermisoParaBorrarInsumos,'error'); return; }
   const i=misDatos('insumos').find(x=>x.id===id);
   // Avisar si algún plato lo usa en su receta
@@ -127,6 +130,7 @@ export function eliminarInsumo(id){
   },'Eliminar');
 }
 export function entradaInsumo(id){
+  if(!exigirEscritura()) return;   // D10: solo lectura
   if(!tienePermiso('editarstock')){ toast(MSJ.noTienesPermisoParaModificarEl,'error'); return; }
   const arr=misDatos('insumos');
   const i=arr.find(x=>x.id===id); if(!i) return;

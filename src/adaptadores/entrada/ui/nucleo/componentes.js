@@ -118,12 +118,13 @@ export function abrirModal(cfg){
   const ok=document.getElementById('modal-ok');
   if(ok) ok.onclick=()=>{
     const datos={};
-    (cfg.campos||[]).forEach(c=>{
+    for(const c of (cfg.campos||[])){
       const el=document.getElementById('m-'+c.id);
       datos[c.id]=el?el.value:'';
-      if(c.requerido && !datos[c.id]){ toast('Falta: '+c.label,'error'); throw new Error('falta campo'); }
-    });
-    if(cfg.onGuardar) cfg.onGuardar(datos);
+      // Un obligatorio con solo espacios también falta (antes pasaba y quedaba un nombre en blanco)
+      if(c.requerido && !String(datos[c.id]).trim()){ toast('Falta: '+c.label,'error'); if(el) el.focus(); return; }
+    }
+    if(cfg.onGuardar){ try{ cfg.onGuardar(datos); }catch(e){ reportarError('la ventana "'+(cfg.titulo||'')+'"', e); } }
   };
   setTimeout(()=>{
     const f=cont.querySelector('input,select,textarea'); if(f) f.focus();
@@ -141,11 +142,18 @@ export function cerrarModal(){
 // cobrar). Si para entonces ya hay otro modal abierto, NO lo tapa (F16): lo impreso se
 // puede repetir desde Reimpresiones, lo que se estaba escribiendo en el otro modal no.
 export function preguntarDespues(mensaje, alConfirmar, textoBoton, ms){
-  setTimeout(()=>{
+  cuandoNoHayaVentana(()=>confirmarModal(mensaje, alConfirmar, textoBoton), ms||400);
+}
+// Abre una ventana cuando no haya otra abierta (nunca tapa ni reemplaza la que está a la vista).
+// Espera hasta ~2 minutos; si sigue ocupado, se descarta (no aparece una ventana vieja de sorpresa).
+export function cuandoNoHayaVentana(abrir, ms){
+  let intentos=0;
+  const probar=()=>{
     const cont=document.getElementById('modal-container');
-    if(cont && cont.classList.contains('activo')) return;
-    confirmarModal(mensaje, alConfirmar, textoBoton);
-  }, ms||400);
+    if(cont && cont.classList.contains('activo')){ if(++intentos<400) setTimeout(probar, 300); return; }
+    abrir();
+  };
+  setTimeout(probar, ms||400);
 }
 // C2: un error que la app atrapa (para no dejar la pantalla en blanco) no debe quedar
 // invisible. Va a la consola, se avisa a la persona y queda en la Auditoría del negocio.

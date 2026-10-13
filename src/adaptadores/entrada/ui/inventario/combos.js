@@ -7,7 +7,7 @@
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, fmtMoney, now } from '../nucleo/estado.js';
 import { BOTON, MSJ } from '../nucleo/textos.js';
-import { tienePermiso } from '../nucleo/permisos.js';
+import { exigirEscritura, tienePermiso } from '../nucleo/permisos.js';
 import { abrirModal, cerrarModal, fotoProducto, ic, pProd, pProds, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
 import { logAudit } from '../usuarios/auditoria.js';
@@ -108,6 +108,7 @@ export function combos(){
 }
 
 export function editarCombo(id){
+  if(!exigirEscritura()) return;   // D10: solo lectura
   if(!tienePermiso('editarprod')){ toast(MSJ.noTienesPermisoParaCrearCombos,'error'); return; }
   const productos=misDatos('productos');
   const p=id?productos.find(x=>x.id===id):null;
@@ -122,7 +123,7 @@ export function editarCombo(id){
     const comps=_comboTmp.filter(c=>c.prodId && c.cantidad>0);
     if(!comps.length){ toast('Agrega al menos un '+pProd()+' al combo','error'); return; }
     const arr=misDatos('productos');
-    const datos={nombre:d.nombre.trim(), precio:parseFloat(d.precio)||0,
+    const datos={nombre:d.nombre.trim(), precio:Math.max(0, parseFloat(d.precio)||0),   // S9
       categoria:(d.categoria||'Combos').trim()||'Combos',
       esCombo:true, componentes:comps, stock:null, usaLotes:false, lotes:[]};
     if(p){ const x=arr.find(y=>y.id===id); if(x) Object.assign(x,datos); }

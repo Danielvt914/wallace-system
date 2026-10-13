@@ -169,3 +169,48 @@ test('foto del producto: solo se acepta una imagen data: (nada que pueda romper 
   assert.equal(inv.imagenValida('data:image/svg+xml;base64,PHN2Zz4='), false);
   assert.equal(inv.imagenValida('data:image/jpeg;base64,'+'A'.repeat(inv.FOTO_MAX_BYTES)), false);
 });
+
+test('S9: el cobro rechaza montos negativos (sacar efectivo cuadrando la caja)', ()=>{
+  assert.deepEqual(pagos.liquidarCobro(50000, {efectivo:-50000, banco:100000, tarjeta:0}), {ok:false, error:'negativo'});
+  assert.deepEqual(pagos.liquidarCobro(50000, {efectivo:0, banco:60000, tarjeta:-10000}), {ok:false, error:'negativo'});
+  assert.equal(pagos.liquidarCobro(50000, {efectivo:60000, banco:0, tarjeta:0}).cambio, 10000);
+  assert.equal(pagos.montoValido(0), true);
+  assert.equal(pagos.montoValido(-1), false);
+  assert.equal(pagos.montoValido(NaN), false);
+  assert.equal(pagos.montoValido(Infinity), false);
+  assert.equal(pagos.pagosValidos({efectivo:1000, banco:0, tarjeta:0}), true);
+  assert.equal(pagos.pagosValidos({efectivo:1000, banco:-1, tarjeta:0}), false);
+});
+
+test('facturas sin conexión: bloques por equipo, número provisional y repetidos', ()=>{
+  let b=fac.agregarRango([], 21, 40);
+  assert.equal(fac.quedanEnBloque(b), 20);
+  assert.equal(fac.necesitaBloque(b), false);
+  const t1=fac.tomarDelBloque(b); assert.equal(t1.numero, 21); assert.equal(fac.quedanEnBloque(t1.rangos), 19);
+  assert.equal(fac.quedanEnBloque(b), 20);                                  // no toca el original
+  b=fac.agregarRango([[39,40]], 61, 80);                                     // se acaba uno, sigue el otro
+  const nums=[]; let r=b; for(let i=0;i<3;i++){ const x=fac.tomarDelBloque(r); nums.push(x.numero); r=x.rangos; }
+  assert.deepEqual(nums, [39,40,61]);
+  assert.equal(fac.tomarDelBloque([]), null);
+  assert.equal(fac.necesitaBloque([[1,4]]), true);
+  // Provisional: código del equipo + fecha y hora; no cuenta como consecutivo
+  const p=fac.numeroProvisional('K7Q2', new Date(2026,9,12,14,30,52).getTime());
+  assert.equal(p, 'P-K7Q2-261012143052');
+  assert.equal(fac.esProvisional(p), true);
+  assert.equal(fac.esProvisional('F-00124'), false);
+  assert.equal(fac.equipoDeProvisional(p), 'K7Q2');
+  assert.equal(fac.numeroDe(p), 0);
+  assert.equal(fac.mayorNumero([{factura:'F-00124'}, {factura:p}]), 124);
+  assert.deepEqual(fac.repetidas([{factura:'F-00124'}, {factura:'F-00124'}, {factura:'F-00125'}, {factura:p}, {factura:p}]), [{factura:'F-00124', veces:2}]);
+});
+
+test('V3/V5: porcentajes, cantidades y códigos de barras repetidos', ()=>{
+  assert.equal(pagos.porcentajeValido(0), true); assert.equal(pagos.porcentajeValido(100), true);
+  assert.equal(pagos.porcentajeValido(-1), false); assert.equal(pagos.porcentajeValido(101), false); assert.equal(pagos.porcentajeValido(NaN), false);
+  assert.equal(inv.cantidadValida(0), true); assert.equal(inv.cantidadValida(2.5), true);
+  assert.equal(inv.cantidadValida(-1), false); assert.equal(inv.cantidadValida(NaN), false); assert.equal(inv.cantidadValida('3'), false);
+  const prods=[{id:'p1', nombre:'Agua', codBarras:'770123'}, {id:'p2', nombre:'Gaseosa', codBarras:''}];
+  assert.equal(inv.codigoRepetido(prods, ' 770123 ', 'p2').nombre, 'Agua');
+  assert.equal(inv.codigoRepetido(prods, '770123', 'p1'), null);      // el suyo propio
+  assert.equal(inv.codigoRepetido(prods, '', 'p2'), null);
+});

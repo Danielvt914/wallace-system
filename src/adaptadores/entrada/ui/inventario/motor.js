@@ -8,7 +8,7 @@
 import { STATE, escapeHtml, now } from '../nucleo/estado.js';
 import { BOTON } from '../nucleo/textos.js';
 import { usaInventario } from '../nucleo/permisos.js';
-import { abrirModal, cerrarModal, toast } from '../nucleo/componentes.js';
+import { abrirModal, cerrarModal, cuandoNoHayaVentana, toast } from '../nucleo/componentes.js';
 import { sonidoAlerta } from '../nucleo/sonidos.js';
 
 
@@ -64,8 +64,9 @@ export function fmtSoloFecha(f){
 export function requerimientos(items){ return Dominio.inventario.requerimientos(items, misDatos('productos'), !!(STATE.negocio&&STATE.negocio.usaRecetas)); }
 // Aplica un movimiento de inventario. signo -1 = sale del stock, +1 = entra.
 // registra=true deja constancia en Movimientos (para ediciones, mermas y ajustes).
-export function moverInventario(req, signo, motivo, registra){
-  if(!usaInventario()) return [];
+// forzar=true: aunque el negocio haya apagado el inventario (devolver lo que SÍ se descontó)
+export function moverInventario(req, signo, motivo, registra, forzar){
+  if(!usaInventario() && !forzar) return [];
   const productos=misDatos('productos');
   const insumos=misDatos('insumos');
   const nuevosMovs=[];
@@ -115,10 +116,13 @@ export function descontarStock(venta){
 }
 // Devuelve el inventario de una venta (anular, eliminar).
 // Queda REGISTRADO en Movimientos: es la forma de comprobar que la mercancía volvió.
+// Si la venta SÍ descontó (stockAplicado), se devuelve aunque después se haya apagado el inventario:
+// antes no volvía nada y la venta quedaba marcada como descontada para siempre.
 export function devolverStock(venta, motivo){
-  if(!usaInventario() || !venta) return;
-  if(venta.stockAplicado===false) return;                // ya se había devuelto
-  moverInventario(requerimientos(venta.items), +1, motivo||('Devolución · '+(venta.factura||'')), true);
+  if(!venta || venta.stockAplicado===false) return;      // ya se había devuelto
+  const descontada=venta.stockAplicado===true;
+  if(!usaInventario() && !descontada) return;
+  moverInventario(requerimientos(venta.items), +1, motivo||('Devolución · '+(venta.factura||'')), true, descontada);
   venta.stockAplicado=false;
 }
 // Ajusta el inventario cuando se EDITA un pedido que ya había descontado
@@ -163,8 +167,7 @@ export function avisarStockBajo(venta){
       <strong class="oro fs-15">⚠️ QUEDAN POCOS</strong>
       <p class="mt-6 lh-1_7">${bj.map(x=>escapeHtml(x)).join('<br>')}</p>
     </div>`:''}`;
-  setTimeout(()=>{
-    abrirModal({titulo:'🔔 Alerta de inventario', textoBoton:BOTON.entendido, campos:[],
-      extraHTML:cuerpo, onGuardar:()=>cerrarModal()});
-  },700);
+  // F27: espera a que se cierre la ventana que esté abierta (p. ej. "¿Imprimir factura?")
+  cuandoNoHayaVentana(()=>abrirModal({titulo:'🔔 Alerta de inventario', textoBoton:BOTON.entendido, campos:[],
+      extraHTML:cuerpo, onGuardar:()=>cerrarModal()}), 700);
 }

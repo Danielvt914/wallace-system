@@ -7,8 +7,8 @@
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, fmtMoney, now } from '../nucleo/estado.js';
 import { BOTON, MSJ } from '../nucleo/textos.js';
-import { puedeVerPantalla, tienePermiso, usaInventario } from '../nucleo/permisos.js';
-import { abrirModal, cerrarModal, confirmarModal, ic, pProds, toast } from '../nucleo/componentes.js';
+import { exigirEscritura, exigirPermiso, puedeVerPantalla, tienePermiso, usaInventario } from '../nucleo/permisos.js';
+import { abrirModal, cerrarModal, confirmarModal, ic, pProds, reportarError, toast } from '../nucleo/componentes.js';
 import { sonidoError, sonidoPedido } from '../nucleo/sonidos.js';
 import { render } from '../nucleo/navegacion.js';
 import { logAudit } from '../usuarios/auditoria.js';
@@ -66,6 +66,7 @@ export function tiempoTxt(min){
 // Abre la cuenta con lo que hay en el carrito (negocios de cobro directo)
 export function abrirCuentaNueva(){
   if(!puedeUsarCuentas()){ toast(MSJ.noTienesAccesoALasCuentas,'error'); return; }   // S7
+  if(!exigirEscritura()) return;                                                         // D10
   if(!_carrito.length){ toast(MSJ.agregaProductosPrimero,'error'); return; }
   if(!validarClientePedido()) return;
   if(_guardando) return;
@@ -87,7 +88,7 @@ export function abrirCuentaNueva(){
     if(STATE.negocio.usaCocina) imprimirComandaSegura(venta);
     limpiarPedido(); fijarEscribiendo(false); STATE.pageNeg='cuentas'; render();
     toast('Cuenta abierta: '+nombreCuenta(venta),'success');
-  }catch(e){ console.error(e); toast(MSJ.errorAlAbrirLaCuenta,'error'); }
+  }catch(e){ reportarError('abrir la cuenta', e); }
   finally{ fijarGuardando(false); }
 }
 // Entra al modo "agregar productos a esta cuenta"
@@ -110,12 +111,12 @@ export function salirDeCuenta(){
 // Suma lo del carrito a la cuenta (no la reemplaza)
 export function agregarACuenta(){
   if(!puedeUsarCuentas()){ toast(MSJ.noTienesAccesoALasCuentas,'error'); return; }   // S7
+  if(!exigirEscritura()) return;                                                         // D10
   if(_guardando) return;
   const id=STATE.agregandoCuentaId;
   if(!id){ toast(MSJ.noHayNingunaCuentaAbiertaSeleccionada,'error'); return; }
   if(!_carrito.length){ toast(MSJ.agregaProductosPrimero,'error'); return; }
-  const ventas=misDatos('ventas');
-  const v=ventas.find(x=>x.id===id);
+  const v=misDatos('ventas').find(x=>x.id===id);
   if(!v){ toast(MSJ.esaCuentaYaNoExiste,'error'); salirDeCuenta(); return; }
   if(v.estado!=='abierta'){ toast(MSJ.esaCuentaYaFueCobrada,'error'); salirDeCuenta(); return; }
   // Si el inventario ya se había descontado (raro en cuentas), revisar que alcance
@@ -125,35 +126,30 @@ export function agregarACuenta(){
   }
   fijarGuardando(true);
   bloquearBoton('btn-confirmar','Guardando…');
-  try{
-    const nuevos=JSON.parse(JSON.stringify(_carrito));
-    const items=(v.items||[]).slice();
-    nuevos.forEach(n=>{
-      const ya=items.find(i=>i.prodId===n.prodId && i.precio===n.precio && (i.obs||'')===(n.obs||''));
-      if(ya) ya.qty+=n.qty; else items.push(n);
-    });
-    v.items=items;
-    const bruto=items.reduce((a,i)=>a+i.precio*i.qty,0);
-    v.subtotalBruto=bruto;
-    v.subtotal=Math.max(0,bruto-(v.descuento||0));
-    v.total=v.subtotal+(v.valorDom||0)+(v.propina||0)+(v.recargo||0);
-    v.agregadoPor=STATE.user.nombre; v.agregadoEn=now();
-    if(_vObs) v.obs=((v.obs?v.obs+' · ':'')+_vObs);
-    if(v.stockAplicado===true) ajustarStockPorEdicion([], nuevos, v.factura);
-    if(STATE.negocio.usaCocina && v.estadoCocina && v.estadoCocina!=='entregado') v.estadoCocina='pendiente';
-    guardarMisDatos('ventas',ventas);
-    logAudit('Agregó a la cuenta', (v.factura||'')+' · '+nuevos.reduce((a,i)=>a+i.qty,0)+' und · total '+fmtMoney(v.total));
+  const nuevos=JSON.parse(JSON.stringify(_carrito));
+  // D9: se suma sobre la cuenta DEL SERVIDOR (transacción): si otro mesero agregó al mismo tiempo,
+  // no se pierde lo suyo; si ya la cobraron o cancelaron, no se agrega nada
+  return Datos.transaccionRegistro('ventas', id, cur=>Dominio.ventas.agregarACuenta(cur, nuevos,
+      {quien:STATE.user.nombre, cuando:now(), obs:_vObs, reabrirCocina:!!STATE.negocio.usaCocina}))
+  .then(r=>{
+    if(!r.committed){
+      if(r.motivo!=='solo_lectura'){ toast(MSJ.esaCuentaYaNoEstaAbierta,'error'); salirDeCuenta(); }
+      return;
+    }
+    const x=r.valor;
+    if(x.stockAplicado===true) ajustarStockPorEdicion([], nuevos, x.factura);
+    logAudit('Agregó a la cuenta', (x.factura||'')+' · '+nuevos.reduce((a,i)=>a+i.qty,0)+' und · total '+fmtMoney(x.total));
     sonidoPedido();
     // Comanda solo de lo NUEVO, para que cocina no repita lo anterior
     if(STATE.negocio.usaCocina){
-      imprimirComandaSegura(Object.assign({}, v, {items:nuevos, obs:'AGREGADO A '+nombreCuenta(v)}));
+      imprimirComandaSegura(Object.assign({}, x, {items:nuevos, obs:'AGREGADO A '+nombreCuenta(x)}));
     }
-    const nom=nombreCuenta(v), tot=v.total;
     STATE.agregandoCuentaId=null;
     limpiarPedido(); fijarEscribiendo(false); STATE.pageNeg='cuentas'; render();
-    toast('Agregado a '+nom+' · va en '+fmtMoney(tot),'success');
-  }catch(e){ console.error(e); toast(MSJ.errorAlAgregar,'error'); }
-  finally{ fijarGuardando(false); }
+    toast('Agregado a '+nombreCuenta(x)+' · va en '+fmtMoney(x.total),'success');
+  })
+  .catch(e=>{ reportarError('agregar a la cuenta', e); toast(MSJ.noSePudoGuardarIntentaDeNuevo,'error'); })
+  .then(()=>{ fijarGuardando(false); });
 }
 // Cambiar el nombre o la mesa de una cuenta
 // S7: abrir, agregar y renombrar cuentas = quien vende o maneja las cuentas
@@ -225,22 +221,26 @@ export function cuentas(){
 // Cancelar una cuenta: no consumieron o no pagaron. Devuelve el producto al
 // inventario (si ya se había descontado) y queda registrado quién la canceló.
 export function cancelarCuenta(id){
-  if(!tienePermiso('anular')){ toast(MSJ.noTienesPermisoParaCancelarCuentas,'error'); return; }
+  if(!exigirPermiso('anular', MSJ.noTienesPermisoParaCancelarCuentas)) return;
   const v=misDatos('ventas').find(x=>x.id===id);
   if(!v){ toast(MSJ.cuentaNoEncontrada,'error'); return; }
   if(v.estado!=='abierta'){ toast(MSJ.esaCuentaYaFueCobradaUsa,'error'); return; }
   const und=(v.items||[]).reduce((a,i)=>a+i.qty,0);
-  const devuelve = v.stockAplicado===true && usaInventario();
+  const devuelve = v.stockAplicado===true;   // lo que se descontó vuelve aunque hoy el inventario esté apagado
   confirmarModal('¿Cancelar la cuenta de '+nombreCuenta(v)+' por '+fmtMoney(v.total||0)+'?'
     +(devuelve?' Los '+und+' producto(s) vuelven al inventario.':''),()=>{
-    const ventas=misDatos('ventas');
-    const x=ventas.find(y=>y.id===id); if(!x) return;
-    if(devuelve) devolverStock(x, 'Cuenta cancelada · '+nombreCuenta(x));
-    x.estado='anulada'; x.anulada=now(); x.anuladaPor=STATE.user.nombre; x.motivoAnulacion='Cuenta cancelada';
-    guardarMisDatos('ventas',ventas);
-    logAudit('Canceló cuenta abierta', (x.factura||'')+' · '+nombreCuenta(x)+' · '+fmtMoney(x.total||0)+(devuelve?' · inventario devuelto':''));
-    toast('Cuenta cancelada'+(devuelve?' · producto devuelto al inventario':''),'info');
-    render();
+    // D9: solo si sigue abierta en el servidor (no la cobró otro equipo mientras tanto)
+    Datos.transaccionRegistro('ventas', id, cur=>Dominio.ventas.anularSiSigueIgual(cur, 'abierta',
+        {anulada:now(), anuladaPor:STATE.user.nombre, motivoAnulacion:'Cuenta cancelada'}))
+    .then(r=>{
+      if(!r.committed){ if(r.motivo!=='solo_lectura') toast(MSJ.esaCuentaYaNoEstaAbierta,'error'); render(); return; }
+      const x=r.valor;
+      const devolvio = x.stockAplicado===true;
+      if(devolvio){ devolverStock(x, 'Cuenta cancelada · '+nombreCuenta(x)); guardarMisDatos('ventas',[x]); }
+      logAudit('Canceló cuenta abierta', (x.factura||'')+' · '+nombreCuenta(x)+' · '+fmtMoney(x.total||0)+(devolvio?' · inventario devuelto':''));
+      toast('Cuenta cancelada'+(devolvio?' · producto devuelto al inventario':''),'info');
+      render();
+    }).catch(e=>reportarError('cancelar la cuenta', e));
   },'Sí, cancelar');
 }
 export function nuevaCuentaDesdeCero(){

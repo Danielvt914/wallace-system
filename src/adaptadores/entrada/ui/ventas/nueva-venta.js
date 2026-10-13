@@ -5,10 +5,10 @@
 //  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/02-pos-catalog/02-pos-catalog.md
 // ============================================================
-import { STATE, escapeHtml, fijarEscribiendo, fmtMoney, jornadaActual, now } from '../nucleo/estado.js';
+import { STATE, escapeHtml, fijarEscribiendo, fmtMoney, jornadaActual, now, refrescarSiSePuede } from '../nucleo/estado.js';
 import { BOTON, MSJ } from '../nucleo/textos.js';
-import { cajaActual, exigirPermiso, sucursalActual, tienePermiso, usaInventario } from '../nucleo/permisos.js';
-import { abrirModal, cerrarModal, confirmarModal, fotoProducto, ic, pPedido, preguntarDespues, toast } from '../nucleo/componentes.js';
+import { cajaActual, exigirEscritura, exigirPermiso, sucursalActual, tienePermiso, usaInventario } from '../nucleo/permisos.js';
+import { abrirModal, cerrarModal, confirmarModal, fotoProducto, ic, pPedido, preguntarDespues, reportarError, toast } from '../nucleo/componentes.js';
 import { sonidoError, sonidoPedido } from '../nucleo/sonidos.js';
 import { render } from '../nucleo/navegacion.js';
 import { logAudit } from '../usuarios/auditoria.js';
@@ -33,6 +33,7 @@ export let _vObs='';
 export let _vCat='Todas';
 export let _vBusca='';
 export let _desc=0;
+export let _descPct=0;   // F26: si el descuento es en %, se recalcula con el subtotal de cada momento
 export let _descMot='';
 export let _guardando=false;   // bloquea doble clic
 
@@ -66,7 +67,8 @@ export function nuevaVenta(){
   if(_vBusca){ const q=_vBusca.toLowerCase(); productos=productos.filter(p=>(p.nombre||'').toLowerCase().includes(q)); }
   const cats=['Todas'].concat(Array.from(new Set(misDatos('productos').filter(p=>!p.agotado).map(p=>p.categoria||'General'))));
   const bruto=_carrito.reduce((a,i)=>a+i.precio*i.qty,0);
-  const total=Math.max(0,bruto-_desc);
+  const desc=descuentoDe(bruto);
+  const total=Math.max(0,bruto-desc);
   const tiposCfg=(neg.tiposEntrega&&neg.tiposEntrega.length)?neg.tiposEntrega:['llevar'];
   if(tiposCfg.indexOf(_vTipo)<0) _vTipo=tiposCfg[0];
   const etiquetas={mesa:'Mesa',llevar:'Para llevar',domicilio:'Domicilio',envio:'Envío nacional'};
@@ -135,9 +137,9 @@ export function nuevaVenta(){
           ${neg.esLogistica?`
             <div class="total"><span>A DESPACHAR</span><span>${_carrito.reduce((a,i)=>a+i.qty,0)} und</span></div>
           `:`
-          ${_desc>0?`<div class="linea"><span>Subtotal</span><span>${fmtMoney(bruto)}</span></div>
+          ${desc>0?`<div class="linea"><span>Subtotal</span><span>${fmtMoney(bruto)}</span></div>
             <div class="linea desc"><span>Descuento${_descMot?' · '+escapeHtml(_descMot):''}</span>
-              <span>−${fmtMoney(_desc)} <button class="mini-x" data-click="quitarDescuento()">×</button></span></div>`
+              <span>−${fmtMoney(desc)} <button class="mini-x" data-click="quitarDescuento()">×</button></span></div>`
            :(tienePermiso('descuento')?`<button class="btn btn-ghost btn-block btn-sm" data-click="abrirDescuento()">% Aplicar descuento</button>`:'')}
           <div id="linea-dom">${valorDom>0?`<div class="linea"><span>${_vTipo==='envio'?'Envío':'Domicilio'}</span><span>${fmtMoney(valorDom)}</span></div>`:''}</div>
           <div class="total"><span>TOTAL</span><span id="venta-total">${fmtMoney(total+valorDom)}</span></div>
@@ -240,8 +242,8 @@ export function elegirClienteSugerido(id){
 // sin redibujar todo (así no se pierde el foco del campo = no se sale el teclado).
 export function actualizarTotalVenta(){
   const bruto=_carrito.reduce((a,i)=>a+i.precio*i.qty,0);
-  const total=Math.max(0,bruto-_desc);
-  const valorDom=(_vTipo==='domicilio'||_vTipo==='envio')?(parseFloat(_vCli.valorDom)||0):0;
+  const total=Math.max(0,bruto-descuentoDe(bruto));
+  const valorDom=(_vTipo==='domicilio'||_vTipo==='envio')?Math.max(0,parseFloat(_vCli.valorDom)||0):0;
   const elTot=document.getElementById('venta-total');
   if(elTot) elTot.textContent=fmtMoney(total+valorDom);
   const elDom=document.getElementById('linea-dom');
@@ -269,6 +271,8 @@ export function escanearProducto(codigo){
 export function agregarAlCarrito(id){
   const neg=STATE.negocio;
   const p=misDatos('productos').find(x=>x.id===id); if(!p) return;
+  // F25: marcado agotado (lo ocultaba la lista, pero el escáner lo agregaba igual)
+  if(p.agotado){ toast(MSJ.productoAgotadoNoSeVende,'error'); sonidoError(); return; }
   // Combos y productos sueltos: se revisa el stock REAL contando todo el carrito
   if(usaInventario()){
     const faltan=faltantesParaAgregar(id);
@@ -309,9 +313,11 @@ export function quitarItemCarrito(idx){
   _carrito.splice(idx,1);
   render();
 }
-export function vaciarCarrito(){ _carrito=[]; _desc=0; _descMot=''; render(); }
+export function vaciarCarrito(){ _carrito=[]; _desc=0; _descPct=0; _descMot=''; render(); }
+// F26: el descuento de este momento: el % sobre el subtotal actual, y nunca más que el subtotal
+export function descuentoDe(bruto){ return Math.min(bruto, _descPct>0 ? Math.round(bruto*_descPct/100) : _desc); }
 export function limpiarPedido(){
-  _carrito=[]; _vObs=''; _desc=0; _descMot=''; _vMesa='';
+  _carrito=[]; _vObs=''; _desc=0; _descPct=0; _descMot=''; _vMesa='';
   STATE.editandoVentaId=null; STATE.agregandoCuentaId=null;
   const neg=STATE.negocio;
   // Venta rápida: precargar el cliente predeterminado (tiendas de alto flujo)
@@ -328,7 +334,7 @@ export function limpiarPedido(){
 export function cargarPedidoEnVenta(v, conItems){
   _carrito=conItems?(v.items||[]).map(i=>({prodId:i.prodId, nombre:i.nombre, precio:i.precio, qty:i.qty, obs:i.obs||''})):[];
   _vTipo=v.tipo||'llevar'; _vMesa=v.mesa||''; _vObs=conItems?(v.obs||''):'';
-  if(conItems){ _desc=v.descuento||0; _descMot=v.descMotivo||v.descMot||''; }
+  if(conItems){ _desc=v.descuento||0; _descPct=v.descPct||0; _descMot=v.descMotivo||v.descMot||''; }
   _vCli={nombre:v.cliNombre||'', tel:v.cliTel||'', dir:v.cliDir||'', barrio:v.cliBarrio||'',
     ciudad:v.cliCiudad||'', depto:v.cliDepto||'', transportadora:v.transportadora||'',
     domiciliario:v.domiciliario||'', valorDom:v.valorDom||0};
@@ -348,11 +354,12 @@ export function abrirDescuento(){
     if(c<=0){ toast(MSJ.cantidadInvalida,'error'); return; }
     const desc = d.tipo==='pct' ? Math.round(bruto*c/100) : c;
     if(desc>bruto){ toast(MSJ.elDescuentoNoPuedeSuperarEl,'error'); return; }
-    _desc=desc; _descMot=d.motivo||(d.tipo==='pct'?c+'%':'');
+    if(d.tipo==='pct' && c>100){ toast(MSJ.elDescuentoNoPuedeSuperarEl,'error'); return; }
+    _desc=desc; _descPct=d.tipo==='pct'?c:0; _descMot=d.motivo||(d.tipo==='pct'?c+'%':'');
     cerrarModal(); toast(MSJ.descuentoAplicado,'success'); render();
   }});
 }
-export function quitarDescuento(){ _desc=0; _descMot=''; render(); }
+export function quitarDescuento(){ _desc=0; _descPct=0; _descMot=''; render(); }
 export function cancelarEdicionPedido(){
   confirmarModal(MSJ.salirSinGuardarLosCambiosDel,()=>{
     limpiarPedido(); fijarEscribiendo(false); STATE.pageNeg='pedidos'; render();
@@ -360,42 +367,99 @@ export function cancelarEdicionPedido(){
   },'Sí, salir');
 }
 
-// ---------- Consecutivo de factura (sin repetidos entre equipos) ----------
-// Antes cada equipo tomaba "la mayor factura que yo veo + 1": dos equipos
-// vendiendo a la vez (o uno sin internet) sacaban el mismo número.
-// Ahora cada equipo RESERVA su próximo número con una transacción sobre
-// data_<negocio>_factura_seq, que Firebase serializa. Así el número queda
-// listo de antemano y armarVenta sigue siendo instantánea.
-// Si un equipo cierra sin usar su número reservado, ese número queda sin usar
-// (puede haber saltos, nunca repetidos mientras haya conexión).
+// ---------- Consecutivo de factura (sin repetidos entre equipos, con o sin internet) ----------
+// Con la base en la nube, cada equipo aparta un BLOQUE de números (Dominio.facturas.TAMANO_BLOQUE)
+// en una transacción sobre data_<negocio>_factura_seq y los gasta con o sin internet: dos equipos
+// nunca reciben el mismo. El bloque vive en el equipo (localStorage, por negocio).
+// Sin bloque (arrancó sin internet o se le acabó): número PROVISIONAL P-<equipo>-<fecha y hora>,
+// que no se repite, y al reconectar recibe el definitivo (asignarDefinitivas).
+// Modo local (un solo equipo, sin nube): el mayor número + 1, como siempre.
+// Los números de un bloque que no se usen quedan como saltos (nunca repetidos).
+// Documentation/-03-architecture/facturas-sin-conexion.md
 
-export let _facturaReservada=null, _reservandoFactura=false;
-export function fijarFacturaReservada(v){ _facturaReservada=v; }   // al cerrar sesión o cambiar de negocio
+export let _reservandoFactura=false, _ultimoProvisional='';
+export function fijarFacturaReservada(){ _reservandoFactura=false; }   // al cerrar sesión o cambiar de negocio
 export function maxFacturaLocal(){ return Dominio.facturas.mayorNumero(misDatos('ventas')); }
+export function enNube(){ return !!(Datos.entorno && Datos.entorno!=='local'); }
+const claveBloque=n=>'ws_bloque_'+n;
+export function leerBloque(n){ try{ return JSON.parse(localStorage.getItem(claveBloque(n))||'[]')||[]; }catch(e){ return []; } }
+export function guardarBloque(n, rangos){ try{ localStorage.setItem(claveBloque(n), JSON.stringify(rangos||[])); }catch(e){ console.warn('Bloque de facturas', e); } }
+// Código de este equipo para los números provisionales (al azar, una vez)
+export function codigoEquipo(){
+  let c=null; try{ c=localStorage.getItem('ws_equipo'); }catch(e){}
+  if(!c || !/^[A-Z0-9]{4}$/.test(c)){
+    c=Cripto.claveAleatoria(4).toUpperCase().replace(/[^A-Z0-9]/g,'X');
+    try{ localStorage.setItem('ws_equipo', c); }catch(e){}
+  }
+  return c;
+}
+// Aparta otro bloque si quedan pocos (y luego da su número definitivo a lo que salió provisional)
 export function reservarFactura(){
-  if(!FB_READY || !STATE.negocio || _reservandoFactura || _facturaReservada!==null) return;
+  if(!FB_READY || !STATE.negocio || _reservandoFactura) return;
   const negId=STATE.negocio.id;
+  if(!Dominio.facturas.necesitaBloque(leerBloque(negId))){ asignarDefinitivas(); return; }
   _reservandoFactura=true;
-  Datos.reservarConsecutivo(negId, maxFacturaLocal())
-    .then(n=>{ if(n && STATE.negocio && STATE.negocio.id===negId) _facturaReservada=n; })
-    .catch(e=>console.warn('Reserva de factura:',e&&e.message))
-    .then(()=>{ _reservandoFactura=false; });
+  const k=Dominio.facturas.TAMANO_BLOQUE;
+  Datos.reservarConsecutivo(negId, maxFacturaLocal(), k)
+    .then(hasta=>{ if(hasta) guardarBloque(negId, Dominio.facturas.agregarRango(leerBloque(negId), hasta-k+1, hasta)); })
+    .catch(e=>console.warn('Reserva de facturas:',e&&e.message))
+    .then(()=>{ _reservandoFactura=false; if(STATE.negocio && STATE.negocio.id===negId) asignarDefinitivas(); });
 }
 export function siguienteFactura(){
-  const seq=parseInt(DB.get(claveDe(STATE.negocio.id,'factura_seq')))||0;
-  const n=Dominio.facturas.elegirNumero(_facturaReservada, maxFacturaLocal(), seq);
-  _facturaReservada=null;
-  setTimeout(reservarFactura,0);   // dejar listo el siguiente
-  return Dominio.facturas.formatearFactura(n);
+  const negId=STATE.negocio.id;
+  if(!enNube()){
+    const seq=parseInt(DB.get(claveDe(negId,'factura_seq')))||0;
+    return Dominio.facturas.formatearFactura(Dominio.facturas.elegirNumero(null, maxFacturaLocal(), seq));
+  }
+  const t=Dominio.facturas.tomarDelBloque(leerBloque(negId));
+  setTimeout(reservarFactura,0);   // dejar listo el siguiente bloque si quedan pocos
+  if(t){ guardarBloque(negId, t.rangos); return Dominio.facturas.formatearFactura(t.numero); }
+  let p=Dominio.facturas.numeroProvisional(codigoEquipo(), Date.now());
+  if(p===_ultimoProvisional.split('~')[0]){ const k=(parseInt(_ultimoProvisional.split('~')[1])||1)+1; _ultimoProvisional=p+'~'+k; p=p+'-'+k; }
+  else _ultimoProvisional=p;
+  return p;
+}
+// Las ventas de ESTE equipo que salieron con número provisional reciben el definitivo del bloque
+// (transacción por venta: si otro equipo ya la tocó, no se pisa). Queda el provisional para buscarla.
+export let _asignando=false;
+export function asignarDefinitivas(){
+  if(_asignando || !enNube() || !STATE.negocio) return;
+  const negId=STATE.negocio.id, yo=codigoEquipo();
+  const prov=misDatos('ventas').filter(v=>Dominio.facturas.equipoDeProvisional(v.factura)===yo)
+    .sort((a,b)=>String(a.factura).localeCompare(String(b.factura)));
+  if(!prov.length) return;
+  _asignando=true;
+  const hechos=[];
+  const siguiente=()=>{
+    const v=prov.shift();
+    const t=v && Dominio.facturas.tomarDelBloque(leerBloque(negId));
+    if(!v || !t){ terminar(); return; }
+    guardarBloque(negId, t.rangos);
+    const def=Dominio.facturas.formatearFactura(t.numero), provisional=v.factura;
+    Datos.transaccionRegistro('ventas', v.id, cur=>(cur && cur.factura===provisional) ? Object.assign({}, cur, {factura:def, facturaProvisional:provisional}) : undefined)
+      .then(r=>{ if(r.committed){ hechos.push(provisional+' → '+def); logAudit('Número definitivo', provisional+' → '+def); } })
+      .catch(e=>reportarError('el número definitivo', e))
+      .then(siguiente);
+  };
+  const terminar=()=>{
+    _asignando=false;
+    if(hechos.length){ toast(hechos.length+' venta(s) hechas sin internet ya tienen su número definitivo (Reimpresiones)','info'); refrescarSiSePuede(); }
+    if(prov.length) setTimeout(reservarFactura,0);   // faltaron números: otro bloque
+  };
+  siguiente();
 }
 
 // ---------- Crear la venta (base común) ----------
-export function armarVenta(estado){
+// opc.sinFactura: cobro directo: el número se toma al confirmar el cobro (un cobro cancelado no gasta uno)
+export function armarVenta(estado, opc){
   const neg=STATE.negocio;
   const cajaAbierta=cajaActual();
   const bruto=_carrito.reduce((a,i)=>a+i.precio*i.qty,0);
-  const total=Math.max(0,bruto-_desc);
-  const valorDom=(_vTipo==='domicilio'||_vTipo==='envio')?(parseFloat(_vCli.valorDom)||0):0;
+  const desc=descuentoDe(bruto);
+  if(desc<_desc && !_descPct && bruto>0) toast(MSJ.elDescuentoSeAjustoAlSubtotal,'info');   // F26: quitaron productos
+  const total=Math.max(0,bruto-desc);
+  // S9: un domicilio negativo sería un descuento sin permiso
+  const valorDom=(_vTipo==='domicilio'||_vTipo==='envio')?Math.max(0,parseFloat(_vCli.valorDom)||0):0;
   const ventas=misDatos('ventas');
   // Si estamos EDITANDO un pedido, reusamos su id, factura, fecha y caja
   const orig = STATE.editandoVentaId ? ventas.find(x=>x.id===STATE.editandoVentaId) : null;
@@ -403,7 +467,7 @@ export function armarVenta(estado){
   if(orig){
     id=orig.id; factura=orig.factura; fecha=orig.fecha; cajaId=orig.cajaId;
   } else {
-    id=uid(); factura=siguienteFactura(); fecha=now(); cajaId=cajaAbierta?cajaAbierta.id:null;
+    id=uid(); factura=(opc&&opc.sinFactura)?'':siguienteFactura(); fecha=now(); cajaId=cajaAbierta?cajaAbierta.id:null;
   }
   const propina=orig?(orig.propina||0):0;
   const recargo=orig?(orig.recargo||0):0;
@@ -414,7 +478,7 @@ export function armarVenta(estado){
     id:id, factura:factura,
     jornada: (orig&&orig.jornada) ? orig.jornada : jornadaActual(),
     items:_carrito.slice(),
-    subtotal:total, subtotalBruto:bruto, descuento:_desc, descMotivo:_descMot,
+    subtotal:total, subtotalBruto:bruto, descuento:desc, descPct:_descPct||0, descMotivo:_descMot,
     valorDom, propina, recargo,
     total: total+valorDom+propina+recargo,
     metodo:orig?orig.metodo:'', estado: orig?orig.estado:estado,
@@ -448,6 +512,7 @@ export function validarClientePedido(){
 // ---------- LOGÍSTICA: registrar salida/entrega de mercancía (sin dinero) ----------
 export function registrarSalida(){
   if(_guardando) return;
+  if(!exigirEscritura()) return;                                     // D10
   if(!_carrito.length){ toast(MSJ.agregaProductosPrimero,'error'); return; }
   if(!validarClientePedido()) return;
   _guardando=true;
@@ -469,7 +534,7 @@ export function registrarSalida(){
     toast('Salida '+venta.factura+' registrada','success');
     // Logística: la remisión siempre se ofrece (no depende de la ventana Facturas)
     preguntarDespues(MSJ.imprimirRemisionDeEntrega,()=>imprimirFactura(venta.id),'Imprimir');
-  }catch(e){ console.error(e); toast(MSJ.errorAlRegistrarSalida,'error'); }
+  }catch(e){ reportarError('registrar la salida', e); toast(MSJ.errorAlRegistrarSalida,'error'); }
   finally{ _guardando=false; }
 }
 
@@ -482,10 +547,15 @@ export function guardarEdicionPedido(){
   if(!STATE.editandoVentaId){ toast(MSJ.noHayNingunPedidoEnEdicion,'error'); return; }
   if(!_carrito.length){ toast(MSJ.elPedidoNoPuedeQuedarVacio,'error'); return; }
   if(!validarClientePedido()) return;
-  const ventasPrev=misDatos('ventas');
-  const orig=ventasPrev.find(x=>x.id===STATE.editandoVentaId);
+  guardarEdicion(true);
+}
+// D9: la edición se guarda sobre la versión del SERVIDOR y solo si nadie cambió el pedido
+// mientras se editaba (otro equipo lo cobró, le agregó productos o lo anuló). Si cambió,
+// no se pisa: se avisa y se puede volver a editar con lo nuevo.
+export function guardarEdicion(desdeEdicion){
+  const orig=misDatos('ventas').find(x=>x.id===STATE.editandoVentaId);
   if(!orig){ toast(MSJ.esePedidoYaNoExiste,'error'); limpiarPedido(); fijarEscribiendo(false); render(); return; }
-  const yaDescontado = orig.stockAplicado===true || (orig.stockAplicado===undefined && orig.estado==='pagada');
+  const yaDescontado = orig.stockAplicado===true || (desdeEdicion && orig.stockAplicado===undefined && orig.estado==='pagada');
   if(yaDescontado){
     const d=difRequerimientos(requerimientos(orig.items), requerimientos(_carrito));
     const faltan=faltantesPara(d);
@@ -493,105 +563,78 @@ export function guardarEdicionPedido(){
   }
   _guardando=true;
   bloquearBoton('btn-confirmar','Guardando…');
+  const itemsAntes=JSON.parse(JSON.stringify(orig.items||[]));
+  const totalAntes=orig.total||0;
+  const estadoAntes=orig.estado;
+  let venta;
   try{
-    const itemsAntes=JSON.parse(JSON.stringify(orig.items||[]));
-    const totalAntes=orig.total||0;
-    const estadoAntes=orig.estado;
-    const venta=armarVenta(orig.estado||'abierta');
+    venta=armarVenta(orig.estado||'abierta');
     venta.stockAplicado = yaDescontado ? true : (orig.stockAplicado===true);
-    const ventas=misDatos('ventas');
-    const i=ventas.findIndex(x=>x.id===venta.id);
-    if(i>-1) ventas[i]=venta; else ventas.unshift(venta);     // NUNCA duplicar
-    const cambiaronItems = JSON.stringify(itemsAntes)!==JSON.stringify(venta.items);
-    // Inventario: solo la diferencia, y solo si ya se había descontado
-    if(yaDescontado && cambiaronItems) ajustarStockPorEdicion(itemsAntes, venta.items, venta.factura);
-    // Cocina: si cambió lo pedido, hay que volver a prepararlo
-    if(STATE.negocio.usaCocina && cambiaronItems && venta.estadoCocina && venta.estadoCocina!=='entregado'){
-      venta.estadoCocina='pendiente';
+  }catch(e){ reportarError('guardar los cambios', e); _guardando=false; return; }
+  const cambiaronItems = !Dominio.ventas.mismosItems(itemsAntes, venta.items);
+  // Cocina: si cambió lo pedido, hay que volver a prepararlo
+  if(STATE.negocio.usaCocina && cambiaronItems && venta.estadoCocina && venta.estadoCocina!=='entregado') venta.estadoCocina='pendiente';
+  // Caja: si ya estaba cobrado y cambió el total, el pago queda por ajustar
+  if(estadoAntes==='pagada' && Math.abs((venta.total||0)-totalAntes)>0.5) venta.pagoDescuadrado=true;
+  Datos.transaccionRegistro('ventas', venta.id, cur=>Dominio.ventas.editarSiSigueIgual(cur, estadoAntes, itemsAntes, venta))
+  .then(r=>{
+    if(!r.committed){
+      if(r.motivo!=='solo_lectura'){ toast(r.valor?MSJ.otroEquipoCambioEstePedido:MSJ.esePedidoYaNoExiste,'error'); limpiarPedido(); fijarEscribiendo(false); STATE.pageNeg='pedidos'; render(); }
+      return;
     }
-    // Caja: si ya estaba cobrado y cambió el total, el pago queda por ajustar
-    if(estadoAntes==='pagada' && Math.abs((venta.total||0)-totalAntes)>0.5) venta.pagoDescuadrado=true;
-    guardarMisDatos('ventas',ventas);
-    logAudit('Editó pedido', (venta.factura||'')+': '+fmtMoney(totalAntes)+' → '+fmtMoney(venta.total||0)
-      +' · '+itemsAntes.reduce((a,x)=>a+x.qty,0)+' → '+venta.items.reduce((a,x)=>a+x.qty,0)+' und');
-    const idG=venta.id, ajustar=!!venta.pagoDescuadrado;
-    limpiarPedido(); fijarEscribiendo(false); STATE.pageNeg='pedidos'; render();
+    const v=r.valor;
+    // Inventario: solo la diferencia, y solo si ya se había descontado
+    if(yaDescontado && cambiaronItems) ajustarStockPorEdicion(itemsAntes, v.items, v.factura);
+    logAudit('Editó pedido', (v.factura||'')+': '+fmtMoney(totalAntes)+' → '+fmtMoney(v.total||0)
+      +' · '+itemsAntes.reduce((a,x)=>a+x.qty,0)+' → '+v.items.reduce((a,x)=>a+x.qty,0)+' und');
+    const idG=v.id, ajustar=!!v.pagoDescuadrado;
+    limpiarPedido(); fijarEscribiendo(false); STATE.pageNeg='pedidos'; STATE._itemsAntes=null; render();
     sonidoPedido();
-    toast('Pedido '+venta.factura+' actualizado'+(cambiaronItems?' · inventario ajustado':''),'success');
+    toast('Pedido '+v.factura+' actualizado'+(cambiaronItems && yaDescontado?' · inventario ajustado':''),'success');
     if(ajustar){ setTimeout(()=>ajustarPagoVenta(idG),450); }
     else if(cambiaronItems && STATE.negocio.usaCocina){
       preguntarDespues(MSJ.cambioElPedidoImprimirLaComanda,
         ()=>{ const vv=misDatos('ventas').find(x=>x.id===idG); if(vv) imprimirComanda(vv); },'Imprimir',450);
     }
-  }catch(e){ console.error(e); toast(MSJ.errorAlGuardarLosCambios,'error'); }
-  finally{ _guardando=false; }
+  })
+  .catch(e=>{ reportarError('guardar los cambios', e); toast(MSJ.errorAlGuardarLosCambios,'error'); })
+  .then(()=>{ _guardando=false; });
 }
 
 export function confirmarPedido(){
   if(_guardando) return;
+  if(!exigirEscritura()) return;                                                   // D10
   if(!_carrito.length){ toast(MSJ.agregaProductosPrimero,'error'); return; }
   if(!validarClientePedido()) return;
-  const editando=!!STATE.editandoVentaId;
-  if(!editando && descuentaAlPedir()){
-    const faltan=faltantesPara(requerimientos(_carrito));
-    if(faltan.length){ toast('⛔ No alcanza el inventario: '+faltan.join(', '),'error'); sonidoError(); return; }
+  // S11: con un pedido en edición esto GUARDA LA EDICIÓN: el mismo permiso que el otro botón
+  if(STATE.editandoVentaId){
+    if(!exigirPermiso('editar','No tienes permiso para editar pedidos')) return;
+    guardarEdicion(false);
+    return;
   }
-  const ventasPrev=misDatos('ventas');
-  const orig = editando ? ventasPrev.find(x=>x.id===STATE.editandoVentaId) : null;
-  const yaDescontado = !!(orig && orig.stockAplicado===true);
-  // Si el pedido ya había descontado inventario, revisar que alcance para lo nuevo
-  if(yaDescontado){
-    const d=difRequerimientos(requerimientos(orig.items), requerimientos(_carrito));
-    const faltan=faltantesPara(d);
+  if(descuentaAlPedir()){
+    const faltan=faltantesPara(requerimientos(_carrito));
     if(faltan.length){ toast('⛔ No alcanza el inventario: '+faltan.join(', '),'error'); sonidoError(); return; }
   }
   _guardando=true;
   bloquearBoton('btn-confirmar','Guardando…');
   try{
-    const itemsAntes = orig ? JSON.parse(JSON.stringify(orig.items||[])) : null;
-    const totalAntes = orig ? (orig.total||0) : 0;
-    const estadoAntes = orig ? orig.estado : null;
     const venta=armarVenta('abierta');
     // Si el negocio descuenta al pedir, el inventario sale ya mismo
-    if(!editando && descuentaAlPedir()) descontarStock(venta);
+    if(descuentaAlPedir()) descontarStock(venta);
     const ventas=misDatos('ventas');
-    if(editando){
-      const i=ventas.findIndex(x=>x.id===venta.id);
-      if(i>-1) ventas[i]=venta; else ventas.unshift(venta);
-      // El inventario se ajusta SOLO por la diferencia, si ya se había descontado
-      if(yaDescontado) ajustarStockPorEdicion(itemsAntes, venta.items, venta.factura);
-      // Si cambió lo que pidieron, la cocina lo tiene que volver a ver
-      if(STATE.negocio.usaCocina && JSON.stringify(itemsAntes)!==JSON.stringify(venta.items)
-         && venta.estadoCocina && venta.estadoCocina!=='entregado'){
-        venta.estadoCocina='pendiente';
-      }
-      // Si ya estaba cobrado y cambió el total, el pago queda pendiente de ajuste
-      if(estadoAntes==='pagada' && Math.abs((venta.total||0)-totalAntes)>0.5){
-        venta.pagoDescuadrado=true;
-      }
-      logAudit('Editó pedido', (venta.factura||'')+': '+fmtMoney(totalAntes)+' → '+fmtMoney(venta.total||0)
-        +' · '+(itemsAntes||[]).reduce((a,i)=>a+i.qty,0)+' → '+venta.items.reduce((a,i)=>a+i.qty,0)+' und');
-    } else {
-      ventas.unshift(venta);
-    }
+    ventas.unshift(venta);
     guardarMisDatos('ventas',ventas);
     sonidoPedido();
-    if(!editando && STATE.negocio.usaCocina) imprimirComandaSegura(venta);
-    const idGuardada=venta.id, hayQueAjustar=!!venta.pagoDescuadrado, cambiaronItems=editando&&JSON.stringify(itemsAntes)!==JSON.stringify(venta.items);
+    if(STATE.negocio.usaCocina) imprimirComandaSegura(venta);
     limpiarPedido();
     fijarEscribiendo(false);
     STATE.pageNeg='pedidos';
     STATE._itemsAntes=null;
     render();
-    toast('Pedido '+venta.factura+(editando?' actualizado':' confirmado'),'success');
-    if(hayQueAjustar){ setTimeout(()=>ajustarPagoVenta(idGuardada),450); }
-    else if(editando && cambiaronItems && STATE.negocio.usaCocina){
-      preguntarDespues(MSJ.cambioElPedidoImprimirLaComanda,
-        ()=>{ const vv=misDatos('ventas').find(x=>x.id===idGuardada); if(vv) imprimirComanda(vv); },'Imprimir',450);
-    }
-  }catch(e){
-    console.error(e); toast(MSJ.errorAlGuardar,'error');
-  }finally{ _guardando=false; }
+    toast('Pedido '+venta.factura+' confirmado','success');
+  }catch(e){ reportarError('confirmar el pedido', e); toast(MSJ.errorAlGuardar,'error'); }
+  finally{ _guardando=false; }
 }
 
 // ---------- FLUJO B: cobrar de una vez ----------
@@ -600,7 +643,7 @@ export function cobrarDirecto(){
   if(_guardando) return;
   if(!_carrito.length){ toast(MSJ.agregaProductosPrimero,'error'); return; }
   if(!validarClientePedido()) return;
-  const venta=armarVenta('abierta');
+  const venta=armarVenta('abierta', {sinFactura:true});
   abrirCobro(venta, true);
 }
 

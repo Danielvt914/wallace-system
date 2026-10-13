@@ -89,3 +89,28 @@ test('F21: venta del negocio = sus productos (subtotal); propina, recargo y domi
   assert.equal(r.total, 50000); assert.equal(r.pagadas, 1);
   assert.equal(r.meses['2026-10'], 50000);
 });
+
+test('D9: cambios a un pedido que pueden chocar entre equipos', ()=>{
+  const it=(prodId,qty,precio)=>({prodId, nombre:prodId, qty, precio});
+  const cuenta={id:'v1', estado:'abierta', items:[it('a',1,1000)], descuento:0, valorDom:0, propina:0, recargo:0, total:1000};
+  // El orden de las claves no importa (Firebase las devuelve ordenadas)
+  assert.equal(vt.mismosItems([{qty:1, precio:1000, prodId:'a', nombre:'a'}], cuenta.items), true);
+  assert.equal(vt.mismosItems([it('a',2,1000)], cuenta.items), false);
+  // Agregar suma sobre lo que YA tiene la cuenta en el servidor (no reemplaza)
+  const servidor=Object.assign({}, cuenta, {items:[it('a',1,1000), it('b',1,500)], total:1500});
+  const x=vt.agregarACuenta(servidor, [it('a',2,1000), it('c',1,200)], {quien:'Ana'});
+  assert.deepEqual(x.items.map(i=>i.prodId+i.qty), ['a3','b1','c1']);
+  assert.equal(x.total, 3700);
+  assert.equal(vt.agregarACuenta(Object.assign({}, cuenta, {estado:'pagada'}), [it('a',1,1000)]), undefined);
+  // Cobrar: no si ya está pagada ni si cambiaron los productos que vio quien cobra
+  const cambios={pagos:{efectivo:1000, banco:0, tarjeta:0}, total:1000};
+  assert.equal(vt.cobrarSiSigueIgual(Object.assign({}, cuenta, {estado:'pagada'}), cuenta.items, cambios), undefined);
+  assert.equal(vt.cobrarSiSigueIgual(servidor, cuenta.items, cambios), undefined);
+  const c=vt.cobrarSiSigueIgual(cuenta, cuenta.items, Object.assign({exigeVerificar:true}, cambios, {pagos:{efectivo:0, banco:1000, tarjeta:0}}));
+  assert.equal(c.estado, 'pagada'); assert.equal(c.bancoVerificado, false); assert.equal('exigeVerificar' in c, false);
+  // Anular y editar: solo si sigue como lo vio quien lo hace
+  assert.equal(vt.anularSiSigueIgual(Object.assign({}, cuenta, {estado:'pagada'}), 'abierta', {}), undefined);
+  assert.equal(vt.anularSiSigueIgual(cuenta, 'abierta', {anuladaPor:'Ana'}).estado, 'anulada');
+  assert.equal(vt.editarSiSigueIgual(servidor, 'abierta', cuenta.items, {id:'v1'}), undefined);
+  assert.deepEqual(vt.editarSiSigueIgual(cuenta, 'abierta', cuenta.items, {id:'v1'}), {id:'v1'});
+});

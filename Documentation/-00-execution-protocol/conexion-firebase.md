@@ -165,6 +165,8 @@ Todos los comandos del repositorio usan `-P pruebas` o el proyecto ficticio de l
 
 ## 5. Recuperar el acceso de un super-admin que olvidó su contraseña
 
+> **Empleados y super-admins que no son el único** (2026-10-12): usan "¿Olvidaste tu contraseña?" en el login y el dueño o el ayudante la resuelve desde el panel ([recuperar-contrasena](../-03-architecture/recuperar-contrasena.md)). Lo de esta sección es para cuando se olvida el **único** super-admin **y no pasó su cuenta a su correo real** ("📧 Mi correo", que le permite recuperarla con el enlace de Firebase: [recuperar-contrasena](../-03-architecture/recuperar-contrasena.md), sección 9).
+
 **Por qué no hay "olvidé mi contraseña"**: las cuentas usan un correo interno inventado (`u<aleatorio>@usuarios.wallace-system.app`, decisión de S1), así que el correo de restablecimiento de Firebase no le llega a nadie.
 
 **Lo normal**: otro super-admin con rol dueño la restablece en la app (Panel → Administradores → editar → contraseña nueva). Los empleados se los restablece el super-admin desde Usuarios. **Tener siempre al menos dos super-admins dueños** evita este procedimiento.

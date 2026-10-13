@@ -171,3 +171,7 @@ Ver [-01-to-review](../-01-to-review/-01-to-review.md).
 
 ## Cambios del 2026-10-12
 - **D8**: en el conteo físico, cada ítem se compara con el stock del momento en que se escribe su cantidad. Lo vendido mientras se cuenta ya no se resta dos veces.
+
+## Inventario apagado después de vender (2026-10-12)
+
+`moverInventario(req, signo, motivo, registra, forzar)`: con `forzar`, mueve aunque el negocio haya apagado el inventario. `devolverStock` lo usa cuando la venta **sí** descontó (`stockAplicado===true`): anular o cancelar una cuenta devuelve lo vendido y la venta queda `stockAplicado:false` (antes no volvía nada y quedaba "descontada" para siempre). Igual con los apartados de citas.

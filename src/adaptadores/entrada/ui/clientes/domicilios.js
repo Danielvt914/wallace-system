@@ -7,10 +7,13 @@
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, fmtMoney, now } from '../nucleo/estado.js';
 import { BOTON, MSJ } from '../nucleo/textos.js';
-import { puedeVerPantalla } from '../nucleo/permisos.js';
-import { abrirModal, cerrarModal, confirmarModal, ic, pPedidos, pProds, toast } from '../nucleo/componentes.js';
+import { cajaActual, exigirEscritura, puedeVerPantalla, tienePermiso } from '../nucleo/permisos.js';
+import { abrirModal, cerrarModal, confirmarModal, ic, pPedidos, pProds, reportarError, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
+import { logAudit } from '../usuarios/auditoria.js';
 import { ventasJornada } from '../ventas/pedidos.js';
+import { usaCajaNegocio } from '../ventas/cobro.js';
+import { agregarMovimientoCaja, puedeRetirarJefe } from '../caja/caja.js';
 
 
 // ============================================================
@@ -28,7 +31,7 @@ export function cuadreDomi(){
     const dom=v.domiciliarioId ? domsPorId[v.domiciliarioId] : null;
     const clave=v.domiciliarioId || ('n:'+(v.domiciliario||''));
     const nom=(dom && dom.nombre) || v.domiciliario || '(sin asignar)';
-    if(!grupos[clave]) grupos[clave]={nombre:nom, pedidos:[], comidaEf:0, comidaBanco:0, comidaTarjeta:0, domEf:0, domBanco:0};
+    if(!grupos[clave]) grupos[clave]={clave, nombre:nom, pedidos:[], comidaEf:0, comidaBanco:0, comidaTarjeta:0, domEf:0, domBanco:0};
     const g=grupos[clave];
     g.pedidos.push(v);
     // Con pago dividido, cada parte va a donde corresponde
@@ -38,6 +41,8 @@ export function cuadreDomi(){
     g.domEf+=rd.efectivo; g.domBanco+=rd.banco+rd.tarjeta;
   });
   const lista=Object.values(grupos).sort((a,b)=>b.pedidos.length-a.pedidos.length);
+  _cuadreDomi=lista;   // para pagarDomiciliario (se paga lo que muestra esta pantalla)
+  const caja=cajaActual(), conCaja=usaCajaNegocio();
   const tot={pedidos:0,comidaEf:0,comidaBanco:0,domEf:0,domBanco:0};
   lista.forEach(g=>{ tot.pedidos+=g.pedidos.length; tot.comidaEf+=g.comidaEf; tot.comidaBanco+=g.comidaBanco; tot.domEf+=g.domEf; tot.domBanco+=g.domBanco; });
 
@@ -85,7 +90,14 @@ export function cuadreDomi(){
           <div class="d-flex items-centro fs-26 color-gris">=</div>
           <div class="flex-1 minw-130 txt-der"><div class="gris chico">ENTREGA NETA</div><div class="fs-26 fw-900 color-verde-c sombra-txt-glow-txt">${fmtMoney(neto)}</div></div>
         </div>
-        ${leTocaBanco>0?`<p class="gris chico mt-8">↳ Además se le deben pagar ${fmtMoney(leTocaBanco)} en efectivo del cajón, porque esos domicilios entraron por banco.</p>`:''}
+        ${leTocaBanco>0?(()=>{
+          const pagado=Dominio.caja.pagadoADomiciliario(caja, g.clave), falta=Math.max(0, Math.round(leTocaBanco-pagado));
+          return `<div class="d-flex items-centro gap-10 flex-wrap mt-8">
+            <p class="gris chico flex-1">↳ Además se le deben pagar ${fmtMoney(leTocaBanco)} en efectivo del cajón, porque esos domicilios entraron por banco.${pagado>0?' Ya se le pagaron '+fmtMoney(pagado)+'.':''}</p>
+            ${falta<=0?'<span class="pill pill-verde">✓ Pagado</span>'
+              :(conCaja && caja)?`<button class="btn btn-sm btn-gold" data-click="pagarDomiciliario('${escapeHtml(g.clave)}')">💵 Pagarle ${fmtMoney(falta)} del cajón</button>`
+              :conCaja?'<span class="gris chico">Abre la caja para registrar el pago</span>':''}
+          </div>`; })():''}
       </div>`;
     }).join('')}`;
 }
@@ -152,7 +164,28 @@ export function domicilios(){
       </table></div>
     </div>`;
 }
+// Paga al domiciliario, del cajón, los domicilios que entraron por banco: queda como un retiro
+// de la caja (antes la pantalla lo decía pero no había cómo registrarlo y el cierre quedaba corto)
+export let _cuadreDomi=[];
+export function pagarDomiciliario(clave){
+  if(!exigirEscritura()) return;
+  if(!(tienePermiso('abrircaja')||puedeRetirarJefe())){ toast(MSJ.noTienesPermisoParaRegistrarMovimientos,'error'); return; }
+  const caja=cajaActual(); if(!caja){ toast(MSJ.noHayCajaAbierta,'error'); return; }
+  const g=_cuadreDomi.find(x=>x.clave===clave); if(!g) return;
+  const falta=Math.max(0, Math.round(g.domBanco-Dominio.caja.pagadoADomiciliario(caja, clave)));
+  if(falta<=0){ toast(MSJ.yaSeLePagoAlDomiciliario,'info'); return; }
+  confirmarModal('¿Registrar un retiro de '+fmtMoney(falta)+' del cajón para pagarle a '+g.nombre+' los domicilios que entraron por banco?', ()=>{
+    agregarMovimientoCaja({id:uid(), tipo:'retiro', concepto:'Domicilios por banco · '+g.nombre, valor:falta, pagoDomi:clave,
+      por:STATE.user.nombre, fecha:now()})
+      .then(ok=>{
+        if(!ok){ toast(MSJ.noSeRegistroLaCajaYa,'error'); render(); return; }
+        logAudit('Pagó domicilios al domiciliario', g.nombre+' · '+fmtMoney(falta));
+        toast('Pagado a '+g.nombre+': '+fmtMoney(falta),'success'); render();
+      }).catch(e=>reportarError('el pago al domiciliario', e));
+  }, 'Registrar pago');
+}
 export function editarDomiciliario(id){
+  if(!exigirEscritura()) return;   // D10: solo lectura
   if(!puedeVerPantalla('domicilios')){ toast(MSJ.noTienesAccesoADomicilios,'error'); return; }
   abrirModal({titulo:'Nuevo domiciliario', textoBoton:BOTON.agregar, campos:[
     {id:'nombre', label:'Nombre', requerido:true},
@@ -165,6 +198,7 @@ export function editarDomiciliario(id){
   }});
 }
 export function eliminarDomiciliario(id){
+  if(!exigirEscritura()) return;   // D10: solo lectura
   if(!puedeVerPantalla('domicilios')){ toast(MSJ.noTienesAccesoADomicilios,'error'); return; }
   confirmarModal(MSJ.eliminarEsteDomiciliario,()=>{
     eliminarMisDatos('domiciliarios',id); toast(MSJ.eliminado,'info'); render();

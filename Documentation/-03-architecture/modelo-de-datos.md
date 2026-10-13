@@ -147,7 +147,7 @@ Lista en `data/superadmins`.
 
 ### 3.4 `login` y `perfiles` (S1)
 
-**`login/<claveUsuario>`**: `{correo, uid}`. Lleva del nombre de usuario a la cuenta. `correo` es interno e inventado (`u<aleatorio>@usuarios.wallace-system.app`): no recibe correos, y por eso no hay "olvidé mi contraseña" ([conexion-firebase](../-00-execution-protocol/conexion-firebase.md), sección 5).
+**`login/<claveUsuario>`**: `{correo, uid}`. Para un super-admin que pasó a su correo real, `{correo:'@correo', uid}`: la marca dice que entra con su correo, sin mostrarlo. Lleva del nombre de usuario a la cuenta. `correo` es interno e inventado (`u<aleatorio>@usuarios.wallace-system.app`): no recibe correos, y por eso no hay "olvidé mi contraseña" ([conexion-firebase](../-00-execution-protocol/conexion-firebase.md), sección 5).
 
 **`perfiles/<uid>`**: lo único que una cuenta puede leer antes de saber su negocio. Es lo que miran las reglas para dar acceso.
 
@@ -163,6 +163,8 @@ Lista en `data/superadmins`.
 | `editaNegocio` | booleano | Puede editar los datos de su negocio (Mi Negocio). Se calcula en `src/dominio/cuentas.js` |
 | `migradoEn`, `reemplazadaEn` | momento | Cuándo se creó o se reemplazó la cuenta |
 | `creadoPor` | texto | uid del super-admin que la creó |
+| `correoReal` | texto | Solo dueño o ayudante que pasó su cuenta a su correo ("📧 Mi correo"): entra con ese correo y lo recupera con el enlace de Firebase |
+| `debeCambiarPass` | booleano | Entró con una contraseña temporal: no puede usar la app hasta elegir una nueva. Lo pone el super-admin; la persona solo lo pone en `false` ([recuperar-contrasena](recuperar-contrasena.md)) |
 | `negocioActivo` | texto | Solo super-admin **vendedor**: el negocio suyo cuyas tablas puede usar en este momento (lo escribe él mismo al entrar a una demo, crear un negocio o borrar una demo; las reglas exigen que sea suyo). Ver [01-super-admin-panel](../01-super-admin-panel/01-super-admin-panel.md), sección 12 |
 
 ### 3.5 `migracion_s1`
@@ -175,12 +177,14 @@ Ventas, pedidos y cuentas abiertas. La crea `armarVenta` (`ui/ventas/nueva-venta
 
 | Campo | Tipo | Descripción |
 |---|---|---|
-| `id`, `factura` | texto | Identificación; `factura` = `F-00001` (consecutivo de `factura_seq`) |
+| `id`, `factura` | texto | Identificación; `factura` = `F-00001` (consecutivo de `factura_seq`, de un bloque de 20 por equipo) o `P-<equipo>-<AAMMDDhhmmss>` si salió **sin bloque** (provisional, hasta reconectar) |
+| `facturaProvisional` | texto | Si la venta salió provisional, ese número (ya tiene el definitivo en `factura`) |
 | `fecha` | momento | Creación |
 | `jornada` | día | Día contable de la caja (F2) |
 | `estado` | texto | `abierta` (pedido o cuenta sin cobrar), `pagada`, `anulada` |
 | `items[]` | arreglo | `{prodId, nombre, precio, qty, obs?}`. Precio congelado al vender |
-| `subtotalBruto`, `descuento`, `descMotivo`, `subtotal` | número / texto | Valor de los productos y descuento |
+| `subtotalBruto`, `descuento`, `descMotivo`, `subtotal` | número / texto | Valor de los productos y descuento (nunca mayor que `subtotalBruto`, F26) |
+| `descPct` | número | Si el descuento fue en %, el porcentaje: se recalcula al editar el pedido (F26). 0 = valor fijo |
 | `valorDom`, `propina`, `recargo`, `total` | número | Domicilio, propina, recargo por tarjeta y total cobrado |
 | `pagos` | objeto | `{efectivo, banco, tarjeta}`: pago dividido |
 | `metodo`, `cambio` | texto / número | Método principal y vueltas |
@@ -269,7 +273,7 @@ Todo lo de la caja al cerrarla, más:
 Tabla **única**: `baseSiguiente` (número), `basesSucursal` (`{<sucursalId>: número}`, F1), `retirosCerrada[]` `{monto, por, motivo, fecha, baseAntes, baseDespues, sucursalId}` (retiros hechos con la caja cerrada).
 
 ### 4.9 `factura_seq`
-Tabla **única**: un número, el último consecutivo reservado. Cada equipo reserva el siguiente con una transacción antes de necesitarlo, así que nunca se repite mientras haya conexión (D1). Pueden quedar saltos.
+Tabla **única**: un número, el último consecutivo reservado. Cada equipo aparta un **bloque de 20** con una transacción (lo suma de una vez) y los gasta con o sin internet; sin bloque, la venta sale con un número provisional que recibe el definitivo al reconectar ([facturas-sin-conexion](facturas-sin-conexion.md)). Nunca se repite; pueden quedar saltos (números de un bloque que no se usaron).
 
 ### 4.10 `clientes`
 Se crean y actualizan solos al vender con datos de cliente.
@@ -299,6 +303,8 @@ Se crean y actualizan solos al vender con datos de cliente.
 Tabla **única**: arreglo de nombres de conceptos. Sin repetidos por mayúsculas, tildes o espacios (`dominio/gastos.js`, D4).
 
 ### 4.15 `auditoria`
+
+**De solo agregar** (S10, reglas cerradas): la gente del negocio crea registros pero no los cambia ni borra; lo mismo `movimientos`.
 `id`, `fecha`, `usuario` (nombre), `rol`, `accion` (p. ej. "Abrió caja", "Anuló pedido", "Ajustó stock al editar", "Cambió contraseña", "Verificó transferencia", "Error del sistema"), `detalle`. Crece sin límite, a propósito: no se pierde historia (D3).
 
 ### 4.16 `resumen`
@@ -315,3 +321,17 @@ Del export del 07/10, solo estructura:
 | Respaldos `_bk` (12) | `data_<neg>_<tabla>_bk`, `negocios_bk` | Se pueden borrar al final, con respaldo general ([paso-a-produccion](../-00-execution-protocol/paso-a-produccion.md), sección 3) |
 | Nodos sin uso | `posu`, `prueba_conexion` (raíz) | Ídem |
 | Ventas por sucursal del formato anterior | `data_<neg>_ventas-<sucursal>` | El panel las sigue leyendo por compatibilidad |
+
+### `recuperaciones/<claveUsuario>` (raíz, 2026-10-12)
+
+Solicitudes de "olvidé mi contraseña". Sin sesión solo se **crean**: un usuario que existe en `login/`, una por hora, con la hora del servidor. Las leen y resuelven el dueño y el ayudante del sistema.
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `usuario` | texto | La clave del usuario (igual a la llave del nodo) |
+| `contacto` | texto | Teléfono o WhatsApp que dejó (opcional, máx. 40) |
+| `fecha` | número | Hora del servidor |
+| `estado` | texto | `pendiente`, `resuelta` o `descartada` |
+| `resueltaPor`, `resueltaEn` | texto / número | uid del super-admin y hora |
+
+Detalle: [recuperar-contrasena](recuperar-contrasena.md).

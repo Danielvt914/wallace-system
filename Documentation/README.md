@@ -33,6 +33,9 @@ Esta carpeta documenta el sistema **por módulo**, tal como está implementado e
 | [-03 → modelo-de-datos](-03-architecture/modelo-de-datos.md) | Modelo de datos | Todas las tablas con sus campos en un solo lugar: árbol de Firebase, formatos (`_r`, `_x`, `_bk`), qué escribe cada módulo y qué cambió respecto a producción |
 | [-03 → seguridad-interfaz](-03-architecture/seguridad-interfaz.md) | Seguridad de la interfaz | Ataques posibles con código en línea (`onclick`, `style`), el caso real S6 y el riesgo que queda |
 | [-03 → csp](-03-architecture/csp.md) | Content-Security-Policy | Política propuesta, cómo se probó, cómo activarla en Render y qué hacer si bloquea algo |
+| [-03 → facturas-sin-conexion](-03-architecture/facturas-sin-conexion.md) | Números de factura | Bloques por equipo, número provisional sin internet y definitivo al reconectar |
+| [-03 → recuperar-contrasena](-03-architecture/recuperar-contrasena.md) | Olvidé mi contraseña | Recuperación asistida con contraseña temporal; dueño o ayudante con correo real y enlace de Firebase |
+| [-03 → entrar-con-google](-03-architecture/entrar-con-google.md) | Entrar con Google (pendiente) | Para super-admins: recuperación y verificación en dos pasos de Google; qué hay que hacer |
 | [01-super-admin-panel](01-super-admin-panel/01-super-admin-panel.md) | Panel super-admin | Negocios, planes, vendedores, demos, respaldo, informe mensual |
 | [02-pos-catalog](02-pos-catalog/02-pos-catalog.md) | Venta, pedidos y catálogo | Nueva Venta, carrito, cobro, pago dividido, pedidos, cuentas abiertas, productos y combos |
 | [03-cash-register](03-cash-register/03-cash-register.md) | Caja | Apertura, movimientos, cierre con cuadre, base del día siguiente, verificación de transferencias |
@@ -83,7 +86,7 @@ Esta carpeta documenta el sistema **por módulo**, tal como está implementado e
 | `src/aplicacion/puertos/` | Contratos que deben cumplir los adaptadores (datos y cuentas). |
 | `src/aplicacion/servicios/` | Casos de uso (hoy: inicio de sesión y migración de cuentas, S1). |
 | `src/adaptadores/salida/` | Firebase + respaldo local (sincronización y transacciones), cuentas con Firebase Authentication, `localStorage`, aleatoriedad; `firebase-sdk.js` carga el SDK **modular** de Firebase desde gstatic (solo si hay base). |
-| `src/adaptadores/entrada/ui/` | Interfaz: 51 módulos ES por carpeta (`nucleo/`, `ventas/`, `caja/`, `inventario/`…) listados en `manifiesto.js`, más `estilos/` (CSS); el logo de la marca está en `nucleo/logo.js`. Mapa función → archivo: [mapa-interfaz](-03-architecture/mapa-interfaz.md). |
+| `src/adaptadores/entrada/ui/` | Interfaz: 52 módulos ES por carpeta (`nucleo/`, `ventas/`, `caja/`, `inventario/`…) listados en `manifiesto.js`, más `estilos/` (CSS); el logo de la marca está en `nucleo/logo.js`. Mapa función → archivo: [mapa-interfaz](-03-architecture/mapa-interfaz.md). |
 | `src/adaptadores/entrada/ui/puente-legado.js` | Puente temporal: publica en `window` el dominio y los datos con los nombres de siempre. |
 | `tests/` | `npm test` (dominio, servicios, estructura de la interfaz) y `npm run test:firebase` (reglas, migración e interfaz en emuladores y Chrome). |
 | `scripts/` | `emulador.mjs` (app completa en emuladores), `probar-firebase.mjs` (corre `test:firebase`), `preparar-pruebas.mjs` (diagnóstico del export sin datos sensibles), `mapa-interfaz.mjs` (genera el mapa), `capturas.mjs` (regresión visual), `csp-politica.mjs` (la CSP del proyecto, en un solo lugar), `probar-csp.mjs` (prueba la CSP), `publicar-sandbox.mjs` (prepara `.publicar/` para Firebase Hosting del sandbox). |

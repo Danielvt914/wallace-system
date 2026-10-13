@@ -314,7 +314,7 @@ Se hizo en tres pasos, cada uno verificado con `npm test`, `npm run test:firebas
 
 Al cerrar la fase 8 se actualizaron las reglas estáticas de `CLAUDE.md`:
 
-- **Arquitectura**: la interfaz son **51 módulos ES** (47 en la fase 8; antes "45 scripts clásicos"). `ui/manifiesto.js` los lista y su `cargarInterfaz()` los importa, instala los eventos delegados (`data-click`) y arma `window.WS`. Los estilos están en `ui/estilos/`, en orden numérico. Retirar el puente es lo único que falta de la fase 8.
+- **Arquitectura**: la interfaz son **52 módulos ES** (47 en la fase 8; antes "45 scripts clásicos"). `ui/manifiesto.js` los lista y su `cargarInterfaz()` los importa, instala los eventos delegados (`data-click`) y arma `window.WS`. Los estilos están en `ui/estilos/`, en orden numérico. Retirar el puente es lo único que falta de la fase 8.
 - **Módulos**: importar lo que se usa, sin renombrar (`import { x } from '../nucleo/estado.js'`). No repetir nombres entre módulos ni tapar uno del puente. Al cargar, solo declarar, porque hay importaciones circulares. Para cambiar una variable de otro archivo, usar su `fijarX(v)`.
 - **HTML generado**: acciones con `data-click` (y `data-input`, `data-change`…), siempre **exportadas**. Los textos del usuario van en `data-x` + `this.dataset.x`. Nada de `onclick` ni `style` fijos: se usan las clases de `estilos/15-utilidades.css`. El porqué está en [seguridad-interfaz](seguridad-interfaz.md).
 - **Archivo nuevo de interfaz**: agregarlo a `ui/manifiesto.js` y correr `node scripts/mapa-interfaz.mjs`.

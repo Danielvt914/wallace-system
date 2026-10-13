@@ -7,7 +7,7 @@
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, fmtMoney, now } from '../nucleo/estado.js';
 import { BOTON, MSJ } from '../nucleo/textos.js';
-import { puedeVerPantalla, tienePermiso } from '../nucleo/permisos.js';
+import { exigirEscritura, puedeVerPantalla, tienePermiso } from '../nucleo/permisos.js';
 import { abrirModal, cerrarModal, confirmarModal, ic, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
 import { logAudit } from '../usuarios/auditoria.js';
@@ -173,6 +173,7 @@ export function gastosneg(){
     </div>`;
 }
 export function nuevoGasto(){
+  if(!exigirEscritura()) return;   // D10: solo lectura
   if(!puedeVerPantalla('gastosneg')){ toast(MSJ.noTienesAccesoAGastos,'error'); return; }
   const lista=getConceptosGasto();
   abrirModal({titulo:'Registrar gasto', textoBoton:BOTON.guardar, campos:[
@@ -195,6 +196,8 @@ export function nuevoGasto(){
     </div>`,
   onGuardar:(d)=>{
     if(!normConcepto(d.concepto)){ toast(MSJ.seleccioneElConceptoDelGasto,'error'); return; }
+    // V3: un gasto en 0 o negativo subiría la utilidad del Contable
+    if(!(parseFloat(d.valor)>0)){ toast(MSJ.valorInvalido,'error'); return; }
     const arr=misDatos('gastos_negocio');
     arr.unshift({id:uid(), concepto:normConcepto(d.concepto), valor:parseFloat(d.valor)||0,
       fecha:d.fecha||today(), metodo:d.metodo, nota:d.nota, por:STATE.user.nombre, creado:now()});
@@ -204,6 +207,7 @@ export function nuevoGasto(){
   }});
 }
 export function eliminarGasto(id){
+  if(!exigirEscritura()) return;   // D10: solo lectura
   if(!puedeVerPantalla('gastosneg')){ toast(MSJ.noTienesAccesoAGastos,'error'); return; }
   const g=misDatos('gastos_negocio').find(x=>x.id===id);
   if(!g){ return; }

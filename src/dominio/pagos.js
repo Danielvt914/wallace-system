@@ -68,9 +68,14 @@ export function bancoPendiente(v){
 // Valida un cobro. total: lo que hay que cobrar; pagos: lo que entregó el cliente.
 // Devuelve {ok, error?, faltan?, cambio, pagos (ya sin el cambio)}.
 // El exceso es CAMBIO y solo puede salir del efectivo.
+// S9: un monto de dinero es un número finito y no negativo. Un efectivo de -50.000 con
+// +100.000 por banco sumaba lo mismo y bajaba lo que la caja espera (el cierre cuadraba).
+export function montoValido(n){ return typeof n==='number' && isFinite(n) && n>=0; }
+export function pagosValidos(p){ return !!p && ['efectivo','banco','tarjeta'].every(k=>montoValido(Number(p[k]||0))); }
 export function liquidarCobro(total, pagos){
   const p={efectivo:pagos.efectivo||0, banco:pagos.banco||0, tarjeta:pagos.tarjeta||0};
   const suma=p.efectivo+p.banco+p.tarjeta;
+  if(!pagosValidos(p)) return {ok:false, error:'negativo'};
   if(suma<=0) return {ok:false, error:'sin_pago'};
   if(Math.abs(suma-total)>0.5 && suma<total) return {ok:false, error:'faltan', faltan:total-suma};
   let cambio=0;
@@ -82,3 +87,6 @@ export function liquidarCobro(total, pagos){
   return {ok:true, cambio:Math.round(cambio),
     pagos:{efectivo:Math.round(p.efectivo), banco:Math.round(p.banco), tarjeta:Math.round(p.tarjeta)}};
 }
+
+// Porcentaje entre 0 y 100 (p. ej. el del datáfono)
+export function porcentajeValido(n){ return montoValido(n) && n<=100; }

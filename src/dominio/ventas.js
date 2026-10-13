@@ -84,3 +84,53 @@ export function mismoResumen(a, b){
   });
   return canon(a||null)===canon(b||null);
 }
+
+// ---------- Cambios a un pedido que pueden chocar entre equipos (D9) ----------
+// Se aplican DENTRO de una transacción sobre la versión del servidor
+// (Datos.transaccionRegistro): devuelven el pedido nuevo, o undefined si ya
+// no se debe tocar (lo cobró, anuló o cambió otro equipo).
+const r2=n=>Math.round((Number(n)||0)*100)/100;
+// ¿Son los mismos productos? (Firebase devuelve las claves en otro orden: se compara campo por campo)
+export function mismosItems(a, b){
+  const norm=l=>(l||[]).map(i=>[i.prodId||'', r2(i.qty), r2(i.precio), i.obs||''].join('|'));
+  const x=norm(a), y=norm(b);
+  return x.length===y.length && x.every((k,i)=>k===y[i]);
+}
+// Suma productos a una cuenta abierta (no los reemplaza) y recalcula el total
+export function agregarACuenta(cur, nuevos, opc){
+  if(!cur || cur.estado!=='abierta') return undefined;
+  opc=opc||{};
+  const items=(cur.items||[]).map(i=>Object.assign({}, i));
+  (nuevos||[]).forEach(n=>{
+    const ya=items.find(i=>i.prodId===n.prodId && r2(i.precio)===r2(n.precio) && (i.obs||'')===(n.obs||''));
+    if(ya) ya.qty+=n.qty; else items.push(Object.assign({}, n));
+  });
+  const bruto=items.reduce((a,i)=>a+i.precio*i.qty,0);
+  const subtotal=Math.max(0, bruto-(cur.descuento||0));
+  const x=Object.assign({}, cur, {items, subtotalBruto:bruto, subtotal,
+    total:subtotal+(cur.valorDom||0)+(cur.propina||0)+(cur.recargo||0),
+    agregadoPor:opc.quien||'', agregadoEn:opc.cuando||''});
+  if(opc.obs) x.obs=(cur.obs?cur.obs+' · ':'')+opc.obs;
+  if(opc.reabrirCocina && cur.estadoCocina && cur.estadoCocina!=='entregado') x.estadoCocina='pendiente';
+  return x;
+}
+// Cobra un pedido solo si sigue sin cobrar y con los mismos productos que vio quien cobra
+export function cobrarSiSigueIgual(cur, itemsVistos, cambios){
+  if(!cur || cur.estado==='pagada' || cur.estado==='anulada') return undefined;
+  if(itemsVistos && !mismosItems(cur.items, itemsVistos)) return undefined;
+  const x=Object.assign({}, cur, cambios, {estado:'pagada'});
+  if(cambios.exigeVerificar && x.pagos.banco>0){ if(cur.bancoVerificado!==true) x.bancoVerificado=false; }
+  else if(!(x.pagos.banco>0)) delete x.bancoVerificado;
+  delete x.exigeVerificar;
+  return x;
+}
+// Anula solo si el pedido sigue en el estado que vio quien anula
+export function anularSiSigueIgual(cur, estadoVisto, cambios){
+  if(!cur || cur.estado==='anulada' || cur.estado!==estadoVisto) return undefined;
+  return Object.assign({}, cur, cambios, {estado:'anulada'});
+}
+// Guarda la edición solo si nadie cambió el pedido mientras se editaba
+export function editarSiSigueIgual(cur, estadoVisto, itemsVistos, venta){
+  if(!cur || cur.estado!==estadoVisto || !mismosItems(cur.items, itemsVistos)) return undefined;
+  return venta;
+}

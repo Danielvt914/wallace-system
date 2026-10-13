@@ -102,3 +102,14 @@ test('S8: el logo del negocio solo es válido como imagen data: (sin comillas) y
   assert.equal(ng.logoValido('https://otro.sitio/logo.png'), false);              // ni imágenes de fuera (rastreo)
   assert.equal(ng.logoValido('data:image/png;base64,'+'A'.repeat(ng.LOGO_MAX_BYTES)), false);
 });
+
+test('flujos a medias: diferencia de apartados de una cita y pago al domiciliario ya registrado', async ()=>{
+  const inv=await import('../../src/dominio/inventario.js');
+  const caja=await import('../../src/dominio/caja.js');
+  assert.deepEqual(inv.difApartados([{prodId:'a', cantidad:2}, {prodId:'b', cantidad:1}], [{prodId:'a', cantidad:3}, {prodId:'c', cantidad:1}]),
+    {sacar:{a:1, c:1}, devolver:{b:1}});
+  assert.deepEqual(inv.difApartados([], [{prodId:'a', cantidad:2}]), {sacar:{a:2}, devolver:{}});
+  const c={movimientos:[{tipo:'retiro', pagoDomi:'d1', valor:3000}, {tipo:'retiro', valor:9000}, {tipo:'gasto', pagoDomi:'d1', valor:1}]};
+  assert.equal(caja.pagadoADomiciliario(c, 'd1'), 3000);
+  assert.equal(caja.pagadoADomiciliario(null, 'd1'), 0);
+});

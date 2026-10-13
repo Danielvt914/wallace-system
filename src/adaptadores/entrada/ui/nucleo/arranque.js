@@ -6,7 +6,7 @@
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/-00-execution-protocol/-00-execution-protocol.md
 // ============================================================
 import { STATE, now, refrescarSiSePuede } from './estado.js';
-import { toast } from './componentes.js';
+import { reportarError, toast } from './componentes.js';
 import { render } from './navegacion.js';
 import { borrarPerfilLocal, conCuentasFirebase, conTiempo, entrarConPerfil, fijarConfigInicial, leerPerfilLocal, migrarContrasenas, servicioSesion } from '../usuarios/sesion.js';
 import { publicarResumen } from '../reportes/resumen.js';
@@ -49,7 +49,20 @@ export function arrancar(){
   }
 }
 // Arranque de la interfaz: lo llama src/arranque.js cuando el puente ya está listo
+// C2: los errores que nadie atrapó (una promesa sin .catch, un manejador directo) también quedan
+// registrados. Solo los de la app (src/): los de Firebase o de extensiones del navegador no.
+export let _erroresGlobales=false;
+export function vigilarErroresGlobales(){
+  if(_erroresGlobales || typeof window==='undefined') return;
+  _erroresGlobales=true;
+  window.addEventListener('error', alErrorGlobal);
+  window.addEventListener('unhandledrejection', alRechazoGlobal);
+}
+const esNuestro=t=>/\/src\//.test(String(t||''));
+export function alErrorGlobal(ev){ if(esNuestro(ev && ev.filename) || esNuestro(ev && ev.error && ev.error.stack)) reportarError('la pantalla', ev.error||ev.message); }
+export function alRechazoGlobal(ev){ const r=ev && ev.reason; if(esNuestro(r && r.stack)) reportarError('una operación', r); }
 export function iniciarInterfaz(){
+  vigilarErroresGlobales();
   const ok=Datos.iniciar();
   if(ok && Cuentas.iniciar()){
     // S1: nada de tablas globales antes del login. Firebase dice si hay una sesión guardada.
@@ -86,7 +99,7 @@ export async function arrancarCuentas(cuenta){
     }
     if(perfil){
       try{ await entrarConPerfil(cuenta.uid, perfil); }
-      catch(e){ console.error('entrarConPerfil',e); render(); }
+      catch(e){ reportarError('entrar con la sesión guardada', e); render(); }
       return;
     }
     if(!r.ok && r.motivo!=='red') toast(ServicioSesion.mensajeDeFallo(r.motivo),'error');

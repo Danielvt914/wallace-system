@@ -220,10 +220,11 @@ export function guardarConfig(negId){
     n.tema=val('c-tema')||'oscuro';
     const col=val('c-color'); n.colorTema=/^#[0-9a-fA-F]{6}$/.test(col)?col:'#01c38e';
     n.tipoFactura=val('c-fact'); n.pctDatafono=parseFloat(val('c-pct'))||0;
+    if(!Dominio.pagos.porcentajeValido(n.pctDatafono)){ toast(MSJ.elPorcentajeDebeEstarEntre0Y100,'error'); return; }   // V3
     if(window._logoNuevo!==undefined){ if(window._logoNuevo==='' || Dominio.negocio.logoValido(window._logoNuevo)) n.logo=window._logoNuevo; window._logoNuevo=undefined; }
   }
   if(hay('c-plan')){
-    n.plan=planDe({plan:val('c-plan')}); n.precioMes=parseInt(val('c-precio'))||0;
+    n.plan=planDe({plan:val('c-plan')}); n.precioMes=Math.max(0, parseInt(val('c-precio'))||0);
     const dp=parseInt(val('c-diapago')); n.diaPago=isNaN(dp)?null:Math.min(31,Math.max(1,dp));
     n.vendedorId=val('c-vendedor')||null;
     const v=(DB.get('superadmins')||[]).find(x=>x.id===n.vendedorId);

@@ -25,9 +25,11 @@
  * @property {(negId:string, tabla:string, registros:Array) => void} guardarEn  Como guardar, en un negocio dado (no el activo).
  * @property {(negId:string, tabla:string, id:string) => void} eliminarEn       Como eliminar, en un negocio dado.
  * @property {(tabla:string, id:string, fn:Function) => Object|null} modificarRegistro  Cambio concurrente seguro (transacción).
+ * @property {(negId:string, datos:Object) => Promise<{ok:boolean, claves:number}>} restaurarNegocio  Reemplaza el registro y las tablas de un negocio con las de un respaldo.
+ * @property {(tabla:string, id:string, fn:Function) => Promise<{committed:boolean, valor:Object|null}>} transaccionRegistro  Cambio sobre la versión del servidor; fn devuelve undefined para no tocarlo (D9).
  * @property {(tabla:string, fn:Function) => Promise<{committed:boolean, valor:any}>} transaccionUnica
  * @property {(clave:string, fn:Function) => Promise<{committed:boolean, valor:any}>} transaccionGlobal
- * @property {(negId:string, minimoLocal:number) => Promise<number|null>} reservarConsecutivo
+ * @property {(negId:string, minimoLocal:number, cuantos?:number) => Promise<number|null>} reservarConsecutivo  Último número del bloque apartado (cuantos, por defecto 1)
  * @property {(negId:string) => void} sincronizarNegocio
  * @property {() => void} detenerSincNegocio
  * @property {() => void} sincronizarTodo
@@ -49,7 +51,7 @@
  */
 
 export const OPERACIONES_DATOS=['iniciar','cargarGlobales','get','set','claveDe','misDatos','datosDe','guardar',
-  'eliminar','guardarEn','eliminarEn','modificarRegistro','transaccionUnica','transaccionGlobal','reservarConsecutivo',
+  'eliminar','guardarEn','eliminarEn','modificarRegistro','transaccionRegistro','restaurarNegocio','transaccionUnica','transaccionGlobal','reservarConsecutivo',
   'sincronizarNegocio','detenerSincNegocio','sincronizarTodo','detenerSincTodo','limpiarDatosAjenos',
   'recargar','exportarTodo','borrarDatosNegocio',
   'configurarSesion','cargarNegocioPropio','migrarTablasGlobales','leerRegistro','modificarUsuariosLegado',

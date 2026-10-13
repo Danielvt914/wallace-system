@@ -109,6 +109,12 @@ export function inicio(){
         <div class="linea total-linea"><span>TOTAL</span><strong>${fmtMoney(totHoy)}</strong></div>
       </div>
     </div>
+    ${(()=>{ const rep=Dominio.facturas.repetidas(misDatos('ventas'));
+      if(!rep.length) return '';
+      return `<div class="tarjeta alerta">
+        <span class="t-tit chico">⚠️ Números de factura repetidos</span>
+        <p>${rep.slice(0,8).map(x=>escapeHtml(x.factura)+' ('+x.veces+' ventas)').join(' · ')}. Pasa cuando dos equipos vendieron sin internet con una versión anterior. Revisa esas ventas en Historial.</p>
+      </div>`; })()}
     ${(()=>{ const rev=misDatos('ventas').filter(v=>v.pagoDescuadrado && v.estado==='pagada');
       if(!rev.length) return '';
       return `<div class="tarjeta alerta">

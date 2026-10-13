@@ -10,6 +10,7 @@ import { esAdminSistema, pantallaValida, puedeVerSucursal, sucursalActual, usaIn
 import { ic, logoNegocio, pPedido, pPedidos, reportarError } from './componentes.js';
 import { aplicarTema, quitarTema } from './tema.js';
 import { necesitaConfigInicial, vistaConfigInicial, vistaLogin } from '../usuarios/sesion.js';
+import { vistaCambioObligatorio } from '../usuarios/recuperacion.js';
 import { auditoria } from '../usuarios/auditoria.js';
 import { pantallaUsuarios } from '../usuarios/usuarios-admin.js';
 import { usuariosNeg } from '../usuarios/usuarios-negocio.js';
@@ -250,6 +251,8 @@ export function render(){
   if(STATE.user && STATE.negocio && !STATE.esSuperAdmin){ aplicarTema(STATE.negocio); }
   else { quitarTema(); }
   if(!STATE.user){ app.innerHTML=necesitaConfigInicial()?vistaConfigInicial():vistaLogin(); return; }
+  // Entró con una contraseña temporal: nada más hasta que elija una nueva
+  if(STATE.debeCambiarPass){ app.innerHTML=vistaCambioObligatorio(); return; }
   if(STATE.esSuperAdmin){
     // Configuración y usuarios de negocios: solo dueño/ayudante (no vendedor)
     if((STATE.page.indexOf('config:')===0||STATE.page.indexOf('usuarios:')===0) && !esAdminSistema()) STATE.page='';

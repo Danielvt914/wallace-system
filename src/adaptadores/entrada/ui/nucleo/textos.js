@@ -13,6 +13,43 @@
 
 // Avisos, confirmaciones y preguntas (agrupados por la carpeta donde se usan primero)
 export const MSJ={
+  // cuarta revisión (2026-10-12)
+  lasCantidadesNoPuedenSerNegativas: 'Las cantidades no pueden ser negativas.',
+  elPorcentajeDebeEstarEntre0Y100: 'El porcentaje debe estar entre 0 y 100.',
+  usuarioInvalido: 'El usuario debe tener de 3 a 40 caracteres y no puede llevar "@" (eso es para entrar con correo).',
+  // super-admin con correo real (2026-10-12)
+  siEseCorreoEsDeUnaCuenta: 'Si ese correo es de una cuenta del sistema, te llegó un enlace para elegir una contraseña nueva. Revisa también el correo no deseado.',
+  escribeUnCorreoValido: 'Escribe un correo válido (el tuyo de verdad).',
+  // olvidé mi contraseña (2026-10-12)
+  sinNubePideAlAdministrador: 'Pídele al administrador que te cambie la contraseña en Usuarios.',
+  escribeTuUsuario: 'Escribe tu usuario.',
+  solicitudDeContrasenaEnviada: 'Listo. Si el usuario existe, el administrador del sistema te contactará para darte una contraseña temporal.',
+  soloElDuenoOElAyudanteRestablecen: 'Solo el dueño o el ayudante del sistema restablecen contraseñas.',
+  noSeEncontroEsaCuenta: 'No se encontró esa cuenta.',
+  descartarEstaSolicitud: '¿Descartar esta solicitud? No se cambia ninguna contraseña.',
+  laNuevaDebeSerDistintaDeLaTemporal: 'La nueva debe ser distinta de la temporal.',
+  laContrasenaTemporalNoCoincide: 'La contraseña temporal no coincide.',
+  respaldoParcialSinNube: 'No se pudo leer la base: el respaldo tendría solo lo que hay en este equipo (incompleto). ¿Descargarlo igual como PARCIAL?',
+  soloElDuenoDelSistemaRestaura: 'Solo el dueño del sistema puede restaurar un respaldo.',
+  esteArchivoNoEsUnRespaldo: 'Ese archivo no es un respaldo de Wallace System.',
+  elRespaldoNoTieneNegocios: 'El respaldo no tiene negocios.',
+  elNombreNoCoincide: 'El nombre no coincide: no se restauró nada.',
+  noSePudoRestaurar: 'No se pudo restaurar el negocio. No se cambió nada.',
+  soloSeEditaUnaCitaPendiente: 'Solo se puede editar una cita pendiente.',
+  citaActualizada: 'Cita actualizada',
+  yaSeLePagoAlDomiciliario: 'A ese domiciliario ya se le pagó lo de esta caja.',
+  // tercera revisión (2026-10-12)
+  soloLecturaNoSePuedeGuardar: 'Periodo de prueba vencido: solo lectura. No se guardó nada; pide al proveedor más días o pasar a pago.',
+  laBaseRechazoUnCambio: 'La base no aceptó un cambio y no quedó guardado. Recarga la página y revisa.',
+  otroEquipoCambioEstePedido: 'Otro equipo cambió este pedido mientras lo tenías abierto. Revísalo y vuelve a intentar.',
+  esaCuentaYaNoEstaAbierta: 'Esa cuenta ya no está abierta (la cobró o canceló otro equipo).',
+  esePedidoYaFueCobradoOAnulado: 'Ese pedido ya lo cobró o lo anuló otro equipo.',
+  noSePudoGuardarIntentaDeNuevo: 'No se pudo guardar. Revisa la conexión e intenta de nuevo.',
+  losMontosNoPuedenSerNegativos: 'Los montos no pueden ser negativos.',
+  soloSePuedeEliminarUnPedidoAnulado: 'Solo se elimina un pedido ya anulado: anúlalo primero (así se devuelven el stock, la caja y las cifras del cliente).',
+  productoAgotadoNoSeVende: 'Ese producto está marcado como agotado: vuelve a ofrecerlo en Inventario para venderlo.',
+  elDescuentoSeAjustoAlSubtotal: 'El descuento era mayor que el subtotal: se ajustó al subtotal.',
+  esteProductoEstaEnUnCombo: 'Ese producto es parte de un combo: quítalo del combo antes de eliminarlo.',
   // caja
   baseCorregida: 'Base corregida',
   estaCajaYaFueCerradaDesde: 'Esta caja ya fue cerrada desde otro equipo',
@@ -136,7 +173,6 @@ export const MSJ={
   permiteLasVentanasEmergentesParaGenerar: 'Permite las ventanas emergentes para generar el PDF',
   plantillaNoEncontrada: 'Plantilla no encontrada',
   preparandoRespaldo: 'Preparando respaldo...',
-  sinNubeRespaldoConDatosLocales: 'Sin nube: respaldo con datos locales',
   soloElDuenoDelSistemaPuede: 'Solo el dueño del sistema puede eliminar empresas',
   soloElDuenoPuedeCrearAdministradores: 'Solo el dueño puede crear administradores',
   soloElDuenoPuedeEliminar: 'Solo el dueño puede eliminar',
@@ -187,8 +223,6 @@ export const MSJ={
   elDescuentoNoPuedeSuperarEl: 'El descuento no puede superar el total',
   elPedidoNoPuedeQuedarVacio: 'El pedido no puede quedar vacío. Si quieres borrarlo, anúlalo.',
   elPedidoYaNoExiste: 'El pedido ya no existe',
-  errorAlAbrirLaCuenta: 'Error al abrir la cuenta',
-  errorAlAgregar: 'Error al agregar',
   errorAlGuardar: 'Error al guardar',
   errorAlGuardarLosCambios: 'Error al guardar los cambios',
   errorAlRegistrarSalida: 'Error al registrar salida',
@@ -229,6 +263,9 @@ export const MSJ={
 
 // Botón principal de las ventanas (abrirModal → textoBoton)
 export const BOTON={
+  usarMiCorreo: 'Usar mi correo',
+  enviarSolicitud: 'Enviar solicitud',
+  restaurar: 'Restaurar',
   // caja
   cerrarCaja: 'Cerrar caja',
   entendido: 'Entendido',

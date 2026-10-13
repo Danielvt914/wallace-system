@@ -7,7 +7,7 @@
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, fmtDate, fmtMoney, now } from '../nucleo/estado.js';
 import { BOTON, MSJ } from '../nucleo/textos.js';
-import { tienePermiso, usaInventario } from '../nucleo/permisos.js';
+import { exigirEscritura, tienePermiso, usaInventario } from '../nucleo/permisos.js';
 import { abrirModal, cerrarModal, confirmarModal, fotoProducto, ic, pPedidos, pProd, pProds, reducirImagen, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
 import { logAudit } from '../usuarios/auditoria.js';
@@ -192,6 +192,7 @@ export function cargarFotoProducto(input){
 }
 // "Agotado": se oculta de Nueva Venta sin tocar el stock (p. ej. se acabó un plato del día)
 export function alternarAgotado(id){
+  if(!exigirEscritura()) return;   // D10: solo lectura
   if(!tienePermiso('editarprod')){ toast(MSJ.noTienesPermisoParaEditarProductos,'error'); return; }
   const arr=misDatos('productos'); const p=arr.find(x=>x.id===id); if(!p) return;
   p.agotado=!p.agotado;
@@ -201,6 +202,7 @@ export function alternarAgotado(id){
   render();
 }
 export function editarProducto(id){
+  if(!exigirEscritura()) return;   // D10: solo lectura
   if(!tienePermiso('editarprod')){ toast(MSJ.noTienesPermisoParaCrearO,'error'); return; }
   const productos=misDatos('productos');
   const p=id?productos.find(x=>x.id===id):null;
@@ -258,11 +260,16 @@ export function editarProducto(id){
     onGuardar:(d)=>{
       const arr=misDatos('productos');
       const datos={
-        nombre:d.nombre, precio:parseFloat(d.precio)||0,
-        ...(d.costo!==undefined?{costo:parseFloat(d.costo)||0}:{}),
+        nombre:d.nombre, precio:Math.max(0, parseFloat(d.precio)||0),
+        ...(d.costo!==undefined?{costo:Math.max(0, parseFloat(d.costo)||0)}:{}),
         categoria:(d.categoria||'General').trim()||'General'
       };
-      if(neg.usaCodBarras && d.codbarras!==undefined){ datos.codBarras=(d.codbarras||'').trim(); }
+      if(neg.usaCodBarras && d.codbarras!==undefined){
+        datos.codBarras=(d.codbarras||'').trim();
+        // V5: dos productos con el mismo código: el escáner vendería siempre el primero
+        const otro=Dominio.inventario.codigoRepetido(misDatos('productos'), datos.codBarras, id);
+        if(otro){ toast('Ese código de barras ya es de '+otro.nombre,'error'); return; }
+      }
       if(_fotoProducto!==undefined) datos.imagen=_fotoProducto;
       if(esResto || !llevaStock){
         datos.stock=null;                                  // sin control de existencias
@@ -271,6 +278,7 @@ export function editarProducto(id){
       } else {
         datos.stock = d.stock===''?null:(parseFloat(d.stock)||0);
         datos.stockMin = parseFloat(d.stockmin)||0;
+        if((datos.stock!=null && !Dominio.inventario.cantidadValida(datos.stock)) || !Dominio.inventario.cantidadValida(datos.stockMin)){ toast(MSJ.lasCantidadesNoPuedenSerNegativas,'error'); return; }   // V3
         if(esNuevo){
           // Primer ingreso: si pusieron fecha de vencimiento, arranca como lotes.
           const vence = (d.vence||'').trim();
@@ -381,16 +389,26 @@ export function quitarInsumoReceta(idx){
   if(cont) cont.innerHTML=recetaFilasHTML();
 }
 export function eliminarProducto(id){
+  if(!exigirEscritura()) return;   // D10: solo lectura
   if(!tienePermiso('editarprod')){ toast(MSJ.noTienesPermisoParaBorrarProductos,'error'); return; }
   const p=misDatos('productos').find(x=>x.id===id);
-  confirmarModal('¿Eliminar "'+(p?p.nombre:'')+'"?',()=>{
+  if(!p) return;
+  // F28: un combo que lo usa seguiría a la venta sin descontar esa parte
+  const enCombos=misDatos('productos').filter(x=>esCombo(x) && (x.componentes||[]).some(c=>c.prodId===id));
+  if(enCombos.length){ toast(MSJ.esteProductoEstaEnUnCombo+' ('+enCombos.map(x=>x.nombre).join(', ')+')','error'); return; }
+  confirmarModal('¿Eliminar "'+p.nombre+'"?'+((p.stock>0 && usaInventario())?' Sus '+p.stock+' unidades salen del inventario y queda el movimiento.':''),()=>{
+    // F28: su stock no desaparece sin rastro (regla de stock: siempre con movimiento y auditoría)
+    if(p.stock>0 && usaInventario()) registrarMovimientos([{id:uid(), productoId:id, nombre:p.nombre, tipo:'salida',
+      cantidad:p.stock, motivo:'Producto eliminado', por:STATE.user.nombre, fecha:now()}]);
     eliminarMisDatos('productos',id);
+    logAudit('Eliminó producto', p.nombre+(p.stock>0?' · '+p.stock+' und':''));
     toast(MSJ.eliminado,'info'); render();
   },'Eliminar');
 }
 // Sacar mercancía sin vender: daño, vencido, consumo interno, regalo.
 // Es la causa #1 de descuadres cuando no queda registrado.
 export function salidaStock(id){
+  if(!exigirEscritura()) return;   // D10: solo lectura
   if(!tienePermiso('editarstock')){ toast(MSJ.noTienesPermisoParaModificarEl,'error'); return; }
   const productos=misDatos('productos');
   const p=productos.find(x=>x.id===id); if(!p) return;
@@ -416,6 +434,7 @@ export function salidaStock(id){
   }});
 }
 export function entradaStock(id){
+  if(!exigirEscritura()) return;   // D10: solo lectura
   if(!tienePermiso('editarstock')){ toast(MSJ.noTienesPermisoParaModificarEl,'error'); return; }
   const productos=misDatos('productos');
   const p=productos.find(x=>x.id===id); if(!p) return;

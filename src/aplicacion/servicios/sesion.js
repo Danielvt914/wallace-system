@@ -101,7 +101,10 @@ export function crearServicioSesion(dep){
     usuario=String(usuario||'').trim();
     if(!usuario || !pass) return fallo('credenciales');
     try{
+      // Super-admin con correo real: escribe el correo y entra directo (no está en el índice)
+      if(dc.correoRealValido(usuario)) return await entrarConCuenta({correo:usuario.trim()}, usuario, pass);
       const entrada=await C.buscarLogin(usuario);
+      if(dc.entraConCorreo(entrada)) return fallo('usa_correo');
       if(entrada) return await entrarConCuenta(entrada, usuario, pass);
       return await migrar(usuario, pass, opciones);
     }catch(e){ return fallo(motivoDe(e)); }
@@ -124,6 +127,8 @@ export function crearServicioSesion(dep){
 export function mensajeDeFallo(motivo){
   return ({
     credenciales:'Usuario o contraseña incorrectos',
+    usa_correo:'Esta cuenta entra con su correo electrónico: escríbelo en "Usuario".',
+    correo_en_uso:'Ese correo ya tiene una cuenta en el sistema.',
     inactivo:'Usuario desactivado. Habla con el administrador.',
     sin_perfil:'Tu cuenta no tiene permisos asignados. Habla con el administrador del sistema.',
     ya_activada:'Esta cuenta ya fue activada. Si no fuiste tú, avisa al administrador del sistema.',

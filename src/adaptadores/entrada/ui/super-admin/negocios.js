@@ -46,14 +46,16 @@ export function nuevoNegocio(){
     if(!diasPruebaValidos(prueba)){ toast('Los días de prueba deben ser de 1 a '+Dominio.prueba.MAX_DIAS,'error'); return; }
     const perfil=JSON.parse(JSON.stringify(PERFILES[d.tipo]||PERFILES['Otro']));
     const flujo=(document.getElementById('m-flujo')||{}).value||perfil.flujoPedido;
-    const existe=(DB.get('usuarios')||[]).some(u=>u.usuario===d.usuario)
-              || (DB.get('superadmins')||[]).some(s=>s.usuario===d.usuario);
+    d.usuario=(d.usuario||'').trim();
+    if(!Dominio.cuentas.usuarioValido(d.usuario)){ toast(MSJ.usuarioInvalido,'error'); return; }   // V4
+    const igual=x=>Dominio.cuentas.mismoUsuario(x.usuario, d.usuario);
+    const existe=(DB.get('usuarios')||[]).some(igual) || (DB.get('superadmins')||[]).some(igual);
     if(existe){ toast(MSJ.eseUsuarioYaExiste,'error'); return; }
     if(conCuentasFirebase() && (d.pass||'').length<6){ toast(MSJ.laContrasenaDebeTenerAlMenos6,'error'); return; }
     const negId=uid();
     const negocio={
       id:negId, nombre:d.nombre, tipo:d.tipo, ciudad:d.ciudad||'',
-      plan:d.plan, precioMes:parseInt(d.precio)||0, activo:true,
+      plan:d.plan, precioMes:Math.max(0, parseInt(d.precio)||0), activo:true,
       logo:'', nit:'', tel:'', dir:'', eslogan:'',
       palabraProducto:perfil.palabraProducto, palabraProductos:perfil.palabraProductos,
       palabraPedido:perfil.palabraPedido||'Pedido', palabraPersonal:perfil.palabraPersonal||'Personal',

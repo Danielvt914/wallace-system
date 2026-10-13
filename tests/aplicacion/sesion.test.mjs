@@ -34,7 +34,9 @@ function dobleCuentas({legado, reglasCerradas}={}){
     legado: legado||{superadmins:[], usuarios:[]},
     async leerLegado(){ return reglasCerradas ? null : JSON.parse(JSON.stringify(d.legado)); },
     async necesitaDueno(){ return false; },
-    async fijarNegocioActivo(){}
+    async fijarNegocioActivo(){},
+    async pedirRecuperacion(){}, escucharRecuperaciones(){ return ()=>{}; }, async cerrarRecuperacion(){}, async quitarDebeCambiarPass(){},
+    async restablecerPorCorreo(){}, async confirmarMiPass(){}, async crearCuentaConCorreo(){ return {uid:'x', correo:'x'}; }, async pasarCuentaACorreo(){}
   };
   return verificarPuertoCuentas(d);
 }
@@ -140,4 +142,16 @@ test('restaurar sesión guardada y mensajes para la persona', async ()=>{
   assert.match(mensajeDeFallo('credenciales'), /incorrectos/);
   assert.match(mensajeDeFallo('desconocido'), /No se pudo/);
   assert.match(mensajeDeFallo('auth_desactivado'), /Correo electrónico\/contraseña/);
+});
+
+test('super-admin con correo real: entra escribiendo el correo; con el usuario se le dice que use el correo', async ()=>{
+  const C=dobleCuentas({reglasCerradas:true});
+  C.auth['dueno@ejemplo.com']={uid:'uidReal', pass:'clave2027'};
+  C.perfiles.uidReal={rol:'superadmin', rolSuper:'dueno', usuario:'admin', superId:'s1', activo:true, correoReal:'dueno@ejemplo.com'};
+  C.login.admin={correo:cuentas.MARCA_SOLO_CORREO, uid:'uidReal'};
+  const r=await servicio(C).iniciarSesion(' dueno@ejemplo.com ', 'clave2027');
+  assert.equal(r.ok, true); assert.equal(r.uid, 'uidReal');
+  assert.equal((await servicio(C).iniciarSesion('admin', 'clave2027')).motivo, 'usa_correo');
+  assert.equal((await servicio(C).iniciarSesion('dueno@ejemplo.com', 'otra')).motivo, 'credenciales');
+  assert.match(mensajeDeFallo('usa_correo'), /correo/);
 });

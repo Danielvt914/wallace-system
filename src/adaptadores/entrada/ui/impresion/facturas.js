@@ -57,6 +57,7 @@ export function facturaPOS(v,neg){
       <div style="border-top:2px solid #000;border-bottom:2px solid #000;padding:6px 0;text-align:center;margin:6px 0;">
         <div style="font-size:16px;font-weight:bold;">REMISIÓN DE ENTREGA</div>
         <div style="font-size:15px;font-weight:bold;">N° ${escapeHtml(v.factura||'—')}</div>
+        ${Dominio.facturas.esProvisional(v.factura)?'<div style="font-size:11px;">Número provisional (sin internet)</div>':(v.facturaProvisional?'<div style="font-size:11px;">Antes: '+escapeHtml(v.facturaProvisional)+'</div>':'')}
         <div style="font-size:12px;">(No es factura de venta · sin valor comercial)</div>
       </div>
       <div style="font-size:14px;line-height:1.6;margin:6px 0;">
@@ -97,6 +98,7 @@ export function facturaPOS(v,neg){
     <div style="border-top:2px solid #000;border-bottom:2px solid #000;padding:6px 0;text-align:center;margin:6px 0;">
       <div style="font-size:15px;font-weight:bold;">FACTURA DE VENTA</div>
       <div style="font-size:15px;font-weight:bold;">N° ${escapeHtml(v.factura||'—')}</div>
+      ${Dominio.facturas.esProvisional(v.factura)?'<div style="font-size:11px;">Número provisional (sin internet)</div>':(v.facturaProvisional?'<div style="font-size:11px;">Antes: '+escapeHtml(v.facturaProvisional)+'</div>':'')}
       <div style="font-size:13px;">${tipoTexto(v.tipo).toUpperCase()}</div>
     </div>
     <div style="font-size:14px;line-height:1.6;margin:6px 0;">
@@ -143,7 +145,7 @@ export function facturaMedia(v,neg){
     <div style="background:${escapeHtml(N)};height:3px;"></div>
     <div style="display:flex;justify-content:center;gap:26px;padding:7px 0;font-size:11px;border-bottom:1px solid #ddd;">
       <span><strong>FECHA:</strong> ${fmtDate(v.fecha)}</span>
-      <span><strong>NÚMERO:</strong> ${escapeHtml(v.factura||'—')}</span>
+      <span><strong>NÚMERO:</strong> ${escapeHtml(v.factura||'—')}${Dominio.facturas.esProvisional(v.factura)?' (provisional)':(v.facturaProvisional?' (antes '+escapeHtml(v.facturaProvisional)+')':'')}</span>
       <span><strong>TIPO:</strong> ${tipoTexto(v.tipo)}</span>
     </div>
     <div style="display:flex;gap:20px;padding:14px 4px;border-bottom:1px solid #ddd;">

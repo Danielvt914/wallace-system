@@ -24,6 +24,11 @@ Registro de las correcciones aplicadas a `app.js` para los hallazgos de **seguri
 | D6 | Pedido de otro turno (o cobrado sin caja) fuera de todo cierre | ✅ Corregido (2026-10-12) | `abrirCobro` (`ui/ventas/cobro.js`), `ventasJornada` (`ui/ventas/pedidos.js`) |
 | D7 | Movimientos de caja sin transacción | ✅ Corregido (2026-10-12) | `agregarMovimientoCaja` (`ui/caja/caja.js`) |
 | D8 | Conteo: lo vendido durante el conteo se restaba dos veces | ✅ Corregido (2026-10-12) | `contarItem`, `stockActualDe` (`ui/inventario/conteo.js`) |
+| D9 | Dos equipos con el mismo pedido o cuenta se pisaban (productos perdidos, cobros a ciegas, doble stock) | ✅ Corregido (2026-10-12) | `Datos.transaccionRegistro`, `Dominio.ventas.agregarACuenta/cobrarSiSigueIgual/anularSiSigueIgual/editarSiSigueIgual` |
+| D10 | Lo que la base rechazaba (prueba vencida) se perdía en silencio | ✅ Corregido (2026-10-12) | `negocioSoloLectura`, `exigirEscritura` (`ui/nucleo/permisos.js`), ganchos `soloLectura` / `alEscrituraNegada` |
+| S9 | Montos negativos aceptados (sacar efectivo cuadrando la caja) | ✅ Corregido (2026-10-12) | `Dominio.pagos.montoValido/pagosValidos`, cobro, ajuste, forma de pago, precios |
+| S10 | Auditoría y movimientos borrables por empleados | ✅ Corregido (2026-10-12) | `database.rules.json` (solo agregar) |
+| F24–F28, S11, C4 | Eliminar/cambiar pago en cajas cerradas, agotado en el escáner, descuentos, ventanas diferidas, borrar productos de combos, permiso al confirmar edición, errores tragados | ✅ Corregido (2026-10-12) | Detalle en [-01](../-01-to-review/-01-to-review.md#tercera-revisión-2026-10-12) |
 
 Además, como parte de S2, se agregó la casilla **"Usuario activo"** al formulario de usuarios (hallazgo F7).
 

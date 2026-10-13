@@ -7,7 +7,7 @@
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, fmtDate, fmtMoney, now } from '../nucleo/estado.js';
 import { BOTON, MSJ } from '../nucleo/textos.js';
-import { tienePermiso, usaInventario } from '../nucleo/permisos.js';
+import { exigirEscritura, tienePermiso, usaInventario } from '../nucleo/permisos.js';
 import { abrirModal, cerrarModal, confirmarModal, ic, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
 import { logAudit } from '../usuarios/auditoria.js';
@@ -42,6 +42,7 @@ export function itemsParaContar(){
   return filas.sort((a,b)=>(a.categoria+a.nombre).localeCompare(b.categoria+b.nombre,'es'));
 }
 export function iniciarConteo(){
+  if(!exigirEscritura()) return;   // D10: solo lectura
   if(!tienePermiso('conteo')){ toast(MSJ.noTienesPermisoParaHacerConteos,'error'); return; }
   const filas=itemsParaContar();
   if(!filas.length){ toast(MSJ.noHayProductosConInventarioPara,'error'); return; }
@@ -59,7 +60,9 @@ export function cancelarConteo(){
 export function contarItem(idx, valor){
   if(!_conteo || !_conteo.items[idx]) return;
   const it=_conteo.items[idx];
-  it.contado = valor===''?'':(parseFloat(valor));
+  // V3: lo contado es un número de 0 en adelante; lo demás (vacío, negativo, texto) queda sin contar
+  const n=parseFloat(valor);
+  it.contado = (valor==='' || !Dominio.inventario.cantidadValida(n)) ? '' : n;
   // D8: lo contado se compara con el stock de ESTE momento (si se vendió mientras se
   // contaba, la venta ya está descontada y no se vuelve a restar al aplicar)
   it.sistema=stockActualDe(it);
@@ -119,6 +122,7 @@ export function conteoTodoBien(){
   setTimeout(pintarTotalesConteo,50);
 }
 export function guardarConteo(ajustar){
+  if(!exigirEscritura()) return;   // D10: solo lectura
   if(!_conteo){ return; }
   if(ajustar && !tienePermiso('editarstock')){ toast(MSJ.noTienesPermisoParaAjustarEl,'error'); return; }
   const r=resumenConteo();

@@ -83,8 +83,11 @@ export function editarUsuario(negId,userId){
   ], extraHTML: `<label class="chk mb-10"><input type="checkbox" id="u-activo" ${(!u||u.activo!==false)?'checked':''}> Usuario activo (si se desmarca, no puede entrar)</label>` + sucHTML + permisosHTML,
   onGuardar:(d)=>{
     if(!esAdminSistema()){ toast(MSJ.soloElAdministradorDelSistemaGestiona,'error'); return; }
-    const existe=(DB.get('usuarios')||[]).find(x=>x.usuario===d.usuario && (!u||x.id!==u.id))
-              || (DB.get('superadmins')||[]).some(s=>s.usuario===d.usuario);
+    d.usuario=(d.usuario||'').trim();
+    if(!Dominio.cuentas.usuarioValido(d.usuario)){ toast(MSJ.usuarioInvalido,'error'); return; }   // V4
+    const igual=x=>Dominio.cuentas.mismoUsuario(x.usuario, d.usuario);
+    const existe=(DB.get('usuarios')||[]).find(x=>igual(x) && (!u||x.id!==u.id))
+              || (DB.get('superadmins')||[]).some(igual);
     if(existe){ toast(MSJ.eseUsuarioYaExiste,'error'); return; }
     const nuevaPass=(d.pass||'').trim();
     const cuentas=conCuentasFirebase(), minPass=cuentas?6:4;

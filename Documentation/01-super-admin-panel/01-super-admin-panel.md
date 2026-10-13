@@ -195,7 +195,12 @@ Un negocio **real** que el cliente usa con sus datos por un tiempo limitado. Al 
 
 Las demos usan lo mismo: vencen a los 15 días, muestran el aviso y aparecen en "por vencer" para darles más días o borrarlas.
 
-**Solo lectura**: el aviso explica que no se puede vender ni cambiar datos; el bloqueo real es de las reglas (con Firebase y reglas finales). En modo local no hay reglas: solo se ve el aviso.
+**Solo lectura** (D10, 2026-10-12): la app lo **aplica**, no solo lo avisa. Con la prueba o la demo vencida, la gente del negocio:
+- no ve los botones que escriben (`tienePermiso` devuelve `false` salvo imprimir);
+- recibe "solo lectura" en cualquier acción que guarda (`exigirEscritura`);
+- y el adaptador de datos no escribe nada de ese negocio (gancho `soloLectura`), ni en la nube ni en el equipo.
+
+El super-admin y la supervisión sí escriben. Con Firebase, las reglas cerradas lo bloquean además en el servidor, y si la base rechaza algo, la app lo avisa (`alEscrituraNegada`).
 
 **Límites**:
 - **Con las reglas de transición no hay bloqueo**: durante la migración de cuentas, `data` está abierto. El bloqueo funciona con las reglas finales.
@@ -235,3 +240,9 @@ Sin `rolSuper` en el perfil se trata como dueño (perfiles anteriores). El rango
 **Pruebas**: `tests/reglas/reglas.test.mjs` (5 casos del vendedor: lectura, negocio activo, altas con vencimiento, bajas, cuentas) y `tests/navegador/s1-navegador.test.mjs` → "vendedor con reglas cerradas" (panel solo con lo suyo, negocio a prueba con ejemplos y su administrador, entrar y borrar su demo, **ninguna operación negada**).
 
 **Para el sandbox**: `npm run reglas:cerradas` publica las reglas nuevas. Los perfiles de vendedor ya tienen `rolSuper:'vendedor'` (`perfilDesdeSuperAdmin`).
+
+## 13. Respaldo y restauración (2026-10-12)
+
+- **Respaldo** (`descargarRespaldo`): si no se puede leer la base, pregunta y baja un archivo `respaldo-wallace-PARCIAL-<fecha>.json` (con `parcial:true`): con cuentas, el panel casi no tiene datos de los negocios. Antes bajaba esa copia con el nombre de un respaldo completo.
+- **Restaurar un negocio** ("♻️ Restaurar", **solo el dueño del sistema**): se elige el archivo, el negocio y se confirma escribiendo su nombre. `Datos.restaurarNegocio(negId, datos)` (puerto + adaptador) reemplaza su registro (`negocios_r/<id>`) y **todas** sus tablas por las del respaldo (lo que no esté, se borra), en una sola escritura; lo que las reglas rechazarían (logo, ids: S8) se limpia antes. Las cuentas de acceso (`perfiles`, `login`) no se tocan. Sirve con respaldos de la nube y con los parciales (formato del equipo).
+- Pruebas: integración contra el emulador (vuelve todo como estaba, limpia lo inválido, rechaza un negocio que no está) y recorrido en modo local.

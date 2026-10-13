@@ -5,13 +5,14 @@
 //  y lo llaman los data-click del HTML generado (nucleo/eventos.js). Lo carga
 //  ui/manifiesto.js (cargarInterfaz). Doc: Documentation/01-super-admin-panel/01-super-admin-panel.md
 // ============================================================
-import { STATE, escapeHtml, fmtMoney } from '../nucleo/estado.js';
-import { MSJ } from '../nucleo/textos.js';
+import { STATE, escapeHtml, fmtDate, fmtMoney } from '../nucleo/estado.js';
+import { BOTON, MSJ } from '../nucleo/textos.js';
 import { esAdminSistema } from '../nucleo/permisos.js';
-import { ic, toast } from '../nucleo/componentes.js';
+import { abrirModal, cerrarModal, confirmarModal, ic, reportarError, toast } from '../nucleo/componentes.js';
 import { WALLACE_LOGO } from '../nucleo/logo.js';
 import { render } from '../nucleo/navegacion.js';
 import { conCuentasFirebase } from '../usuarios/sesion.js';
+import { tarjetaRecuperaciones } from '../usuarios/recuperacion.js';
 import { pillPrueba, tarjetaPorVencer } from './pruebas.js';
 import { resumenDe } from '../reportes/resumen.js';
 
@@ -130,14 +131,18 @@ export function panelSuperAdmin(){
       <span class="fb-dot off" id="fb-status" title="Conexión"></span>
       <span class="reloj" id="reloj"></span>
       <button class="btn btn-sm" data-click="descargarRespaldo()">💾 Respaldo</button>
+      ${STATE.user.rolSuper==='dueno'?`<button class="btn btn-sm" data-click="elegirRespaldo()" title="Restaurar un negocio desde un respaldo">♻️ Restaurar</button>
+        <input type="file" id="resp-archivo" accept=".json,application/json" class="oculto" data-change="cargarRespaldo(this)">`:''}
       ${sinCifras?`<button class="btn btn-sm btn-naranja" data-click="calcularResumenes()" title="Negocios sin cifras publicadas todavía">📊 Calcular cifras (${sinCifras})</button>`:''}
       ${(STATE.user.rolSuper==='dueno')?`<button class="btn btn-sm" data-click="irAdministradores()">👥 Administradores</button>`:''}
       ${(conCuentasFirebase() && esAdminSistema())?`<button class="btn btn-sm" data-click="abrirMigracion()">🔐 Cuentas</button>`:''}
+      ${(conCuentasFirebase() && esAdminSistema())?`<button class="btn btn-sm" data-click="pasarAMiCorreo()" title="Entrar con tu correo real y poder recuperar la contraseña por correo">📧 Mi correo</button>`:''}
       <button class="btn btn-sm" data-click="cambiarMiPassSuper()">🔑 Mi contraseña</button>
       <button class="btn btn-ghost btn-sm" data-click="logout()">${ic('logout')} Salir</button>
     </div>
   </div>
   <div class="contenido">
+    ${tarjetaRecuperaciones()}
     ${tarjetaPorVencer()}
     <div class="stats">
       <div class="stat gold"><div class="stat-ico gold">${ic('box')}</div><div class="stat-lbl">Negocios activos</div><div class="stat-val">${activos}</div><div class="stat-sub">de ${reales.length} en total</div></div>
@@ -217,30 +222,73 @@ export function panelSuperAdmin(){
 export function descargarRespaldo(){
   if(!esAdminSistema()){ toast(MSJ.noTienesPermisoParaDescargarEl,'error'); return; }
   toast(MSJ.preparandoRespaldo,'info');
-  const bajar=(data)=>{
+  const bajar=(data, parcial)=>{
     try{
       const respaldo={
         sistema:'Wallace System',
         fecha:new Date().toISOString(),
+        parcial:!!parcial,
         datos:data
       };
       const blob=new Blob([JSON.stringify(respaldo,null,2)],{type:'application/json'});
       const url=URL.createObjectURL(blob);
       const a=document.createElement('a');
       const f=new Date();
-      const nombre='respaldo-wallace-'+f.getFullYear()+'-'
+      const nombre='respaldo-wallace-'+(parcial?'PARCIAL-':'')+f.getFullYear()+'-'
         +String(f.getMonth()+1).padStart(2,'0')+'-'
         +String(f.getDate()).padStart(2,'0')+'.json';
       a.href=url; a.download=nombre;
       document.body.appendChild(a); a.click();
       setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(url); },500);
       toast('Respaldo descargado: '+nombre,'success');
-    }catch(e){ console.error(e); toast(MSJ.noSePudoGenerarElRespaldo,'error'); }
+    }catch(e){ reportarError('el respaldo', e); toast(MSJ.noSePudoGenerarElRespaldo,'error'); }
   };
   Datos.exportarTodo().then(r=>{
-    if(r.origen==='local' && FB_READY) toast(MSJ.sinNubeRespaldoConDatosLocales,'info');
-    bajar(r.datos);
-  });
+    // Sin la nube, la copia del equipo NO es un respaldo completo (con cuentas, el panel casi no tiene
+    // datos de los negocios): se pregunta y el archivo dice PARCIAL
+    if(r.origen==='local' && FB_READY){
+      confirmarModal(MSJ.respaldoParcialSinNube, ()=>bajar(r.datos, true), 'Bajar parcial');
+      return;
+    }
+    bajar(r.datos, false);
+  }).catch(e=>reportarError('el respaldo', e));
+}
+// ---------- Restaurar UN negocio desde un respaldo (solo el dueño del sistema) ----------
+export function elegirRespaldo(){
+  if(!(STATE.user && STATE.user.rolSuper==='dueno' && esAdminSistema())){ toast(MSJ.soloElDuenoDelSistemaRestaura,'error'); return; }
+  const e=document.getElementById('resp-archivo'); if(e){ e.value=''; e.click(); }
+}
+export function cargarRespaldo(input){
+  const f=input && input.files && input.files[0]; if(!f) return;
+  const lector=new FileReader();
+  lector.onload=()=>{
+    let r=null; try{ r=JSON.parse(lector.result); }catch(e){}
+    if(!r || r.sistema!=='Wallace System' || !r.datos){ toast(MSJ.esteArchivoNoEsUnRespaldo,'error'); return; }
+    elegirNegocioARestaurar(r);
+  };
+  lector.readAsText(f);
+}
+export function negociosDelRespaldo(datos){
+  const l=datos.negocios_r ? Object.values(datos.negocios_r) : (Array.isArray(datos.negocios)?datos.negocios:Object.values(datos.negocios||{}));
+  return l.filter(n=>n && n.id);
+}
+export function elegirNegocioARestaurar(r){
+  const negs=negociosDelRespaldo(r.datos);
+  if(!negs.length){ toast(MSJ.elRespaldoNoTieneNegocios,'error'); return; }
+  abrirModal({titulo:'♻️ Restaurar un negocio', textoBoton:BOTON.restaurar, campos:[
+    {id:'neg', label:'Negocio', tipo:'select', opciones:negs.map(n=>({valor:n.id, label:n.nombre||n.id}))},
+    {id:'confirma', label:'Escribe el nombre del negocio para confirmar', requerido:true}
+  ], extraHTML:`<p class="nota">Respaldo del <strong>${escapeHtml(fmtDate(r.fecha))}</strong>${r.parcial?' · <span class="rojo">PARCIAL</span>':''}. Se <strong>reemplazan</strong> los datos de ese negocio (ventas, caja, inventario, clientes…) por los del respaldo; lo que se hizo después se pierde. Las cuentas de acceso no se tocan. Descarga un respaldo actual antes, por si acaso.</p>`,
+  onGuardar:d=>{
+    const n=negs.find(x=>x.id===d.neg); if(!n) return;
+    if((d.confirma||'').trim()!==(n.nombre||n.id)){ toast(MSJ.elNombreNoCoincide,'error'); return; }
+    restaurarNegocioDesde(r.datos, n.id).then(ok=>{ if(ok) cerrarModal(); });
+  }});
+}
+export function restaurarNegocioDesde(datos, negId){
+  return Datos.restaurarNegocio(negId, datos).then(res=>{
+    toast('Negocio restaurado ('+res.claves+' tablas)','success'); render(); return true;
+  }).catch(e=>{ reportarError('restaurar el negocio', e); toast(MSJ.noSePudoRestaurar,'error'); return false; });
 }
 export function irPanel(){ STATE.page=''; render(); }
 export function buscarNegocios(v){ STATE.buscaNegocio=v; render(); }

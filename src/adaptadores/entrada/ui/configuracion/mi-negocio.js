@@ -7,7 +7,7 @@
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo } from '../nucleo/estado.js';
 import { MSJ } from '../nucleo/textos.js';
-import { puedeVerPantalla, usaInventario } from '../nucleo/permisos.js';
+import { exigirEscritura, puedeVerPantalla, usaInventario } from '../nucleo/permisos.js';
 import { ic, logoNegocio, pProds, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
 import { descuentaAlPedir } from '../ventas/cuentas-abiertas.js';
@@ -132,6 +132,7 @@ export function quitarLogo(){
   toast(MSJ.logoQuitadoDaleAGuardarCambios,'info');
 }
 export function guardarMiNegocio(){
+  if(!exigirEscritura()) return;   // D10: solo lectura
   if(!puedeVerPantalla('minegocio')){ toast(MSJ.noTienesPermisoParaCambiarLos,'error'); return; }
   const val=id=>{ const e=document.getElementById(id); return e?e.value:''; };
   const chk=id=>{ const e=document.getElementById(id); return e?e.checked:false; };
@@ -150,6 +151,7 @@ export function guardarMiNegocio(){
   const _col=val('n-color');
   n.colorTema=/^#[0-9a-fA-F]{6}$/.test(_col)?_col:'#01c38e';
   n.pctDatafono=parseFloat(val('n-pct'))||0;
+  if(!Dominio.pagos.porcentajeValido(n.pctDatafono)){ toast(MSJ.elPorcentajeDebeEstarEntre0Y100,'error'); return; }   // V3
   { const bf=val('n-basefija'); n.baseFija = (bf===''||bf==null) ? null : (parseFloat(bf)||0); }
   n.ajusteCobro = val('n-ajustecobro')==='total' ? 'total' : 'diferencia';
   n.sonidos=chk('n-sonidos');

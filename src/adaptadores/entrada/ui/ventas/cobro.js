@@ -7,12 +7,12 @@
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, fmtMoney, now } from '../nucleo/estado.js';
 import { BOTON, MSJ } from '../nucleo/textos.js';
-import { cajaActual, exigirPermiso, tienePermiso } from '../nucleo/permisos.js';
+import { cajaActual, exigirEscritura, exigirPermiso, tienePermiso } from '../nucleo/permisos.js';
 import { abrirModal, cerrarModal, confirmarModal, preguntarDespues, reportarError, toast } from '../nucleo/componentes.js';
 import { sonidoVenta } from '../nucleo/sonidos.js';
 import { render } from '../nucleo/navegacion.js';
 import { logAudit } from '../usuarios/auditoria.js';
-import { _guardando, cargarPedidoEnVenta, fijarGuardando, limpiarPedido } from './nueva-venta.js';
+import { _guardando, cargarPedidoEnVenta, fijarGuardando, limpiarPedido, siguienteFactura } from './nueva-venta.js';
 import { agregarMovimientoCaja, puedeRetirarJefe } from '../caja/caja.js';
 import { imprimirComanda } from '../cocina/comanda.js';
 import { reabrirCitaDeVenta } from '../citas/citas.js';
@@ -39,6 +39,7 @@ export function detallePagos(v){
 export function exigeVerificarBanco(){ return !!(STATE.negocio && STATE.negocio.verificarBanco); }
 export function ventasPorVerificar(lista){ return (lista||[]).filter(bancoPendiente); }
 export function marcarVerificada(id){
+  if(!exigirEscritura()) return;   // D10: solo lectura
   if(!(tienePermiso('cobrar')||tienePermiso('cambiarpago'))){ toast(MSJ.noTienesPermisoParaVerificarPagos,'error'); return; }
   const v=misDatos('ventas').find(x=>x.id===id); if(!v) return;
   confirmarModal('¿Confirmas que la transferencia de '+fmtMoney(pagosDe(v).banco)+' de '+(v.factura||'')+' YA llegó a la cuenta?',()=>{
@@ -79,7 +80,7 @@ export function abrirCobro(v, esNuevo, opc){
   campos.push({id:'recargo', label:'Recargo del datáfono (lo cobra el banco)', tipo:'number', valor:'0'});
   const totalIni=base+dom;
 
-  abrirModal({titulo:'Cobrar '+(v.factura||'')+' · '+fmtMoney(totalIni), textoBoton:BOTON.confirmarCobro,
+  abrirModal({titulo:'Cobrar '+(v.factura||'(nueva venta)')+' · '+fmtMoney(totalIni), textoBoton:BOTON.confirmarCobro,
     campos,
     extraHTML:`<div class="cobro-caja">
       <div class="c-row"><span>${escapeHtml(neg.palabraProductos||'Productos')}</span><strong>${fmtMoney(v.subtotalBruto!==undefined?v.subtotalBruto:base)}</strong></div>
@@ -137,49 +138,67 @@ export function abrirCobro(v, esNuevo, opc){
     },
     onGuardar:(d)=>{
       if(_guardando) return;
+      if(!exigirEscritura()) return;                                     // D10
       const propina=parseFloat(d.propina)||0;
       const recargo=parseFloat(d.recargo)||0;
+      // S9: nada negativo (una propina o un recargo negativos son un descuento sin permiso)
+      if(!Dominio.pagos.montoValido(propina) || !Dominio.pagos.montoValido(recargo)){ toast(MSJ.losMontosNoPuedenSerNegativos,'error'); return; }
       const total=(v.subtotal||0)+(v.valorDom||0)+propina+recargo;
       // Reglas del cobro (faltante; el exceso es cambio y solo sale del efectivo): src/dominio/pagos.js
       const liq=Dominio.pagos.liquidarCobro(total, leerPagos());
       if(!liq.ok){
         toast(liq.error==='sin_pago'?'Escribe cuánto paga el cliente'
+          :liq.error==='negativo'?MSJ.losMontosNoPuedenSerNegativos
           :liq.error==='faltan'?'Faltan '+fmtMoney(liq.faltan)+' por cubrir'
           :'Solo se puede dar cambio del efectivo. Revisa los montos.','error');
         return;
       }
       const pagos=liq.pagos, cambio=liq.cambio;
+      const pagosR={efectivo:Math.round(pagos.efectivo), banco:Math.round(pagos.banco), tarjeta:Math.round(pagos.tarjeta)};
+      // D6: el cobro cuenta en la caja abierta AHORA (un pedido de otro turno traía la de entonces)
+      const cajaCobro=cajaActual();
+      const cambios={pagos:pagosR, metodo:metodoPrincipal(pagosR), propina, recargo, total, cambio:Math.round(cambio),
+        cobrado:now(), cobradoPor:STATE.user.nombre, exigeVerificar:exigeVerificarBanco()};
+      if(cajaCobro) cambios.cajaId=cajaCobro.id;
       fijarGuardando(true);
-      try{
-        const ventas=misDatos('ventas');
-        let venta;
-        if(esNuevo){
-          venta=v; venta.estado='pagada';
+      // Pedido nuevo (cobro directo): todavía no existe en ningún otro equipo
+      if(esNuevo){
+        try{
+          if(!v.factura) v.factura=siguienteFactura();     // el número, recién ahora que el cobro se confirma
+          const venta=Dominio.ventas.cobrarSiSigueIgual(Object.assign({}, v, {estado:'abierta'}), null, cambios);
+          const ventas=misDatos('ventas');
           const yaEsta=ventas.findIndex(x=>x.id===venta.id);
           if(yaEsta>-1) ventas[yaEsta]=venta; else ventas.unshift(venta);   // evita duplicados al editar
-        } else {
-          venta=ventas.find(x=>x.id===v.id);
-          if(!venta){ toast(MSJ.elPedidoYaNoExiste,'error'); cerrarModal(); fijarGuardando(false); return; }
-          venta.estado='pagada';
+          descontarStock(venta);                 // marca la venta como descontada
+          guardarMisDatos('ventas',ventas);      // se guarda DESPUÉS, con la marca
+          trasCobrar(venta);
+        }catch(e){ reportarError('el cobro', e); }
+        finally{ fijarGuardando(false); }
+        return;
+      }
+      // D9: pedido que ya existe: se cobra sobre la versión del servidor, solo si sigue sin cobrar
+      // y con los mismos productos (si otro equipo lo cobró o le agregó algo, no se cobra a ciegas)
+      Datos.transaccionRegistro('ventas', v.id, cur=>Dominio.ventas.cobrarSiSigueIgual(cur, v.items, cambios))
+      .then(r=>{
+        if(!r.committed){
+          if(r.motivo==='solo_lectura') return;
+          const x=r.valor;
+          toast(!x?MSJ.elPedidoYaNoExiste:(x.estado==='pagada'||x.estado==='anulada')?MSJ.esePedidoYaFueCobradoOAnulado:MSJ.otroEquipoCambioEstePedido,'error');
+          cerrarModal(); render(); return;
         }
-        venta.pagos={efectivo:Math.round(pagos.efectivo), banco:Math.round(pagos.banco), tarjeta:Math.round(pagos.tarjeta)};
-        venta.metodo=metodoPrincipal(venta.pagos);
-        // Transferencias: quedan por verificar si el negocio lo exige
-        if(exigeVerificarBanco() && venta.pagos.banco>0){ if(venta.bancoVerificado!==true) venta.bancoVerificado=false; }
-        else if(venta.pagos.banco<=0){ delete venta.bancoVerificado; }
-        venta.propina=propina; venta.recargo=recargo;
-        venta.total=total;
-        venta.cambio=Math.round(cambio);
-        venta.cobrado=now(); venta.cobradoPor=STATE.user.nombre;
-        // D6: el cobro cuenta en la caja abierta AHORA (un pedido de otro turno traía la de entonces)
-        const cajaCobro=cajaActual(); if(cajaCobro) venta.cajaId=cajaCobro.id;
-        descontarStock(venta);                 // marca la venta como descontada
-        guardarMisDatos('ventas',ventas);      // se guarda DESPUÉS, con la marca
+        const venta=r.valor;
+        if(venta.stockAplicado!==true){ descontarStock(venta); guardarMisDatos('ventas',[venta]); }
+        trasCobrar(venta);
+      })
+      .catch(e=>{ reportarError('el cobro', e); toast(MSJ.noSePudoGuardarIntentaDeNuevo,'error'); })
+      .then(()=>{ fijarGuardando(false); });
+      // Lo que sigue a un cobro ya guardado
+      function trasCobrar(venta){
         guardarClienteAuto(venta);
         sonidoVenta();
         avisarStockBajo(venta);
         if(esNuevo && !opc.sinCarrito){ limpiarPedido(); fijarEscribiendo(false); }
-        if(opc.alCobrar){ try{ opc.alCobrar(venta); }catch(e){ console.error('alCobrar',e); } }
+        if(opc.alCobrar){ try{ opc.alCobrar(venta); }catch(e){ reportarError('después del cobro', e); } }
         cerrarModal();
         toast('Cobrado: '+fmtMoney(venta.total)+(cambio>0?' · Cambio '+fmtMoney(cambio):''),'success');
         if(cambio>0) setTimeout(()=>toast('💵 Devuelve '+fmtMoney(cambio)+' de cambio','info'),500);
@@ -189,8 +208,7 @@ export function abrirCobro(v, esNuevo, opc){
         }
         STATE.pageNeg=opc.pantalla||'pedidos';
         render();
-      }catch(e){ reportarError('el cobro', e); }
-      finally{ fijarGuardando(false); }
+      }
     }});
 }
 // ¿Este negocio trabaja con caja? (igual que Nueva Venta y la entrega de citas)
@@ -241,17 +259,19 @@ export function anularPedido(id){
   const aviso = deCajaCerrada
     ? ' Es de una caja ya cerrada'+(devolver>0?': se registrará una salida de '+fmtMoney(devolver)+' en la caja abierta para devolverle el efectivo al cliente.':'.')
     : ' Si ya estaba cobrado, se devuelve el stock.';
+  const estadoVisto=v.estado;
   confirmarModal('¿Anular el pedido '+(v.factura||'')+' de '+fmtMoney(v.total)+'?'+aviso, ()=>{
-    const ventas=misDatos('ventas');
-    const venta=ventas.find(x=>x.id===id);
-    if(!venta){ toast(MSJ.elPedidoYaNoExiste,'error'); return; }
-    const teniaStock = venta.stockAplicado===true || (venta.stockAplicado===undefined && venta.estado==='pagada');
-    const estabaPagada = venta.estado==='pagada';
-    venta.estado='anulada';
-    venta.anulada=now();
-    venta.anuladaPor=STATE.user.nombre;
-    if(teniaStock) devolverStock(venta, 'Anulación del pedido '+(venta.factura||''));   // devuelve y deja constancia
-    guardarMisDatos('ventas',ventas);
+    // D9: sobre la versión del servidor y solo si sigue como se vio (no lo cobró o anuló otro equipo)
+    Datos.transaccionRegistro('ventas', id, cur=>Dominio.ventas.anularSiSigueIgual(cur, estadoVisto, {anulada:now(), anuladaPor:STATE.user.nombre}))
+    .then(r=>{
+      if(!r.committed){ if(r.motivo!=='solo_lectura') toast(r.valor?MSJ.otroEquipoCambioEstePedido:MSJ.elPedidoYaNoExiste,'error'); render(); return; }
+      trasAnular(r.valor);
+    }).catch(e=>reportarError('anular el pedido', e));
+  },'Sí, anular');
+  function trasAnular(venta){
+    const teniaStock = venta.stockAplicado===true || (venta.stockAplicado===undefined && estadoVisto==='pagada');
+    const estabaPagada = estadoVisto==='pagada';
+    if(teniaStock){ devolverStock(venta, 'Anulación del pedido '+(venta.factura||'')); guardarMisDatos('ventas',[venta]); }   // devuelve y deja constancia
     if(estabaPagada) revertirClienteAuto(venta);                                      // F22: las cifras del cliente
     if(venta.origenCita) reabrirCitaDeVenta(venta, teniaStock);                       // F22: la cita vuelve a pendiente
     if(deCajaCerrada && devolver>0){
@@ -262,7 +282,7 @@ export function anularPedido(id){
     logAudit('Anuló pedido', (venta.factura||'')+' · '+fmtMoney(venta.total)+(deCajaCerrada?' · de una caja cerrada (devolución '+fmtMoney(devolver)+')':''));
     toast(MSJ.pedidoAnulado,'info');
     render();
-  },'Sí, anular');
+  }
 }
 
 // ---------- EDITAR PEDIDO ----------
@@ -345,6 +365,7 @@ export function ajustarPagoVenta(id, modoForzado){
     },
     onGuardar:()=>{
       const nuevos=leerPagos();
+      if(!Dominio.pagos.pagosValidos(nuevos)){ toast(MSJ.losMontosNoPuedenSerNegativos,'error'); return; }   // S9
       const suma=nuevos.efectivo+nuevos.banco+nuevos.tarjeta;
       if(Math.abs(suma-total)>0.5){ toast('La suma debe dar exactamente '+fmtMoney(total),'error'); return; }
       guardarAjusteCobro(id, {efectivo:Math.round(nuevos.efectivo), banco:Math.round(nuevos.banco), tarjeta:Math.round(nuevos.tarjeta)});
@@ -387,6 +408,7 @@ export function ajustarPagoVenta(id, modoForzado){
   },
   onGuardar:()=>{
     const d=leerPagos();
+    if(!Dominio.pagos.pagosValidos(d)){ toast(MSJ.losMontosNoPuedenSerNegativos,'error'); return; }   // S9
     const suma=d.efectivo+d.banco+d.tarjeta;
     if(Math.abs(suma-monto)>0.5){ toast('Debe sumar exactamente '+fmtMoney(monto),'error'); return; }
     const signo=cobra?1:-1;
@@ -401,6 +423,8 @@ export function ajustarPagoVenta(id, modoForzado){
 }
 // Guarda el nuevo reparto del pago en la venta
 export function guardarAjusteCobro(id, pagos, detalleExtra){
+  if(!exigirPermiso('editar','No tienes permiso para editar pedidos')) return;    // S7/S11: también si se llama sola
+  if(!Dominio.pagos.pagosValidos(pagos)){ toast(MSJ.losMontosNoPuedenSerNegativos,'error'); return; }
   const ventas=misDatos('ventas');
   const x=ventas.find(y=>y.id===id); if(!x){ cerrarModal(); return; }
   const antes=detallePagos(x);
@@ -423,6 +447,8 @@ export function cambiarFormaPago(id){
   const v=misDatos('ventas').find(x=>x.id===id);
   if(!v){ toast(MSJ.pedidoNoEncontrado,'error'); return; }
   if(v.estado!=='pagada'){ toast(MSJ.soloAplicaAPedidosYaCobrados,'error'); return; }
+  // F24: mover plata entre efectivo y banco de una caja YA CERRADA cambia un cierre contado
+  if(esDeCajaCerrada(v)){ toast(MSJ.esePedidoEsDeUnaCaja,'error'); return; }
   const p=pagosDe(v);
   const total=v.total||0;
   abrirModal({titulo:'Corregir la forma de pago', textoBoton:BOTON.guardar, campos:[],
@@ -443,6 +469,7 @@ export function cambiarFormaPago(id){
   },
   onGuardar:()=>{
     const nuevos=leerPagos();
+    if(!Dominio.pagos.pagosValidos(nuevos)){ toast(MSJ.losMontosNoPuedenSerNegativos,'error'); return; }   // S9
     const suma=nuevos.efectivo+nuevos.banco+nuevos.tarjeta;
     if(Math.abs(suma-total)>0.5){ toast('La suma debe dar exactamente '+fmtMoney(total),'error'); return; }
     const ventas=misDatos('ventas');
@@ -473,13 +500,19 @@ export function eliminarDefinitivo(id){
   if(!tienePermiso('eliminar')){ toast(MSJ.noTienesPermisoParaEliminar,'error'); return; }
   const v=misDatos('ventas').find(x=>x.id===id);
   if(!v){ toast(MSJ.pedidoNoEncontrado,'error'); return; }
-  confirmarModal('⚠️ Eliminar PERMANENTEMENTE '+(v.factura||'este pedido')+' ('+fmtMoney(v.total)+'). Se descuenta de ventas, caja y reportes. No se puede deshacer. ¿Continuar?', ()=>{
-    const teniaStock = v.stockAplicado===true || (v.stockAplicado===undefined && v.estado==='pagada');
-    if(teniaStock) devolverStock(v, 'Eliminación del pedido '+(v.factura||''));
+  // F24: solo pedidos YA ANULADOS. La anulación devuelve el stock, respeta las cajas cerradas (F20)
+  // y revierte cliente y cita (F22); eliminar una venta viva se saltaba todo eso.
+  if(v.estado!=='anulada'){ toast(MSJ.soloSePuedeEliminarUnPedidoAnulado,'error'); return; }
+  confirmarModal('⚠️ Eliminar PERMANENTEMENTE '+(v.factura||'este pedido')+' ('+fmtMoney(v.total)+'), que ya está anulado. No se puede deshacer. ¿Continuar?', ()=>{
     eliminarMisDatos('ventas',id);
     logAudit('Eliminó definitivamente', (v.factura||'')+' · '+fmtMoney(v.total));
     toast(MSJ.pedidoEliminadoPorCompleto,'error'); render();
   },'Sí, eliminar');
+}
+// ¿Es de una caja ya cerrada? (F20/F24: editar, anular o cambiar el pago tocan ese cierre)
+export function esDeCajaCerrada(v){
+  const cajaAb=cajaActual();
+  return !!(v && v.estado==='pagada' && v.cajaId && (!cajaAb || cajaAb.id!==v.cajaId));
 }
 // Botones dentro de un modal que abren el ajuste de cobro (fase 8: antes eran onclick compuestos)
 export function ajustarPagoDesdeModal(id, modo){ cerrarModal(); ajustarPagoVenta(id, modo); }

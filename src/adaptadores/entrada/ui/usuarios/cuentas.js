@@ -8,7 +8,7 @@
 import { STATE, now } from '../nucleo/estado.js';
 import { BOTON, MSJ } from '../nucleo/textos.js';
 import { esAdminSistema } from '../nucleo/permisos.js';
-import { abrirModal, cerrarModal, toast } from '../nucleo/componentes.js';
+import { abrirModal, cerrarModal, reportarError, toast } from '../nucleo/componentes.js';
 import { conCuentasFirebase, mensajeCuenta, ponerPass } from './sesion.js';
 import { logAudit } from './auditoria.js';
 
@@ -60,7 +60,7 @@ export async function sincronizarPerfil(rec, esSuper, usuarioAntes){
 export function trasGuardarCuenta(rec, esSuper, usuarioAntes, nuevaPass){
   const tarea=nuevaPass ? reemplazarCuenta(rec, nuevaPass, esSuper, usuarioAntes) : sincronizarPerfil(rec, esSuper, usuarioAntes);
   return tarea.then(()=>{ if(nuevaPass) toast('Contraseña restablecida. La sesión anterior de '+rec.usuario+' queda cerrada.','success'); })
-    .catch(e=>{ console.error(e); toast('Se guardó, pero la cuenta de acceso no se actualizó: '+mensajeCuenta(e),'error'); });
+    .catch(e=>{ reportarError('actualizar la cuenta de acceso', e); toast('Se guardó, pero la cuenta de acceso no se actualizó: '+mensajeCuenta(e),'error'); });
 }
 export async function borrarCuentaDe(usuario){
   const ent=await Cuentas.buscarLogin(usuario);

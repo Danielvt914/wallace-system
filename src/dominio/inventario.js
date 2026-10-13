@@ -189,3 +189,23 @@ export function imagenValida(s){ return esImagenData(s, FOTO_MAX_BYTES); }
 // Las reglas de la base validan el logo con la misma expresión (database.rules*.json).
 export const IMAGEN_DATA=/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
 export function esImagenData(s, max){ return typeof s==='string' && s.length<=max && IMAGEN_DATA.test(s); }
+
+// Cambio de los productos apartados de una cita: {sacar:{prodId:cant}, devolver:{prodId:cant}}
+// (solo la diferencia, para no devolver y volver a sacar todo)
+export function difApartados(antes, despues){
+  const suma=l=>{ const o={}; (l||[]).forEach(x=>{ if(x && x.prodId && x.cantidad>0) o[x.prodId]=(o[x.prodId]||0)+x.cantidad; }); return o; };
+  const a=suma(antes), d=suma(despues), sacar={}, devolver={};
+  new Set(Object.keys(a).concat(Object.keys(d))).forEach(id=>{
+    const k=(d[id]||0)-(a[id]||0);
+    if(k>0) sacar[id]=k; else if(k<0) devolver[id]=-k;
+  });
+  return {sacar, devolver};
+}
+
+// Una cantidad de inventario (stock, mínimo, contado, costo): número finito y no negativo
+export function cantidadValida(n){ return typeof n==='number' && isFinite(n) && n>=0; }
+// ¿Otro producto ya usa este código de barras? (el escáner tomaría el primero que encuentre)
+export function codigoRepetido(productos, codigo, idPropio){
+  const c=String(codigo||'').trim(); if(!c) return null;
+  return (productos||[]).find(p=>p && p.id!==idPropio && String(p.codBarras||'').trim()===c) || null;
+}

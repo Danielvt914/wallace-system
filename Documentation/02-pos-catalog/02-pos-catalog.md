@@ -264,3 +264,25 @@ Ver [-01-to-review](../-01-to-review/-01-to-review.md).
 - **F20**: anular una venta de una caja ya cerrada exige admin o dueño y registra la devolución del efectivo en la caja abierta.
 - **F22**: anular una venta cobrada resta del cliente el pedido y su monto.
 - **S7**: guardar la edición de un pedido exige el permiso `editar`; abrir, agregar y renombrar cuentas exigen acceso a Ventas o Cuentas.
+
+## Cambios del 2026-10-12 (tercera revisión)
+
+- **Varios equipos con el mismo pedido (D9)**: agregar a una cuenta, cobrar un pedido existente, anular, cancelar una cuenta y guardar una edición pasan por `Datos.transaccionRegistro` y las reglas puras de `src/dominio/ventas.js`.
+  - Lo agregado por otro mesero no se pierde.
+  - No se cobra a ciegas un pedido que otro equipo cambió o ya cobró: aviso "Otro equipo cambió este pedido…".
+  - Sin internet, se guarda como antes y viaja en la cola.
+- **Montos (S9)**: ninguna forma de pago, propina, recargo, domicilio ni precio puede ser negativo (`Dominio.pagos.montoValido`).
+- **Eliminar definitivamente (F24)**: solo pedidos ya anulados. **Cambiar forma de pago**: no en ventas de una caja cerrada.
+- **Agotado (F25)**: tampoco lo agrega el escáner.
+- **Descuento (F26)**: el de % se recalcula con el subtotal (`descPct`) y ningún descuento supera el subtotal.
+- **Confirmar pedido en edición (S11)**: exige el permiso `editar`.
+- **Ventanas diferidas (F27)**: "¿Imprimir factura?" y la alerta de stock esperan su turno (`cuandoNoHayaVentana`); antes una tapaba a la otra.
+- Detalle: [-01-to-review](../-01-to-review/-01-to-review.md#tercera-revisión-2026-10-12).
+
+- **Número de factura** (2026-10-12): el cobro directo lo toma al **confirmar** el cobro, no al abrirlo (`armarVenta(estado, {sinFactura:true})`); un cobro cancelado ya no deja un salto. Mientras, la ventana dice "Cobrar (nueva venta)".
+- **Números de factura sin conexión** (2026-10-12):
+  - cada equipo aparta un bloque de 20 números y los gasta con o sin internet;
+  - sin bloque, sale un número provisional `P-<equipo>-<fecha y hora>`, que recibe el definitivo al reconectar;
+  - el Dashboard avisa si hay números repetidos.
+
+  Detalle: [facturas-sin-conexion](../-03-architecture/facturas-sin-conexion.md).

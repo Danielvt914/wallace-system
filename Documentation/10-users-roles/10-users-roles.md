@@ -142,3 +142,14 @@ Construye los grupos PRINCIPAL, OPERACIONES, GESTIÓN y CONFIGURACIÓN según `f
 - La auditoría se puede editar o borrar directamente en la base (no hay reglas), y el recorte a 800 registros no surte efecto por la fusión por id, así que crece sin límite (ver [13](../13-multitenant-isolation/13-multitenant-isolation.md)).
 
 Ver [-01-to-review](../-01-to-review/-01-to-review.md#seguridad) y [-02-corrections](../-02-corrections/-02-corrections.md).
+
+## "Olvidé mi contraseña" (2026-10-12)
+
+1. En el login, "¿Olvidaste tu contraseña?": la persona deja su usuario y un contacto. La respuesta es siempre la misma, exista o no.
+2. El dueño o el ayudante del sistema ve la solicitud en el panel ("🔑 Solicitudes de contraseña"). **Antes de nada, llama al número registrado** para comprobar que es la persona.
+3. "Generar temporal" reemplaza su cuenta con una contraseña de 10 caracteres que se muestra una sola vez. La anterior deja de servir, y queda en la auditoría del negocio.
+4. Al entrar con la temporal, la app obliga a elegir una nueva antes de cualquier otra cosa (`debeCambiarPass`).
+
+Código: `ui/usuarios/recuperacion.js`. Diseño, reglas y pruebas: [recuperar-contrasena](../-03-architecture/recuperar-contrasena.md).
+
+**Dueño o ayudante solos** (2026-10-12): con "📧 Mi correo" pasan su cuenta a su correo real. Entran escribiendo el correo, y "¿Olvidaste tu contraseña?" con el correo les manda el enlace de Firebase, sin depender de otro super-admin. Pendiente: "Entrar con Google" ([entrar-con-google](../-03-architecture/entrar-con-google.md)).

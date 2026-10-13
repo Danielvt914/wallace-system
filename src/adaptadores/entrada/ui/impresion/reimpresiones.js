@@ -25,7 +25,7 @@ export function reimpresiones(){
   let vs=ventasJornada(false).filter(v=>v.estado!=='anulada')
     .slice().sort((a,b)=>new Date(b.fecha||0)-new Date(a.fecha||0));
   if(_reimpBusca){ const q=_reimpBusca.toLowerCase();
-    vs=vs.filter(v=>(v.factura||'').toLowerCase().includes(q)||(v.cliNombre||'').toLowerCase().includes(q)||(v.mesa||'').toLowerCase().includes(q)); }
+    vs=vs.filter(v=>(v.factura||'').toLowerCase().includes(q)||(v.facturaProvisional||'').toLowerCase().includes(q)||(v.cliNombre||'').toLowerCase().includes(q)||(v.mesa||'').toLowerCase().includes(q)); }
   vs=vs.slice(0,60);
   const etiq={mesa:'Mesa',llevar:'Para llevar',domicilio:'Domicilio',envio:'Envío',rapida:'Directa'};
   return `
@@ -38,7 +38,7 @@ export function reimpresiones(){
       <div class="tabla-wrap"><table class="tabla">
         <thead><tr><th>Pedido</th><th>Tipo</th><th>Cliente/Mesa</th><th>Total</th><th>Estado</th><th>Fecha</th><th>Reimprimir</th></tr></thead>
         <tbody>${vs.length?vs.map(v=>`<tr>
-          <td><strong class="oro">${escapeHtml(v.factura||'—')}</strong></td>
+          <td><strong class="oro">${escapeHtml(v.factura||'—')}</strong>${Dominio.facturas.esProvisional(v.factura)?'<br><span class="pill pill-gold chico">provisional</span>':(v.facturaProvisional?'<br><span class="gris chico">antes '+escapeHtml(v.facturaProvisional)+'</span>':'')}</td>
           <td>${etiq[v.tipo]||'—'}${v.mesa?' '+escapeHtml(v.mesa):''}</td>
           <td>${escapeHtml(v.cliNombre||v.mesa||'—')}</td>
           <td class="negrita">${fmtMoney(v.total)}</td>

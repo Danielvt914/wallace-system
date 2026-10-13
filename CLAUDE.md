@@ -16,7 +16,7 @@ POS multi-negocio (SaaS) de WALLACE COMPANY SYSTEM. Sitio estático (`index.html
 - `src/dominio/` reglas puras (sin `window`, Firebase ni DOM) + pruebas en `tests/dominio/`.
 - `src/aplicacion/puertos/` contratos (`datos.js`, `cuentas.js`); `src/aplicacion/servicios/` casos de uso (`sesion.js`).
 - `src/adaptadores/salida/` Firebase (`firebase-datos.js`, `firebase-cuentas.js`), `localStorage`, cripto.
-- `src/adaptadores/entrada/ui/` interfaz: **47 módulos ES** por carpeta (`nucleo/`, `usuarios/`, `ventas/`, `caja/`, `inventario/`…) listados en `ui/manifiesto.js`, cuya `cargarInterfaz()` los importa, instala los eventos delegados (`data-click`) y arma `window.WS`. Estilos en `ui/estilos/` (orden numérico). Para ubicar una función: `Documentation/-03-architecture/mapa-interfaz.md`.
+- `src/adaptadores/entrada/ui/` interfaz: **52 módulos ES** por carpeta (`nucleo/`, `usuarios/`, `ventas/`, `caja/`, `inventario/`…) listados en `ui/manifiesto.js`, cuya `cargarInterfaz()` los importa, instala los eventos delegados (`data-click`) y arma `window.WS`. Estilos en `ui/estilos/` (orden numérico). Para ubicar una función: `Documentation/-03-architecture/mapa-interfaz.md`.
 - `src/arranque.js` es el único que conecta todo; `puente-legado.js` publica en `window` los nombres que usa la interfaz (dominio, datos, cuentas). Retirarlo es lo único que falta de la fase 8.
 - Regla de dependencias y plan de fases: `Documentation/-03-architecture/-03-architecture.md`.
 - Operación nueva de datos o cuentas → agregarla al **puerto** y al **adaptador** (si no, la verificación del puerto falla al arrancar).
@@ -27,6 +27,8 @@ POS multi-negocio (SaaS) de WALLACE COMPANY SYSTEM. Sitio estático (`index.html
 - Imitar el estilo existente: compacto, funciones cortas, comentarios en español que explican el porqué.
 - Interfaz = módulos ES: importar lo que se usa (`import { x } from '../nucleo/estado.js'`), sin renombrar. **Nunca** repetir un nombre entre módulos ni tapar uno del puente (`Datos`, `Cuentas`, `Dominio`, `DB`, `misDatos`, `ROLES`, …); al cargar, **solo declarar** (hay importaciones circulares). No asignar lo importado: el módulo dueño exporta `fijarX(v)` (p. ej. `fijarEscribiendo`). `tests/ui/estructura.test.mjs` (en `npm test`) lo verifica.
 - HTML generado: `data-click="accion('a', this.value)"` (y `data-input`, `data-change`, `data-keydown`, `data-enter`, `data-focus`, `data-blur`, `data-mousedown`, `data-toggle`) con la acción **exportada**; textos del usuario en `data-x="${escapeHtml(v)}"` + `this.dataset.x`. **Nunca** `onclick="…"` ni `style="…"` fijo: usar las clases de `estilos/15-utilidades.css` (en línea solo lo calculado, lo que el código muestra u oculta y la impresión).
+- Todo `${…}` **dentro de un atributo** HTML va con `escapeHtml(…)`, aunque sea un id o un número guardado (S8). El logo y las fotos se dibujan solo con `logoNegocio(neg, atributos)` / `fotoProducto(p)`, que validan la imagen. La prueba estructural lo exige.
+- Mensajes fijos (`toast`, `confirmarModal`, `preguntarDespues`) y textos de botón de ventana (`textoBoton`): en `MSJ` / `BOTON` de `ui/nucleo/textos.js` (la prueba lo exige y no deja claves sin usar). Los que llevan datos pueden quedarse en el módulo.
 - Archivo nuevo de interfaz → agregarlo a `ui/manifiesto.js` y correr `node scripts/mapa-interfaz.mjs`. Al publicar, **cambiar `VERSION_UI`** en el manifiesto **y** el `?v=` de los estilos en `index.html`.
 - Colores, fuentes, tamaños de letra y radios: **solo** en `estilos/00-tokens.css`; los demás CSS usan `var(--…)` (la prueba lo exige). El color del negocio es `--acento…` (lo cambia `tema.js`); el verde fijo de la marca es `--marca`. Detalle: `Documentation/-03-architecture/tema.md`.
 - Consola y pruebas de navegador: `WS.<nombre>` (`WS.STATE`, `WS.render()`); las pruebas y capturas abren con `?local`. Cambios visuales: `node scripts/capturas.mjs tomar <dir>` antes y después, y `comparar <A> <B>`.
@@ -37,7 +39,8 @@ POS multi-negocio (SaaS) de WALLACE COMPANY SYSTEM. Sitio estático (`index.html
 - Stock: nunca fijarlo como valor; aplicar diferencias con `cambiarStock`/`moverInventario` y dejar movimiento y auditoría (D2, F11).
 - Errores atrapados: `reportarError(donde, e)`, nunca `catch(e){}` silencioso en pantallas (C2).
 - Agrupar ventas por id (`prodId`, `vendedorId`, `domiciliarioId`), no por nombre (F15); fechas con `fechaLocal`/`Dominio.fechas.diaDe`, nunca `toISOString().slice(0,10)` (F2).
-- Toda acción sensible valida permiso al inicio (`exigirPermiso`, `esAdminSistema`, `puedeVerPantalla`); esconder el botón no basta.
+- Toda acción sensible valida permiso al inicio (`exigirPermiso`, `esAdminSistema`, `puedeVerPantalla`); esconder el botón no basta. Toda acción que **escribe** empieza por `exigirEscritura()` o `exigirPermiso(...)` (respetan la prueba vencida = solo lectura, D10).
+- Un cambio a un **pedido que ya existe** (agregar, cobrar, anular, editar) pasa por `Datos.transaccionRegistro` con una regla pura de `src/dominio/ventas.js` que se niega si otro equipo lo cambió (D9); nunca leer, modificar y `guardarMisDatos` el registro entero.
 - Imports ES con ruta relativa y extensión (`'./dominio/pagos.js'`). La app no funciona con `file://`.
 
 ## Datos y seguridad (no negociable)
@@ -50,6 +53,8 @@ POS multi-negocio (SaaS) de WALLACE COMPANY SYSTEM. Sitio estático (`index.html
   - `negocios` se escribe **por campo** en `data/negocios_r/<id>/<campo>`; nunca reescribir el registro entero desde un empleado.
   - Nada de contraseñas fuera de Firebase Auth en datos nuevos; `passHash/passSal/passIter` solo existen en las tablas viejas hasta la fase 5.
   - Datos nuevos que lean las reglas (p. ej. `editaNegocio`) se calculan en `src/dominio/cuentas.js`.
+- Super-admin **vendedor** (reglas cerradas): solo sus negocios (`vendedorId` / `demoDe`). Antes de escribir tablas de un negocio en su nombre, `trabajarEn(negId)` (fija `perfiles/<uid>/negocioActivo`); en las altas, primero el negocio y después la cuenta de su gente. Cambiar sus reglas obliga a cambiar sus pruebas (`tests/reglas`, `tests/navegador/s1-navegador`).
+- `auditoria` y `movimientos` son de **solo agregar** para la gente del negocio (S10): nunca editarlos ni recortarlos desde la app.
 
 ## Pruebas (antes de dar algo por terminado)
 - `npm test` — dominio y servicios (segundos). Siempre.

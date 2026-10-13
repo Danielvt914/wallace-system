@@ -39,6 +39,7 @@ export function crearAdaptadorCuentas(opc){
     else if(c==='auth/too-many-requests') codigo=ERRORES_CUENTA.DEMASIADOS;
     else if(c==='auth/weak-password') codigo=ERRORES_CUENTA.PASS_DEBIL;
     else if(c==='auth/requires-recent-login') codigo=ERRORES_CUENTA.REAUTENTICAR;
+    else if(c==='auth/email-already-in-use') codigo=ERRORES_CUENTA.CORREO_EN_USO;
     // Authentication sin activar en la consola, o sin el método correo/contraseña
     else if(c==='auth/configuration-not-found' || c==='auth/operation-not-allowed'
       || m.indexOf('configuration_not_found')>-1 || m.indexOf('operation_not_allowed')>-1) codigo=ERRORES_CUENTA.AUTH_DESACTIVADO;
@@ -163,6 +164,52 @@ export function crearAdaptadorCuentas(opc){
     if(!yo) return Promise.reject(traducir({code:'auth/requires-recent-login'}));
     return conEspera(D.set(nodo('perfiles/'+yo.uid+'/negocioActivo'), negId||null));
   }
+  // ---------- "Olvidé mi contraseña" (recuperar-contrasena.md) ----------
+  // Sin sesión: las reglas solo la dejan crear para un usuario que existe, una por hora, con la hora del servidor
+  function pedirRecuperacion(sol){
+    return conEspera(D.set(nodo('recuperaciones/'+sol.usuario), Object.assign({}, sol, {fecha:D.serverTimestamp()})));
+  }
+  function escucharRecuperaciones(cb){
+    const quitar=D.onValue(nodo('recuperaciones'), s=>cb(s.val()||{}), ()=>cb({}));
+    return ()=>{ try{ quitar(); }catch(e){} };
+  }
+  function cerrarRecuperacion(clave, estado){
+    const yo=auth && auth.currentUser;
+    return conEspera(D.update(nodo('recuperaciones/'+clave), {estado, resueltaPor:yo?yo.uid:null, resueltaEn:D.serverTimestamp()}));
+  }
+  // La propia persona, después de poner su contraseña nueva (las reglas solo le dejan ponerlo en false)
+  function quitarDebeCambiarPass(){
+    const yo=auth && auth.currentUser;
+    if(!yo) return Promise.reject(traducir({code:'auth/requires-recent-login'}));
+    return conEspera(D.set(nodo('perfiles/'+yo.uid+'/debeCambiarPass'), false));
+  }
+  // ---------- Super-admin con correo real (recuperar-contrasena.md, sección 9) ----------
+  // Firebase manda el enlace solo si el correo es de una cuenta (y no avisa si no lo es)
+  function restablecerPorCorreo(correo){ return conEspera(A.sendPasswordResetEmail(auth, correo)); }
+  function confirmarMiPass(pass){
+    const yo=auth && auth.currentUser;
+    if(!yo) return Promise.reject(traducir({code:'auth/requires-recent-login'}));
+    return conEspera(A.reauthenticateWithCredential(yo, A.EmailAuthProvider.credential(yo.email, pass))).then(()=>{});
+  }
+  // En la sesión aparte (no toca la del super-admin): crea la cuenta y le manda el correo de verificación
+  function crearCuentaConCorreo(correo, pass){
+    const tarea=colaAltas.then(()=>{
+      const a=sesionAltas();
+      return conEspera(A.createUserWithEmailAndPassword(a, correo, pass)
+        .then(c=>A.sendEmailVerification(c.user).catch(()=>{}).then(()=>c.user.uid))
+        .then(uid=>A.signOut(a).then(()=>({uid, correo}))));
+    });
+    colaAltas=tarea.catch(()=>{});
+    return tarea;
+  }
+  // El perfil pasa a la cuenta nueva; la vieja queda sin perfil (sin acceso) y el índice con la marca
+  function pasarCuentaACorreo(d){
+    const u={};
+    u['perfiles/'+d.uidNuevo]=JSON.parse(JSON.stringify(d.perfil));
+    u['perfiles/'+d.uidViejo]=null;
+    u['login/'+dom.claveUsuario(d.usuario)]={correo:dom.MARCA_SOLO_CORREO, uid:d.uidNuevo};
+    return conEspera(D.update(nodo(), u));
+  }
   function leerIndice(){
     return Promise.all([leer('perfiles'), leer('login')]).then(([p,l])=>({perfiles:p||{}, login:l||{}}));
   }
@@ -192,6 +239,10 @@ export function crearAdaptadorCuentas(opc){
     guardarCuenta:envolver(guardarCuenta), borrarCuenta:envolver(borrarCuenta),
     actualizarPerfil:envolver(actualizarPerfil), cambiarMiPass:envolver(cambiarMiPass),
     leerIndice:envolver(leerIndice), leerLegado:envolver(leerLegado), necesitaDueno,
-    fijarNegocioActivo:envolver(fijarNegocioActivo)
+    fijarNegocioActivo:envolver(fijarNegocioActivo),
+    pedirRecuperacion:envolver(pedirRecuperacion), escucharRecuperaciones,
+    cerrarRecuperacion:envolver(cerrarRecuperacion), quitarDebeCambiarPass:envolver(quitarDebeCambiarPass),
+    restablecerPorCorreo:envolver(restablecerPorCorreo), confirmarMiPass:envolver(confirmarMiPass),
+    crearCuentaConCorreo:envolver(crearCuentaConCorreo), pasarCuentaACorreo:envolver(pasarCuentaACorreo)
   };
 }

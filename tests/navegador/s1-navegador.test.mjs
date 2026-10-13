@@ -223,6 +223,133 @@ test('vendedor con reglas cerradas: ve solo lo suyo, crea un negocio a prueba co
   pagina.off('console', oirNegados);
   assert.deepEqual(negados, [], 'ninguna escritura o lectura negada por las reglas');
 });
+test('facturas con la nube: bloque por equipo, provisional sin bloque y número definitivo al reconectar', {skip:omitir}, async ()=>{
+  await entrar('admin', 'clavedueno');
+  await esperarTexto('Licorera');
+  await pagina.evaluate(()=>{ localStorage.removeItem('ws_bloque_n1'); WS.fijarFacturaReservada(); WS.entrarComoNegocio('n1'); });
+  await pagina.waitForFunction(()=>WS.leerBloque('n1').length>0, {timeout:15000});   // al entrar aparta su bloque
+  const r=await pagina.evaluate(async ()=>{
+    const espera=ms=>new Promise(res=>setTimeout(res,ms));
+    const res={};
+    const bloque=WS.leerBloque('n1');
+    res.bloque=Dominio.facturas.quedanEnBloque(bloque);
+    res.normal=WS.siguienteFactura();
+    res.delBloque=Dominio.facturas.numeroDe(res.normal)===bloque[0][0];
+    // Sin bloque (como un equipo que arrancó sin internet): provisional que no se repite
+    localStorage.setItem('ws_bloque_n1','[]');
+    const p1=WS.siguienteFactura(), p2=WS.siguienteFactura();
+    res.provisional=Dominio.facturas.esProvisional(p1) && p1!==p2 && Dominio.facturas.equipoDeProvisional(p1)===WS.codigoEquipo();
+    Datos.guardarEn('n1', 'ventas', [{id:'vprov1', factura:p1, estado:'pagada', items:[], total:1000, fecha:new Date().toISOString(), pagos:{efectivo:1000, banco:0, tarjeta:0}}]);
+    await espera(800);
+    // "Reconecta": aparta bloque y la venta recibe su número definitivo
+    WS.reservarFactura();
+    for(let i=0;i<40;i++){ const v=misDatos('ventas').find(x=>x.id==='vprov1'); if(v && !Dominio.facturas.esProvisional(v.factura)) break; await espera(250); }
+    const v=misDatos('ventas').find(x=>x.id==='vprov1');
+    res.definitiva=/^F-\d+$/.test(v.factura) && v.facturaProvisional===p1;
+    res.unicas=Dominio.facturas.repetidas(misDatos('ventas')).length===0;
+    WS.volverSuperAdmin();
+    return res;
+  });
+  assert.equal(r.bloque, 20);
+  assert.deepEqual([r.delBloque, r.provisional, r.definitiva, r.unicas], [true, true, true, true]);
+  const enBase=await rest('data/data_n1_ventas_r/vprov1');
+  assert.match(enBase.factura, /^F-\d+$/);
+  assert.ok(enBase.facturaProvisional.startsWith('P-'));
+  await salir();
+});
+test('olvidé mi contraseña: pedir desde el login, el dueño genera una temporal y al entrar se obliga a cambiarla', {skip:omitir}, async ()=>{
+  await pagina.waitForSelector('.login-olvide', {visible:true, timeout:15000});
+  await escribir('#l-user', 'MARCE');
+  await pagina.click('.login-olvide');
+  await pagina.waitForSelector('#m-usuario', {visible:true});
+  await pagina.$eval('#m-contacto', e=>{ e.value='3001234567'; });
+  await pagina.evaluate(()=>document.getElementById('modal-ok').click());   // directo: un aviso puede tapar el botón
+  await pagina.waitForFunction(()=>((document.getElementById('modal-container')||{}).innerText||'').includes('Solicitud enviada'), {timeout:20000});
+  await pagina.evaluate(()=>WS.cerrarModal());
+  const sol=await rest('recuperaciones/MARCE');
+  assert.equal(sol.estado, 'pendiente'); assert.equal(sol.contacto, '3001234567'); assert.ok(sol.fecha>0);
+  // El dueño del sistema la ve y genera la temporal
+  await entrar('admin', 'clavedueno');
+  await esperarTexto('Solicitudes de contraseña');
+  // El botón aparece cuando el panel ya tiene los usuarios del negocio (llegan después de las solicitudes)
+  await pagina.waitForSelector("[data-click=\"generarTemporal('MARCE')\"]", {visible:true, timeout:20000});
+  await pagina.evaluate(()=>WS.generarTemporal('MARCE'));
+  await pagina.waitForSelector('#modal-ok', {visible:true}); await pagina.evaluate(()=>document.getElementById('modal-ok').click());   // directo: un aviso puede tapar el botón
+  await pagina.waitForSelector('#pass-temporal', {visible:true, timeout:20000}).catch(async e=>{
+    const info=await pagina.evaluate(()=>({toasts:Array.from(document.querySelectorAll('#toasts .toast')).map(t=>t.textContent),
+      modal:((document.getElementById('modal-container')||{}).innerText||'').slice(0,300), user:WS.STATE.user&&WS.STATE.user.usuario}));
+    throw new Error('No apareció la temporal: '+JSON.stringify(info));
+  });
+  const temporal=await pagina.$eval('#pass-temporal', e=>e.textContent.trim());
+  assert.equal(temporal.length, 10);
+  await pagina.evaluate(()=>WS.cerrarModal());
+  assert.equal((await rest('recuperaciones/MARCE')).estado, 'resuelta');
+  const aud=Object.values((await rest('data/data_n1_auditoria_r'))||{});
+  assert.ok(aud.some(a=>a.accion==='Restableció la contraseña'), 'queda en la auditoría del negocio');
+  await salir();
+  // La vieja ya no sirve; con la temporal, cambio obligatorio
+  const antes=errores.length;
+  await entrar('MARCE', 'marce2026');
+  await espera(1500);
+  // Entrar con la contraseña vieja falla a propósito: el 400 de Authentication que anota el navegador es el esperado
+  errores.splice(antes, errores.length-antes, ...errores.slice(antes).filter(e=>!/status of 400/.test(e)));
+  assert.equal(await pagina.evaluate(()=>!!WS.STATE.user), false, 'la contraseña vieja ya no entra');
+  await entrar('MARCE', temporal);
+  await esperarTexto('Entraste con una contraseña temporal');
+  await escribir('#cp-nueva', 'marce2027'); await escribir('#cp-nueva2', 'marce2027');
+  await pagina.click('.login-btn');
+  await pagina.waitForFunction(()=>WS.STATE.user && !WS.STATE.debeCambiarPass, {timeout:20000});
+  await salir();
+  await entrar('MARCE', 'marce2027');
+  await pagina.waitForFunction(()=>WS.STATE.user && WS.STATE.negocio && !WS.STATE.debeCambiarPass, {timeout:20000});
+  await salir();
+});
+test('el dueño pasa su cuenta a su correo real: entra con el correo y recupera la contraseña con el enlace de Firebase', {skip:omitir}, async ()=>{
+  const AUTH='http://'+AUTH_HOST;
+  // Empezar limpio aunque la prueba anterior haya fallado a mitad
+  await pagina.evaluate(()=>{ try{ WS.cerrarModal(); }catch(e){} if(WS.STATE.user) WS.logout(); });
+  await pagina.waitForSelector('#l-user', {visible:true, timeout:15000});
+  await entrar('admin', 'clavedueno');
+  await esperarTexto('Mi correo');
+  await pagina.evaluate(()=>WS.pasarAMiCorreo());
+  await pagina.waitForSelector('#m-correo', {visible:true});
+  await pagina.evaluate(()=>{ const v={'m-correo':'dueno@ejemplo.com', 'm-actual':'clavedueno', 'm-nueva':'dueno2027', 'm-nueva2':'dueno2027'};
+    Object.keys(v).forEach(id=>{ document.getElementById(id).value=v[id]; }); });
+  await pagina.evaluate(()=>document.getElementById('modal-ok').click());   // directo: un aviso puede tapar el botón
+  await pagina.waitForFunction(()=>!WS.STATE.user && ((document.getElementById('modal-container')||{}).innerText||'').includes('dueno@ejemplo.com'), {timeout:20000});
+  await pagina.evaluate(()=>WS.cerrarModal());
+  // El índice público no tiene el correo: solo la marca
+  const ix=await rest('login/admin');
+  assert.equal(ix.correo, '@correo');
+  assert.equal(JSON.stringify(await rest('login')).includes('dueno@ejemplo.com'), false);
+  // Con el usuario ya no entra (se le dice que use el correo); con el correo sí
+  const antes=errores.length;
+  await entrar('admin', 'dueno2027');
+  await espera(1500);
+  assert.equal(await pagina.evaluate(()=>!!WS.STATE.user), false);
+  await entrar('dueno@ejemplo.com', 'dueno2027');
+  await pagina.waitForFunction(()=>WS.STATE.user && WS.STATE.esSuperAdmin, {timeout:20000});
+  await salir();
+  // Olvidó la contraseña: "¿Olvidaste tu contraseña?" con el correo → enlace de Firebase
+  await escribir('#l-user', 'dueno@ejemplo.com');
+  await pagina.click('.login-olvide');
+  await pagina.waitForSelector('#m-usuario', {visible:true});
+  await pagina.evaluate(()=>document.getElementById('modal-ok').click());   // directo: un aviso puede tapar el botón
+  await pagina.waitForFunction(()=>((document.getElementById('modal-container')||{}).innerText||'').includes('Revisa tu correo'), {timeout:20000});
+  await pagina.evaluate(()=>WS.cerrarModal());
+  const codigos=(await (await fetch(AUTH+'/emulator/v1/projects/demo-wallace/oobCodes')).json()).oobCodes||[];
+  assert.ok(codigos.some(c=>c.email==='dueno@ejemplo.com' && c.requestType==='VERIFY_EMAIL'), 'se mandó la verificación del correo');
+  const reset=codigos.reverse().find(c=>c.email==='dueno@ejemplo.com' && c.requestType==='PASSWORD_RESET');
+  assert.ok(reset, 'se mandó el enlace para cambiar la contraseña');
+  const r=await (await fetch(AUTH+'/identitytoolkit.googleapis.com/v1/accounts:resetPassword?key=demo-key', {method:'POST',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({oobCode:reset.oobCode, newPassword:'dueno2028'})})).json();
+  assert.equal(r.email, 'dueno@ejemplo.com');
+  await entrar('dueno@ejemplo.com', 'dueno2028');
+  await pagina.waitForFunction(()=>WS.STATE.user && WS.STATE.esSuperAdmin, {timeout:20000});
+  await salir();
+  // Los intentos fallidos a propósito dejan un 400 de Authentication en la consola: es lo esperado
+  errores.splice(antes, errores.length-antes, ...errores.slice(antes).filter(e=>!/status of 400/.test(e)));
+});
 test('sin errores de JavaScript en la página', {skip:omitir}, ()=>{
   assert.deepEqual(errores, []);
 });

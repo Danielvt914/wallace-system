@@ -7,11 +7,12 @@
 // ============================================================
 import { STATE, escapeHtml, fijarEscribiendo, now, refrescarSiSePuede } from '../nucleo/estado.js';
 import { BOTON, MSJ } from '../nucleo/textos.js';
-import { abrirModal, cerrarModal, toast } from '../nucleo/componentes.js';
+import { abrirModal, cerrarModal, reportarError, toast } from '../nucleo/componentes.js';
 import { WALLACE_LOGO } from '../nucleo/logo.js';
 import { sonidoError } from '../nucleo/sonidos.js';
 import { render } from '../nucleo/navegacion.js';
 import { migrarContrasenasLegado } from './cuentas.js';
+import { dejarRecuperaciones, escucharRecuperaciones, recordarPassDelLogin } from './recuperacion.js';
 import { fijarFacturaReservada } from '../ventas/nueva-venta.js';
 import { fijarResumenNeg } from '../reportes/resumen.js';
 
@@ -125,6 +126,7 @@ export async function hacerLoginCuentas(usuario, pass){
     return;
   }
   if(r.passCambiada) toast(MSJ.contrasenaActualizadaDesdeHoyEntrasCon,'success');
+  recordarPassDelLogin(pass);   // si entró con una temporal, no se la vuelve a pedir
   await entrarConPerfil(r.uid, r.perfil);
 }
 // Migración de una cuenta con contraseña de menos de 6 caracteres: se pide una nueva
@@ -146,6 +148,7 @@ export function pedirPassNueva(){
 // Entra con el perfil de Firebase y arranca la sincronización que le corresponde
 export async function entrarConPerfil(uid, perfil){
   guardarPerfilLocal(uid, perfil);
+  STATE.debeCambiarPass=Dominio.cuentas.debeCambiarPass(perfil);   // entró con una contraseña temporal
   const u=Dominio.cuentas.usuarioDesdePerfil(perfil, uid);
   const enLinea=(typeof navigator==='undefined' || navigator.onLine!==false);
   fijarFacturaReservada(null);
@@ -162,7 +165,7 @@ export async function entrarConPerfil(uid, perfil){
     }
     sincronizarTodo();
     escucharMiPerfil(uid);
-    if(!vendedor) migrarContrasenasLegado();
+    if(!vendedor){ migrarContrasenasLegado(); escucharRecuperaciones(); }
     render();
     return;
   }
@@ -184,6 +187,7 @@ export async function entrarConPerfil(uid, perfil){
   escucharMiPerfil(uid);
   render();
 }
+export function dejarDeEscucharMiPerfil(){ if(_dejarPerfil){ _dejarPerfil(); _dejarPerfil=null; } }
 // Cambios del propio perfil en vivo: desactivado o contraseña restablecida → fuera; permisos nuevos → se aplican
 export function escucharMiPerfil(uid){
   if(_dejarPerfil) _dejarPerfil();
@@ -194,6 +198,8 @@ export function escucharMiPerfil(uid){
       logout(); return;
     }
     guardarPerfilLocal(uid, p);
+    const debe=Dominio.cuentas.debeCambiarPass(p);
+    if(debe!==!!STATE.debeCambiarPass){ STATE.debeCambiarPass=debe; refrescarSiSePuede(true); }
     if(STATE.modoSupervision) return;
     const nuevo=Dominio.cuentas.usuarioDesdePerfil(p, uid);
     if(JSON.stringify(nuevo)!==JSON.stringify(STATE.user)){ STATE.user=nuevo; refrescarSiSePuede(); }
@@ -207,6 +213,7 @@ export function negocioCambiado(n){
 }
 export function logout(){
   STATE.user=null; STATE.negocio=null; STATE.esSuperAdmin=false;
+  STATE.debeCambiarPass=false; recordarPassDelLogin(''); dejarRecuperaciones();
   STATE.modoSupervision=false; STATE.sucursal=null;
   STATE.page=''; STATE.pageNeg='inicio';
   fijarEscribiendo(false);
@@ -238,6 +245,7 @@ export function vistaLogin(){
       <div class="m-row"><label>Contraseña</label>
         <input id="l-pass" type="password" class="campo" placeholder="••••••" data-enter="hacerLogin()"></div>
       <button class="login-btn" data-click="hacerLogin()">Entrar</button>
+      <button class="login-olvide" data-click="olvideMiPass()">¿Olvidaste tu contraseña?</button>
       <div class="login-pie">WALLACE COMPANY SYSTEM</div>
     </div>
   </div>`;
@@ -271,6 +279,7 @@ export function crearDuenoInicial(){
   const v=id=>((document.getElementById(id)||{}).value||'');
   const nombre=v('ci-nombre').trim(), usuario=v('ci-user').trim(), pass=v('ci-pass'), pass2=v('ci-pass2');
   if(!nombre||!usuario){ toast(MSJ.escribeNombreYUsuario,'error'); return; }
+  if(!Dominio.cuentas.usuarioValido(usuario)){ toast(MSJ.usuarioInvalido,'error'); return; }   // V4
   if(pass.length<8){ toast(MSJ.laContrasenaDebeTenerAlMenos8,'error'); return; }
   if(pass!==pass2){ toast(MSJ.lasContrasenasNoCoinciden,'error'); return; }
   if(conCuentasFirebase()){ crearDuenoInicialCuentas(nombre, usuario, pass); return; }
@@ -284,7 +293,7 @@ export function crearDuenoInicial(){
     if(!res.committed){ toast(MSJ.yaExisteUnAdministradorDelSistema,'error'); }
     else { toast(MSJ.cuentaCreadaYaPuedesEntrar,'success'); }
     render();
-  }).catch(e=>{ console.error(e); toast(MSJ.noSePudoCrearLaCuenta,'error'); });
+  }).catch(e=>{ reportarError('crear la cuenta', e); toast(MSJ.noSePudoCrearLaCuenta,'error'); });
 }
 // Instalación nueva con cuentas: cuenta de Firebase + registro + perfil del dueño
 export async function crearDuenoInicialCuentas(nombre, usuario, pass){
@@ -302,5 +311,5 @@ export async function crearDuenoInicialCuentas(nombre, usuario, pass){
     _configInicial=false;
     toast(MSJ.cuentaDeDuenoCreada,'success');
     await entrarConPerfil(cuenta.uid, perfil);
-  }catch(e){ console.error(e); toast('No se pudo crear la cuenta: '+mensajeCuenta(e),'error'); }
+  }catch(e){ reportarError('crear la cuenta del dueño', e); toast('No se pudo crear la cuenta: '+mensajeCuenta(e),'error'); }
 }

@@ -175,6 +175,47 @@ describe('reglas cerradas (database.rules.json)', {skip:!HAY_EMULADOR && 'sin em
     await assertFails(db('cajero1').ref('data/data_N1_ventas_r/x2').set({id:'x" onmouseover="alert(1)', total:1}));
     await assertSucceeds(db('cajero1').ref('data/data_N1_ventas_r/idk2b9c').set({id:'idk2b9c', total:1}));
   });
+  test('S10: auditoría y movimientos de solo agregar para la gente del negocio; el dueño del sistema sí los borra', async ()=>{
+    await env.withSecurityRulesDisabled(c=>c.database().ref('data').update({
+      'data_N1_auditoria_r/a0':{id:'a0', accion:'Anuló pedido', detalle:'F-1'},
+      'data_N1_movimientos_r/m0':{id:'m0', tipo:'salida', cantidad:3}}));
+    for(const quien of ['cajero1','admin1']){
+      const d=db(quien);
+      await assertSucceeds(d.ref('data/data_N1_auditoria_r/a'+quien).set({id:'a'+quien, accion:'Cobró'}));
+      await assertFails(d.ref('data/data_N1_auditoria_r/a0/detalle').set('nada que ver'));
+      await assertFails(d.ref('data/data_N1_auditoria_r/a0').remove());
+      await assertFails(d.ref('data/data_N1_movimientos_r/m0/cantidad').set(0));
+      await assertFails(d.ref('data/data_N1_movimientos_r/m0').remove());
+      await assertSucceeds(d.ref('data/data_N1_movimientos_r/m'+quien).set({id:'m'+quien, tipo:'entrada', cantidad:1}));
+    }
+    await assertSucceeds(db('cajero1').ref('data/data_N1_ventas_r/v1/total').set(1200));   // lo demás, como siempre
+    await assertSucceeds(db('sa').ref('data/data_N1_auditoria_r/a0').remove());
+  });
+  test('olvidé mi contraseña: sin sesión se pide (solo usuarios que existen, una por hora); solo el dueño o el ayudante la ven y resuelven', async ()=>{
+    const serverTimestamp=()=>({'.sv':'timestamp'});
+    const pedir=(quien, usuario, extra)=>db(quien).ref('recuperaciones/'+usuario).set(Object.assign({usuario, contacto:'300', estado:'pendiente', fecha:serverTimestamp()}, extra||{}));
+    await assertSucceeds(pedir(null, 'caja1'));
+    await assertFails(pedir(null, 'caja1'));                                   // otra antes de una hora
+    await assertFails(pedir(null, 'inventado'));                               // no existe en login
+    await assertFails(pedir(null, 'admin1', {fecha:123}));                     // la hora la pone el servidor
+    await assertFails(pedir(null, 'admin1', {estado:'resuelta'}));
+    await assertFails(pedir(null, 'admin1', {resueltaPor:'yo'}));
+    await assertFails(pedir(null, 'admin1', {contacto:'x'.repeat(41)}));
+    await assertFails(pedir(null, 'admin1', {otraCosa:1}));
+    await assertFails(db(null).ref('recuperaciones').once('value'));
+    await assertFails(db('cajero1').ref('recuperaciones').once('value'));
+    await assertFails(db('vend1').ref('recuperaciones').once('value'));
+    await assertSucceeds(db('sa').ref('recuperaciones').once('value'));
+    await assertSucceeds(db('ayu').ref('recuperaciones/caja1').update({estado:'resuelta', resueltaPor:'ayu', resueltaEn:serverTimestamp()}));
+    await assertSucceeds(pedir(null, 'caja1'));                                // resuelta: puede pedir otra
+    // El cambio obligatorio: la persona solo lo quita (false), nunca lo pone ni toca el de otro
+    await env.withSecurityRulesDisabled(c=>c.database().ref('perfiles/cajero1/debeCambiarPass').set(true));
+    await assertFails(db('cajero10').ref('perfiles/cajero1/debeCambiarPass').set(false));
+    await assertFails(db('cajero1').ref('perfiles/cajero1/debeCambiarPass').set('no'));
+    await assertSucceeds(db('cajero1').ref('perfiles/cajero1/debeCambiarPass').set(false));
+    await assertFails(db('cajero1').ref('perfiles/cajero1/debeCambiarPass').set(true));
+    await assertSucceeds(db('sa').ref('perfiles/cajero1/debeCambiarPass').set(true));
+  });
   // Super-admin vendedor: solo sus negocios (vendedorId) y sus demos (demoDe)
   const activo=(uid, neg)=>db(uid).ref('perfiles/'+uid+'/negocioActivo').set(neg);
   test('vendedor: lee solo sus negocios (y la lista, solo con la consulta por su id); nada global', async ()=>{
@@ -274,6 +315,12 @@ describe('reglas de transición (database.rules.transicion.json)', {skip:!HAY_EM
     await assertFails(d.ref('data/data_N1_productos/0').set({id:'p" onerror="x', nombre:'a'}));
     await assertSucceeds(d.ref('data/negocios_r/N1/logo').set('data:image/png;base64,iVBORw0KGgo='));
     await assertSucceeds(d.ref('data/data_N1_productos/0').set({id:'p1', nombre:'a'}));
+  });
+  test('olvidé mi contraseña también con las reglas de transición', async ()=>{
+    const serverTimestamp=()=>({'.sv':'timestamp'});
+    await assertSucceeds(db(null).ref('recuperaciones/caja1').set({usuario:'caja1', estado:'pendiente', fecha:serverTimestamp()}));
+    await assertFails(db(null).ref('recuperaciones/nadie').set({usuario:'nadie', estado:'pendiente', fecha:serverTimestamp()}));
+    await assertFails(db(null).ref('recuperaciones').once('value'));
   });
   test('el super-admin administra perfiles e índice', async ()=>{
     const s=db('sa');

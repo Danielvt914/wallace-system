@@ -321,3 +321,12 @@ test('S8: los datos dentro de atributos HTML van escapados; el logo y las fotos 
   const logos=ARCH.filter(f=>f.nombre!=='nucleo/componentes.js' && /\$\{\s*neg\.logo\s*\}|'\s*\+\s*neg\.logo/.test(f.src)).map(f=>f.nombre);
   assert.deepEqual(logos, []);
 });
+test('C2/C4: ningún error atrapado se queda en la consola con un aviso genérico (va por reportarError)', ()=>{
+  const malos=ARCH.filter(f=>/console\.error\(e\);\s*toast\(/.test(f.src)).map(f=>f.nombre);
+  assert.deepEqual(malos, [], 'Usar reportarError(donde, e)');
+});
+test('V6: los avisos (toast) se ven encima de las ventanas pero no reciben clics (no tapan sus botones)', ()=>{
+  const css=readFileSync(new URL('estilos/09-modal-avisos.css', RAIZ),'utf8');
+  const regla=(css.match(/#toasts\{[^}]*\}/)||[''])[0];
+  assert.match(regla, /pointer-events:none/, 'Sin esto, en un celular un aviso tapa "Guardar" o "Sí, continuar" por 3 segundos');
+});

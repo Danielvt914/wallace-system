@@ -46,20 +46,21 @@ const SRV_NEG='__negocios';   // REG_SRV de negocios_r
  * @param {Object} [opc.emuladores] {database:'host:puerto'} para desarrollo local
  * @param {string} [opc.entorno]  produccion | pruebas | emulador | local (la interfaz lo muestra en el login)
  * @param {Object} opc.ganchos    {negocioActual():negocio|null, alCambiar(), alEstadoConexion(estado), alCargarTabla(tabla),
- *        alRegistroNuevo(tabla, valor, {inicial}), alCambiarTabla(tabla, nuevo, viejo, {inicial})}
+ *        alRegistroNuevo(tabla, valor, {inicial}), alCambiarTabla(tabla, nuevo, viejo, {inicial}),
+ *        soloLectura(negId):boolean (D10: no escribir nada de ese negocio), alEscrituraNegada({motivo, que})}
  *        inicial = llegó en los primeros segundos de sincronizar (carga, no un cambio de otro equipo)
  */
 export function crearAdaptadorFirebase(opc){
   const local=opc.local;
   const g=Object.assign({negocioActual:()=>null, alCambiar(){}, alEstadoConexion(){}, alCargarTabla(){}, alCambiarNegocio(){},
-    alRegistroNuevo(){}, alCambiarTabla(){}}, opc.ganchos||{});
+    alRegistroNuevo(){}, alCambiarTabla(){}, soloLectura(){ return false; }, alEscrituraNegada(){}}, opc.ganchos||{});
   const ESPERA_INICIAL=2500;   // ms: lo que llega antes es la carga, no un aviso
   let inicioSinc=0;
   const aviso=(fn)=>{ try{ fn({inicial:Date.now()-inicioSinc<ESPERA_INICIAL}); }catch(e){ console.warn('Aviso de datos',e); } };
   const CACHE={};
   const REG_SRV={};        // clave -> {id: JSON del último estado recibido}
   const REG_BORRADOS={};   // clave -> {id: fecha}
-  const estado={listo:false, nubeLista:false, globalesLeidas:false, cuentas:false};
+  const estado={listo:false, nubeLista:false, globalesLeidas:false, cuentas:false, conectado:false};
   let sesion={superAdmin:false, negId:null};
   let FB=null, D=null;   // FB = la base (getDatabase); D = funciones del SDK modular (ref, get, onValue…)
   // Los escuchadores se guardan como la función que los quita (el SDK modular la devuelve)
@@ -91,6 +92,18 @@ export function crearAdaptadorFirebase(opc){
   const conexion=e=>{ try{ g.alEstadoConexion(e); }catch(x){} };
   const aLista=v=>Array.isArray(v)?v.filter(Boolean):(v&&typeof v==='object'?Object.values(v).filter(Boolean):[]);
   const esPermisoNegado=e=>{ const m=String((e&&(e.code||e.message))||'').toLowerCase(); return m.indexOf('permission')>-1; };
+  // D10: la base rechazó una escritura (reglas): la persona tiene que enterarse (antes solo iba a la consola)
+  const negada=(que,e)=>{ if(esPermisoNegado(e)){ try{ g.alEscrituraNegada({motivo:'permiso', que}); }catch(x){} } };
+  // D10: negocio en solo lectura (prueba o demo vencida): no se escribe NADA de sus tablas, ni en la
+  // nube ni en el equipo. Lo que la pantalla ya cambió en memoria se deshace con la copia guardada.
+  function bloqueado(n, clave){
+    let b=false; try{ b=!!(n && g.soloLectura(n)); }catch(e){}
+    if(!b) return false;
+    if(clave){ const v=local.leer(clave); CACHE[clave]=(v===undefined?null:v); }
+    try{ g.alEscrituraNegada({motivo:'solo_lectura', que:clave||n}); }catch(e){}
+    return true;
+  }
+  const negDeClave=k=>{ const m=/^data_([^_]+)_/.exec(k||''); return m?m[1]:null; };
   const sinPass=r=>{ const c=limpiar(r)||{}; CAMPOS_PASS.forEach(k=>{ delete c[k]; }); return c; };
   // Negocios en el orden de creación (como el array de siempre)
   const ordenarNegocios=l=>l.sort((a,b)=>String(a.creado||'').localeCompare(String(b.creado||'')));
@@ -114,6 +127,7 @@ export function crearAdaptadorFirebase(opc){
       if(k==='negocios'){ setNegocios(v); return; }
       if(k==='usuarios'){ setUsuarios(v); return; }
     }
+    if(bloqueado(negDeClave(k), k)) return;
     CACHE[k]=v;
     local.escribir(k,v);
     if(estado.listo && FB){
@@ -121,7 +135,7 @@ export function crearAdaptadorFirebase(opc){
         // Firebase RECHAZA objetos con campos undefined: el viaje por JSON los quita
         const limpio=(v===undefined||v===null)?null:JSON.parse(JSON.stringify(v));
         const p=D.set(nodo('data/'+k), limpio);
-        if(p && p.catch) p.catch(e=>{ console.warn('FB set (nube)',k,e&&e.message); conexion('error'); });
+        if(p && p.catch) p.catch(e=>{ console.warn('FB set (nube)',k,e&&e.message); conexion('error'); negada(k,e); });
       }catch(e){ console.warn('FB set',k,e&&e.message); conexion('error'); }
     }
   }
@@ -155,6 +169,7 @@ export function crearAdaptadorFirebase(opc){
   // Sube solo los CAMPOS que cambiaron de cada negocio (data/negocios_r/<id>/<campo>).
   // El admin de un negocio solo puede escribir campos no reservados (reglas): los demás ni se envían.
   function setNegocios(arr){
+    if(!sesion.superAdmin && bloqueado(sesion.negId||negId(), 'negocios')) return;
     const lista=aLista(arr).filter(n=>n.id);
     const srv=REG_SRV[SRV_NEG]||(REG_SRV[SRV_NEG]={});
     const u={};
@@ -182,7 +197,7 @@ export function crearAdaptadorFirebase(opc){
     soloLocal('negocios', ordenarNegocios(lista.slice()));
     if(!Object.keys(u).length) return;
     const pr=actualizar('data', u);
-    if(pr&&pr.catch) pr.catch(e=>{ console.warn('FB negocios',e&&e.message); conexion('error'); if(!esPermisoNegado(e)) encolar(u); });
+    if(pr&&pr.catch) pr.catch(e=>{ console.warn('FB negocios',e&&e.message); conexion('error'); negada('negocios',e); if(!esPermisoNegado(e)) encolar(u); });
   }
   // Rearma negocios (y el respaldo de usuarios viejos) desde una foto de data/
   function aplicarGlobalesCuentas(data){
@@ -312,7 +327,7 @@ export function crearAdaptadorFirebase(opc){
     if(!Object.keys(updates).length) return;
     if(estado.listo && FB){
       const pr=actualizar('data', updates);
-      if(pr&&pr.catch) pr.catch(e=>{ console.warn('FB registros',tabla,e&&e.message); conexion('error'); if(!esPermisoNegado(e)) encolar(updates); });
+      if(pr&&pr.catch) pr.catch(e=>{ console.warn('FB registros',tabla,e&&e.message); conexion('error'); negada(tabla,e); if(!esPermisoNegado(e)) encolar(updates); });
     } else encolar(updates);
   }
   function entraRegistro(clave, tabla, id, val){
@@ -345,6 +360,7 @@ export function crearAdaptadorFirebase(opc){
   function guardarEn(n, tabla, arr){
     if(!n) return;
     const clave=claveDe(n,tabla);
+    if(bloqueado(n, clave)) return;
     if(!esTablaRegistros(tabla)){ set(clave, arr); return; }
     const tomb=REG_BORRADOS[clave]||{};
     const porId={};
@@ -358,6 +374,7 @@ export function crearAdaptadorFirebase(opc){
   function eliminarEn(n, tabla, id){
     if(!n||!id) return;
     const clave=claveDe(n,tabla);
+    if(bloqueado(n, clave)) return;
     if(!esTablaRegistros(tabla)){ set(clave,(CACHE[clave]||[]).filter(x=>x&&x.id!==id)); return; }
     (REG_BORRADOS[clave]||(REG_BORRADOS[clave]={}))[id]=Date.now();
     const srv=REG_SRV[clave]; if(srv) delete srv[id];
@@ -365,7 +382,7 @@ export function crearAdaptadorFirebase(opc){
     const u={}; u[claveReg(n,tabla)+'/'+id]=null; u[claveBorr(n,tabla)+'/'+id]=Date.now();
     if(estado.listo && FB){
       const pr=actualizar('data', u);
-      if(pr&&pr.catch) pr.catch(e=>{ console.warn('FB borrar',e&&e.message); if(!esPermisoNegado(e)) encolar(u); });
+      if(pr&&pr.catch) pr.catch(e=>{ console.warn('FB borrar',e&&e.message); negada(tabla,e); if(!esPermisoNegado(e)) encolar(u); });
     } else encolar(u);
   }
 
@@ -377,6 +394,7 @@ export function crearAdaptadorFirebase(opc){
   function modificarRegistro(tabla, id, fn){
     const n=negId(); if(!n) return null;
     const clave=claveDe(n,tabla);
+    if(bloqueado(n, clave)) return null;
     const arr=misDatos(tabla);
     const rec=arr.find(x=>x&&x.id===id);
     if(!rec) return null;
@@ -388,10 +406,46 @@ export function crearAdaptadorFirebase(opc){
     transaccion('data/'+claveReg(n,tabla)+'/'+id, cur=>{
       if(cur===null) return null;               // sin copia local: Firebase reintenta con el valor real
       fn(cur); return limpiar(cur);
-    }).catch(e=>{ console.warn('Transacción',tabla,id,e&&e.message); conexion('error'); });
+    }).catch(e=>{ console.warn('Transacción',tabla,id,e&&e.message); conexion('error'); negada(tabla,e); });
     return rec;
   }
+  // D9: cambio de UN registro sobre la versión del SERVIDOR (dos equipos con el mismo pedido no se pisan).
+  // fn(copia) devuelve el registro nuevo, o undefined para no tocarlo (p. ej. "ya lo cobró otro equipo").
+  // Devuelve {committed, valor}: valor = el registro como quedó (o como estaba si no se tocó).
+  // Sin conexión no hay transacción posible: se aplica sobre la copia del equipo y viaja en la cola, como siempre
+  // (vender sin internet sigue funcionando; ahí el riesgo de pisarse es el de antes).
+  function transaccionRegistro(tabla, id, fn){
+    const n=negId();
+    if(!n || !id) return Promise.resolve({committed:false, valor:null});
+    const clave=claveDe(n,tabla);
+    if(bloqueado(n, clave)) return Promise.resolve({committed:false, valor:null, motivo:'solo_lectura'});
+    const enLocal=()=>{
+      const rec=misDatos(tabla).find(x=>x&&x.id===id);
+      if(!rec) return {committed:false, valor:null};
+      const nv=fn(limpiar(rec));
+      if(nv===undefined) return {committed:false, valor:rec};
+      guardarEn(n, tabla, [nv]);
+      return {committed:true, valor:nv};
+    };
+    const srv=REG_SRV[clave];
+    if(!(estado.listo && FB && estado.conectado && srv && srv[id])) return Promise.resolve(enLocal());
+    return transaccion('data/'+claveReg(n,tabla)+'/'+id, cur=>{
+      if(cur===null) return null;                 // sin copia en el SDK: Firebase reintenta con el valor real
+      const nv=fn(JSON.parse(JSON.stringify(cur)));
+      return nv===undefined ? undefined : limpiar(nv);
+    }).then(res=>{
+      const v=res.snapshot.val();
+      if(!v) return {committed:false, valor:null};
+      // La copia del equipo queda igual al servidor (y un guardado posterior no reenvía nada)
+      (REG_SRV[clave]||(REG_SRV[clave]={}))[id]=JSON.stringify(v);
+      const arr=(CACHE[clave]||[]).slice(); const i=arr.findIndex(x=>x&&x.id===id);
+      if(i>=0) arr[i]=v; else arr.push(v);
+      soloLocal(clave, ordenar(arr,tabla));
+      return {committed:!!res.committed, valor:v};
+    }).catch(e=>{ negada(tabla,e); throw e; });
+  }
   function transaccionClave(clave, fn){
+    if(bloqueado(negDeClave(clave), clave)) return Promise.resolve({committed:false, valor:get(clave), motivo:'solo_lectura'});
     if(!(estado.listo && FB)){
       const cur=get(clave);
       const nv=fn(cur===undefined?null:cur);
@@ -402,16 +456,18 @@ export function crearAdaptadorFirebase(opc){
     return transaccion('data/'+clave, cur=>fn(cur)).then(res=>{
       const v=res.snapshot.val(); guardarLocal(clave,v);
       return {committed:res.committed, valor:v};
-    });
+    }).catch(e=>{ negada(clave,e); throw e; });
   }
   // Tabla única del negocio (caja_actual, config…). fn devuelve el valor nuevo o undefined (no tocar).
   function transaccionUnica(tabla, fn){ return transaccionClave(claveDe(negId(),tabla), fn); }
   // Clave global (superadmins…)
   function transaccionGlobal(clave, fn){ return transaccionClave(clave, fn); }
   // Reserva el próximo consecutivo de factura: max(contador, minimoLocal)+1. null si no hay nube.
-  function reservarConsecutivo(n, minimoLocal){
+  // cuantos > 1: aparta un BLOQUE (desde = devuelto - cuantos + 1); Firebase serializa la transacción
+  function reservarConsecutivo(n, minimoLocal, cuantos){
     if(!(estado.listo && FB) || !n) return Promise.resolve(null);
-    return transaccion('data/'+claveDe(n,'factura_seq'), cur=>Math.max(parseInt(cur)||0, minimoLocal||0)+1)
+    const k=Math.max(1, parseInt(cuantos)||1);
+    return transaccion('data/'+claveDe(n,'factura_seq'), cur=>Math.max(parseInt(cur)||0, minimoLocal||0)+k)
       .then(res=>res.committed?(parseInt(res.snapshot.val())||null):null);
   }
 
@@ -432,7 +488,7 @@ export function crearAdaptadorFirebase(opc){
         D.connectDatabaseEmulator(FB, h, parseInt(p,10));
       }
       estado.listo=true;
-      try{ escuchar('.info/connected', s=>conexion(s.val()?'ok':'off')); }catch(e){}
+      try{ escuchar('.info/connected', s=>{ estado.conectado=!!s.val(); conexion(s.val()?'ok':'off'); }); }catch(e){}
       return true;
     }catch(e){
       console.error('Firebase no disponible:',e);
@@ -693,6 +749,42 @@ export function crearAdaptadorFirebase(opc){
       .catch(()=>({datos:copiaLocal(), origen:'local'}));
   }
 
+  // Restaura UN negocio desde un respaldo (lo que devuelve exportarTodo, de la nube o del equipo):
+  // su registro y TODAS sus tablas se reemplazan por las del respaldo (lo que no esté, se borra).
+  // Lo que no cumpla las reglas (logo, ids: S8) se limpia para que la escritura no falle entera.
+  // Las cuentas de acceso (perfiles/login) no se tocan. Solo el dueño o el ayudante (reglas).
+  function restaurarNegocio(n, datos){
+    if(!n || !datos) return Promise.reject(new Error('Respaldo vacío'));
+    const neg=(datos.negocios_r && datos.negocios_r[n]) || aLista(datos.negocios).find(x=>x && x.id===n);
+    if(!neg) return Promise.reject(new Error('El respaldo no tiene ese negocio'));
+    const limpio=v=>{
+      if(Array.isArray(v)) return v.filter(x=>!(x && typeof x==='object' && 'id' in x) || idSeguro(x.id));
+      if(v && typeof v==='object'){ const o={}; Object.keys(v).forEach(k=>{ const x=v[k]; if(!(x && typeof x==='object' && 'id' in x) || idSeguro(x.id)) o[k]=x; }); return o; }
+      return v;
+    };
+    const claves={};
+    TABLAS.forEach(t=>['','_r','_x','_bk'].forEach(suf=>{ claves[claveDe(n,t)+suf]=null; }));
+    Object.keys(datos).forEach(k=>{ if(k.indexOf('data_'+n+'_')===0) claves[k]=limpiar(limpio(datos[k])); });
+    const registro=negocioParaGuardar(neg);
+    // La copia del equipo: se olvida lo de ese negocio y se pone lo del respaldo
+    const aplicarLocal=()=>{
+      Object.keys(CACHE).forEach(k=>{ if(k.indexOf('data_'+n+'_')===0){ delete CACHE[k]; local.borrar(k); } });
+      Object.keys(claves).forEach(k=>{ delete REG_SRV[k.replace(/_(r|x)$/,'')]; delete REG_BORRADOS[k.replace(/_(r|x)$/,'')]; });
+      TABLAS.forEach(t=>{
+        const k=claveDe(n,t), r=claves[k+'_r'], x=claves[k+'_x']||{};
+        if(r && typeof r==='object') soloLocal(k, ordenar(Object.values(r).filter(v=>v && v.id && !x[v.id]), t));
+        else if(claves[k]!=null) soloLocal(k, claves[k]);
+      });
+      const lista=aLista(CACHE.negocios).filter(x=>x.id!==n).concat([registro]);
+      (REG_SRV[SRV_NEG]||(REG_SRV[SRV_NEG]={}))[n]=JSON.stringify(registro);
+      soloLocal('negocios', ordenarNegocios(lista));
+      g.alCambiar();
+    };
+    if(!(estado.listo && FB)){ aplicarLocal(); return Promise.resolve({ok:true, claves:Object.keys(claves).filter(k=>claves[k]!=null).length}); }
+    const u=Object.assign({}, claves); u['negocios_r/'+n]=registro;
+    return actualizar('data', u).then(()=>{ aplicarLocal(); return {ok:true, claves:Object.keys(claves).filter(k=>claves[k]!=null).length}; });
+  }
+
   // Borra TODAS las tablas de un negocio (local y nube), en todos los formatos
   function borrarDatosNegocio(n){
     TABLAS.forEach(t=>{
@@ -712,8 +804,8 @@ export function crearAdaptadorFirebase(opc){
     iniciar, cargarGlobales, configurarSesion, cargarNegocioPropio, migrarTablasGlobales, leerRegistro,
     modificarUsuariosLegado, leerNegocioCompleto,
     get, set, claveDe, misDatos, datosDe, guardar, eliminar, guardarEn, eliminarEn,
-    modificarRegistro, transaccionUnica, transaccionGlobal, reservarConsecutivo,
+    modificarRegistro, transaccionRegistro, transaccionUnica, transaccionGlobal, reservarConsecutivo,
     sincronizarNegocio, detenerSincNegocio, sincronizarTodo, detenerSincTodo,
-    limpiarDatosAjenos, recargar, exportarTodo, borrarDatosNegocio
+    limpiarDatosAjenos, recargar, exportarTodo, restaurarNegocio, borrarDatosNegocio
   };
 }

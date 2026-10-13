@@ -112,3 +112,7 @@ Totales generales: productos en efectivo, productos por banco, domicilios (efect
 - Las ediciones/eliminaciones de clientes no se auditan.
 
 Ver [-01-to-review](../-01-to-review/-01-to-review.md).
+
+## Pago al domiciliario (2026-10-12)
+
+En el **Cuadre**, cada domiciliario con domicilios que entraron por banco tiene "💵 Pagarle $X del cajón". Requiere el permiso `abrircaja` o ser jefe, y la caja abierta. Queda como un **retiro** de la caja (`pagoDomi` = su clave en el cuadre), así el cierre cuadra. La tarjeta muestra lo ya pagado y "✓ Pagado"; no deja pagar dos veces lo mismo (`Dominio.caja.pagadoADomiciliario`). Antes la pantalla decía "se le deben pagar…" pero no había cómo registrarlo.

@@ -164,3 +164,71 @@ test('avisos entre equipos (5425800): pedido nuevo y caja abierta/cerrada de otr
   assert.deepEqual(nuevos, [['ventas','v2',false]]);   // ni v1 (ya estaba) ni v3 (propio)
   assert.deepEqual(tablas, [[1,false],[0,false]]);
 });
+test('D9: agregar a una cuenta con una copia vieja pisaba lo de otro equipo; con transaccionRegistro no', {skip:omitir}, async ()=>{
+  await ponerReglas('database.rules.transicion.json');
+  const ventas=await import('../../src/dominio/ventas.js');
+  const it=(p,q)=>({prodId:p, nombre:p, qty:q, precio:1000});
+  await rest('data/data_n8_ventas_r', 'PUT', {c1:{id:'c1', estado:'abierta', items:[it('a',1)], total:1000}, c2:{id:'c2', estado:'abierta', items:[it('a',1)], total:1000}});
+  const d=crearAdaptadorFirebase({local:crearAlmacenLocal(memoria(),'ws8_'), sdk:SDK, config:CONFIG, emuladores:EMULADORES, ganchos:{negocioActual:()=>({id:'n8'})}});
+  assert.equal(d.iniciar(), true);
+  d.sincronizarNegocio('n8');
+  await new Promise(res=>setTimeout(res, 1500));
+  const viejo=id=>JSON.parse(JSON.stringify(d.misDatos('ventas').find(v=>v.id===id)));
+  const copia1=viejo('c1'), copia2=viejo('c2');                   // este equipo abrió las dos cuentas
+  // Otro equipo agrega "b" a las dos
+  await rest('data/data_n8_ventas_r/c1/items', 'PUT', [it('a',1), it('b',1)]);
+  await rest('data/data_n8_ventas_r/c2/items', 'PUT', [it('a',1), it('b',1)]);
+  await new Promise(res=>setTimeout(res, 600));
+  // Antes: este equipo suma "c" a SU copia y la guarda campo por campo -> "b" se pierde
+  copia1.items.push(it('c',1)); d.guardarEn('n8', 'ventas', [copia1]);
+  // Ahora: se suma "c" dentro de la transacción, sobre lo que tiene el servidor
+  const r=await d.transaccionRegistro('ventas', 'c2', cur=>ventas.agregarACuenta(cur, [it('c',1)], {}));
+  await new Promise(res=>setTimeout(res, 600));
+  const srv=await rest('data/data_n8_ventas_r');
+  assert.deepEqual(srv.c1.items.map(i=>i.prodId), ['a','c'], 'la forma vieja pierde lo del otro equipo');
+  assert.equal(r.committed, true);
+  assert.deepEqual(srv.c2.items.map(i=>i.prodId), ['a','b','c'], 'con la transacción no se pierde nada');
+  // Cobrar con lo que se vio: si el otro equipo agregó algo, no se cobra a ciegas
+  await rest('data/data_n8_ventas_r/c2/items', 'PUT', [it('a',1), it('b',1), it('c',1), it('d',1)]);
+  await new Promise(res=>setTimeout(res, 600));
+  const cobro=await d.transaccionRegistro('ventas', 'c2', cur=>ventas.cobrarSiSigueIgual(cur, srv.c2.items, {pagos:{efectivo:3000, banco:0, tarjeta:0}, total:3000}));
+  assert.equal(cobro.committed, false);
+  assert.equal((await rest('data/data_n8_ventas_r/c2/estado')), 'abierta');
+  d.detenerSincNegocio();
+});
+test('restaurar un negocio desde un respaldo: vuelve todo como estaba y limpia lo que las reglas rechazarían', {skip:omitir}, async ()=>{
+  await ponerReglas('database.rules.transicion.json');
+  await rest('data/negocios_r/n7', 'PUT', {id:'n7', nombre:'Siete', activo:true, logo:''});
+  await rest('data/data_n7_ventas_r', 'PUT', {v1:{id:'v1', total:1}, v2:{id:'v2', total:2}});
+  await rest('data/data_n7_clientes_r', 'PUT', {c1:{id:'c1', nombre:'Ana'}});
+  const d=crearAdaptadorFirebase({local:crearAlmacenLocal(memoria(),'ws7_'), sdk:SDK, config:CONFIG, emuladores:EMULADORES, ganchos:{}});
+  assert.equal(d.iniciar(), true);
+  const respaldo=(await d.exportarTodo()).datos;
+  // Después del respaldo: ventas nuevas, cliente borrado, nombre cambiado
+  await rest('data/data_n7_ventas_r/v3', 'PUT', {id:'v3', total:3});
+  await rest('data/data_n7_clientes_r', 'DELETE');
+  await rest('data/negocios_r/n7/nombre', 'PUT', 'Siete cambiado');
+  // Un respaldo con algo que las reglas rechazarían (S8) no debe hacer fallar todo
+  const copia=JSON.parse(JSON.stringify(respaldo));
+  copia.negocios_r.n7.logo='x" onerror="alert(1)';
+  copia.data_n7_ventas_r['malo']={id:'x" onmouseover="1', total:9};
+  const r=await d.restaurarNegocio('n7', copia);
+  assert.equal(r.ok, true);
+  const srv=await rest('data');
+  assert.deepEqual(Object.keys(srv.data_n7_ventas_r).sort(), ['v1','v2']);
+  assert.equal(srv.data_n7_clientes_r.c1.nombre, 'Ana');
+  assert.equal(srv.negocios_r.n7.nombre, 'Siete');
+  assert.equal(srv.negocios_r.n7.logo, '');
+  await assert.rejects(d.restaurarNegocio('no-existe', copia));
+});
+test('facturas: dos equipos apartan bloques a la vez y no se pisan', {skip:omitir}, async ()=>{
+  await ponerReglas('database.rules.transicion.json');
+  await rest('data/data_n6_factura_seq', 'PUT', 100);
+  const nuevo=pre=>{ const d=crearAdaptadorFirebase({local:crearAlmacenLocal(memoria(),pre), sdk:SDK, config:CONFIG, emuladores:EMULADORES, ganchos:{}}); assert.equal(d.iniciar(), true); return d; };
+  const a=nuevo('wsA_'), b=nuevo('wsB_');
+  const [ha, hb, hc]=await Promise.all([a.reservarConsecutivo('n6', 0, 20), b.reservarConsecutivo('n6', 0, 20), a.reservarConsecutivo('n6', 130, 20)]);
+  const bloques=[[ha-19,ha],[hb-19,hb],[hc-19,hc]].sort((x,y)=>x[0]-y[0]);
+  for(let i=1;i<bloques.length;i++) assert.ok(bloques[i][0]>bloques[i-1][1], 'bloques sin cruzarse: '+JSON.stringify(bloques));
+  assert.ok(bloques[0][0]>100);
+  assert.equal(await rest('data/data_n6_factura_seq'), Math.max(ha,hb,hc));
+});

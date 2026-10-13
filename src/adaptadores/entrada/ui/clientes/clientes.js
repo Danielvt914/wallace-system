@@ -7,7 +7,7 @@
 // ============================================================
 import { escapeHtml, fijarEscribiendo, fmtDate, fmtMoney, now } from '../nucleo/estado.js';
 import { BOTON, MSJ } from '../nucleo/textos.js';
-import { puedeVerPantalla } from '../nucleo/permisos.js';
+import { exigirEscritura, puedeVerPantalla } from '../nucleo/permisos.js';
 import { abrirModal, cerrarModal, confirmarModal, ic, toast } from '../nucleo/componentes.js';
 import { render } from '../nucleo/navegacion.js';
 
@@ -98,6 +98,7 @@ export function clientes(){
     </div>`;
 }
 export function editarCliente(id){
+  if(!exigirEscritura()) return;   // D10: solo lectura
   if(!puedeVerPantalla('clientes')){ toast(MSJ.noTienesAccesoAClientes,'error'); return; }
   const cls=misDatos('clientes');
   const c=id?cls.find(x=>x.id===id):null;
@@ -116,6 +117,7 @@ export function editarCliente(id){
   }});
 }
 export function eliminarCliente(id){
+  if(!exigirEscritura()) return;   // D10: solo lectura
   if(!puedeVerPantalla('clientes')){ toast(MSJ.noTienesAccesoAClientes,'error'); return; }
   confirmarModal(MSJ.eliminarEsteCliente,()=>{
     eliminarMisDatos('clientes',id); toast(MSJ.eliminado,'info'); render();
