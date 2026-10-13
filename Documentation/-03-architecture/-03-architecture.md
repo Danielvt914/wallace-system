@@ -323,20 +323,17 @@ Al cerrar la fase 8 se actualizaron las reglas estáticas de `CLAUDE.md`:
 
 #### Carpetas de `capturas/`
 
-Cada `tomar <carpeta>` crea una carpeta con las fotos numeradas (`001-config-inicial.png`, `002-config-inicial-movil.png`…). El nombre lo elige quien la toma; en la fase 8 se usaron letras en orden de toma:
+Cada `tomar <carpeta>` crea una carpeta con las fotos numeradas (`001-config-inicial.png`, `002-config-inicial-movil.png`…). Ocupan unos 31 MB cada una y no van a Git (`capturas/` está en `.gitignore`).
 
-| Carpeta | Qué es |
-|---|---|
-| `base` | **Referencia**: la versión anterior a la fase 8 (commit `62941a6`, servida desde un `git worktree` con `CAPTURAS_RAIZ`), con el juego completo de 121 fotos. |
-| `a`, `a2` | Dos tomas seguidas de la misma versión con el primer juego (87 fotos), para comprobar que el método es determinista (salieron idénticas). |
-| `b`, `c` | Primeros pasos (CSS fuera de `index.html`, `style` a clases) con ese primer juego. |
-| `d` | Estilos terminados, ya con las 121 fotos, comparado con `base`. |
-| `e` | Tras los eventos delegados (fase 8a). |
-| `f` | Tras los módulos ES (fase 8b): idéntica a `base`. |
-| `antes-modular` | Versión del commit `e2f41bc` (con Firebase *compat*), ya con la semilla fijada antes de los demos (2026-10-11). |
-| `modular` | Versión con Firebase modular, misma semilla: **idéntica a `antes-modular`** (121 de 121). **Es la referencia actual.** |
+**Hay una sola carpeta que se guarda: `capturas/referencia`**, la foto de la versión actual (2026-10-12, después de la cuarta revisión). Las carpetas de referencias anteriores (fase 8, tema, SDK modular, demos, segunda revisión…) se borraron el 2026-10-12. Ya no servían para comparar, porque los datos de las demos y varias pantallas cambiaron desde entonces, y el resultado de cada comparación quedó escrito en las secciones de cada cambio.
 
-Las carpetas `a` a `e` se borraron el 2026-10-11. `tokens2` es la toma tras centralizar el tema en tokens (sección 11.8): idéntica a `modular`. `revision2` (2026-10-12): tras corregir la segunda revisión, solo cambia la etiqueta de Historial ("Ventas del negocio", F21). **Es la referencia actual.** `demos` (2026-10-12): tras reorganizar las demos, 4 capturas cambian solo en el **orden** de "Últimos movimientos de inventario". Ahora va del más nuevo al más viejo, como llegan los datos de Firebase; antes, en modo local, la demo los dejaba al revés. Antes lo fue **`modular`**: `base` quedó con los datos de la semilla vieja. Las demás se pueden borrar.
+**Para un cambio visual**:
+1. Hacer el cambio.
+2. `node scripts/capturas.mjs tomar capturas/despues`.
+3. `node scripts/capturas.mjs comparar capturas/referencia capturas/despues`: revisar cada captura distinta.
+4. Si los cambios son los esperados, `capturas/despues` pasa a ser la nueva `capturas/referencia` (borrar la vieja y renombrar). Así siempre queda **una**.
+
+**Si `referencia` se borra o no coincide con el código**: se rehace con `tomar capturas/referencia` sobre la versión que se quiera usar (para una versión anterior, desde un `git worktree` de ese commit con `CAPTURAS_RAIZ`).
 
 **Semilla de los datos**: el tool fija el azar con una semilla y la **vuelve a fijar justo antes de crear los demos** (`window.__semilla`). Así los datos no dependen de cuántos números al azar gasten las librerías al cargar. Se agregó el 2026-10-11, porque las librerías *compat* de Firebase gastaban uno y, al quitarlas, el primer demo salía con una venta más. Por eso hay una referencia nueva, `capturas/modular` (sección 11.7). Si `base` se borra, se rehace tomando las fotos de la versión que se quiera usar de referencia. Para un cambio nuevo, la costumbre es: `tomar capturas/antes` → hacer el cambio → `tomar capturas/despues` → `comparar capturas/antes capturas/despues`.
 

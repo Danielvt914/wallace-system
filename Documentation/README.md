@@ -23,6 +23,7 @@ Esta carpeta documenta el sistema **por módulo**, tal como está implementado e
 | [-00 → entornos-locales](-00-execution-protocol/entornos-locales.md) | Entornos locales | Enlaces y credenciales para probar en local; emuladores de Firebase y modo local: qué se instaló, cómo se conecta |
 | [-00 → conexion-firebase](-00-execution-protocol/conexion-firebase.md) | Conexión con Firebase | Qué está hecho en el proyecto de pruebas y los pasos para seguir hasta el proyecto de la empresa |
 | [-00 → union-con-original](-00-execution-protocol/union-con-original.md) | Unir con el original | Cómo traer los cambios del repositorio original al fork (conflicto de `app.js`), portarlos a los módulos y qué revisar antes del Pull Request |
+| [-00 → ci-cd](-00-execution-protocol/ci-cd.md) | Pruebas automáticas y despliegue (pendiente) | GitHub Actions para correr las pruebas en cada push, Render solo con pruebas en verde, publicar el sandbox con un botón; producción nunca automática |
 | [-00 → paso-a-produccion](-00-execution-protocol/paso-a-produccion.md) | Paso a producción | Cómo se elige Firebase (por dominio, `HOSTS_PRODUCCION`), qué revisar en Render, por qué no borrar la base de la empresa y cómo migrar sus cuentas; lista de chequeo |
 | [-01-to-review](-01-to-review/-01-to-review.md) | Hallazgos para revisar | Bugs, riesgos de seguridad e inconsistencias encontradas al documentar, con su estado |
 | [-02-corrections](-02-corrections/-02-corrections.md) | Correcciones aplicadas | Qué se corrigió de seguridad y datos, dónde, cómo se probó y qué queda pendiente |
