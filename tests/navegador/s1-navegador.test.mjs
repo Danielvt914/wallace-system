@@ -273,6 +273,18 @@ test('olvidé mi contraseña: pedir desde el login, el dueño genera una tempora
   await esperarTexto('Solicitudes de contraseña');
   // El botón aparece cuando el panel ya tiene los usuarios del negocio (llegan después de las solicitudes)
   await pagina.waitForSelector("[data-click=\"generarTemporal('MARCE')\"]", {visible:true, timeout:20000});
+  // Su PROPIA solicitud: sin botón, y aunque se llame la acción no cambia nada ni lo saca de la sesión
+  // (antes reemplazaba su cuenta, la app cerraba la sesión y la temporal se perdía sin mostrarse)
+  const uidAntes=(await rest('login/admin')).uid;
+  await rest('recuperaciones/admin', 'PUT', {usuario:'admin', estado:'pendiente', fecha:Date.now()});
+  await esperarTexto('Es tu cuenta');
+  assert.equal(await pagina.$("[data-click=\"generarTemporal('admin')\"]"), null);
+  await pagina.evaluate(()=>WS.generarTemporal('admin'));
+  await espera(800);
+  assert.equal(await pagina.evaluate(()=>!!document.querySelector('#modal-container.activo')), false, 'no pide confirmar');
+  assert.equal((await rest('login/admin')).uid, uidAntes, 'su cuenta sigue igual');
+  assert.equal(await pagina.evaluate(()=>WS.STATE.user && WS.STATE.user.usuario), 'admin', 'sigue en su sesión');
+  await rest('recuperaciones/admin', 'DELETE');
   await pagina.evaluate(()=>WS.generarTemporal('MARCE'));
   await pagina.waitForSelector('#modal-ok', {visible:true}); await pagina.evaluate(()=>document.getElementById('modal-ok').click());   // directo: un aviso puede tapar el botón
   await pagina.waitForSelector('#pass-temporal', {visible:true, timeout:20000}).catch(async e=>{

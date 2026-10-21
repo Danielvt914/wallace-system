@@ -74,6 +74,7 @@ Cada hallazgo corregido tiene debajo su **Solución aplicada** y lo que queda pe
 | V4 | 🟠 | Validación | Un usuario con "@" no podía entrar nunca (el login lo toma como correo); "Ana" y "ana" podían ser dos usuarios distintos | ✅ Corregido (2026-10-12) |
 | V5 | 🟡 | Validación | Dos productos con el mismo código de barras: el escáner vendía siempre el primero | ✅ Corregido (2026-10-12) |
 | V6 | 🟠 | Interfaz | Los avisos (toast) quedaban encima de las ventanas y **bloqueaban los clics**: en un celular, o con varios avisos seguidos, tapaban "Guardar" o "Sí, continuar" por 3 segundos | ✅ Corregido (2026-10-12) |
+| V7 | 🟠 | Funcional | "Generar temporal" sobre la **propia** cuenta la reemplazaba, la app cerraba la sesión y la temporal se perdía sin mostrarse: el super-admin quedaba sin acceso | ✅ Corregido (2026-10-13) |
 
 ---
 
@@ -721,6 +722,7 @@ Revisión de los flujos completos (vender, cobrar, anular, editar, caja, inventa
 | ~~Bandera **`agotado`** del producto~~ | **Hecho (2026-10-12)**: botón "Agotado" / "✓ Disponible" en cada tarjeta del inventario (`alternarAgotado`, permiso `editarprod`, con auditoría) | `ui/inventario/catalogo.js` |
 | ~~**Foto del producto** (`imagen`)~~ | **Hecho (2026-10-12)**: "📷 Foto" en el formulario del producto; se reduce a 200 px JPEG y se guarda en la base. Solo se dibuja si es una imagen `data:` válida (`Dominio.inventario.imagenValida`): antes se metía sin escapar en 4 pantallas | [realtime-vs-storage](../-03-architecture/realtime-vs-storage.md) |
 | ~~**Catálogo de textos**~~ | **Hecho (2026-10-12)**: `ui/nucleo/textos.js` con 199 mensajes fijos (`MSJ`) y 17 botones (`BOTON`); prueba que lo exige. Los mensajes con datos y las plantillas siguen en su módulo | [tema.md](../-03-architecture/tema.md), sección 6 |
+| **Importar inventario** desde Excel o CSV | Diseñado (2026-10-13), sin implementar. Hoy los productos se crean uno por uno | [importar-inventario](../-03-architecture/importar-inventario.md) |
 | **Modo claro por componente** y 26 tamaños de letra | Para el rediseño (cambia el aspecto: espera a que se pida el rediseño) | [tema.md](../-03-architecture/tema.md), sección 4 |
 | ~~**Lo que ve el super-admin vendedor**~~ | **Hecho (2026-10-12)**: las reglas cerradas lo limitan a sus negocios y sus demos; el panel le trae solo esos (consulta por su id); pruebas de reglas y del navegador | [01-super-admin-panel](../01-super-admin-panel/01-super-admin-panel.md), sección 12 |
 | ~~**Herramienta de capturas** que se detuvo 2 de unas 8 veces~~ | **Cerrado (2026-10-12)**: desde que informa dónde se detiene, no volvió a pasar en las 7 corridas del 2026-10-12. Si vuelve, el mensaje dice en qué captura | [-03-architecture](../-03-architecture/-03-architecture.md), 11.7 |
@@ -926,6 +928,15 @@ Revisión de **validaciones**: todo número o texto que escribe la gente, más l
 - **Cómo se encontró**: las pruebas de navegador que hacen clic por coordenadas (ventana de 800×600) fallaban de vez en cuando; con la regla quitada, fallan siempre.
 - **Solución**: `#toasts{pointer-events:none}`. Los avisos se ven igual, pero los clics pasan a lo que hay debajo; ningún aviso tiene botones.
 - **Probado**: `tests/ui/estructura.test.mjs` exige la regla, y las pruebas de `s1-navegador` con clics por coordenadas pasan. No se pudo comprobar dentro del recorrido: su navegador conservó la hoja de estilos anterior aunque se cambió el archivo, y no se averiguó por qué.
+
+### V7 🟠 Restablecer la propia cuenta dejaba al super-admin sin acceso — ✅ Corregido (2026-10-13)
+- **Cómo se encontró**: el usuario pidió "olvidé mi contraseña" para su propio usuario de super-admin y lo resolvió él mismo desde el panel.
+- **Qué pasaba**: "Generar temporal" **reemplaza** la cuenta, así que el perfil viejo se borra. Ese perfil era el de la sesión abierta: `escucharMiPerfil` vio "sin perfil", avisó "tu usuario fue desactivado" y cerró la sesión. Los pasos que faltaban (marcar el cambio obligatorio, cerrar la solicitud, **mostrar la temporal**) fallaron sin permiso. Quedó una cuenta nueva con una contraseña que nadie vio, y la vieja sin acceso.
+- **Solución** (`ui/usuarios/recuperacion.js`):
+  1. `esMiCuenta`: no se puede generar una temporal para la cuenta propia; la tarjeta muestra *"Es tu cuenta: usa 🔑 Mi contraseña o 📧 Mi correo"* en lugar del botón.
+  2. La temporal se muestra **apenas existe la cuenta nueva**, antes de los pasos que pueden fallar. Si alguno falla, la temporal ya está en pantalla y un aviso lo explica.
+- **Probado**: `tests/navegador/s1-navegador.test.mjs`. Con una solicitud de su propia cuenta, el dueño no ve el botón, y llamar la acción no pide confirmar, no cambia su cuenta y no lo saca de la sesión.
+- **Si ya pasó**: otro super-admin dueño o ayudante resuelve la solicitud, que sigue pendiente. Si no hay otro, se usa el procedimiento de consola ([conexion-firebase](../-00-execution-protocol/conexion-firebase.md), sección 5).
 
 ### Residuales anotados (no se corrigen)
 

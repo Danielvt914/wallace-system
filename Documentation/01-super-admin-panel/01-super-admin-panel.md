@@ -164,7 +164,7 @@ Clases de `index.html`: `.topbar`, `.sa-emblema`, `.sa-marca`, `.stats/.stat` (v
 - ~~`toggleNegocio` no validaba rol~~: corregido; un vendedor solo pausa sus demos y las funciones de gestión validan `esAdminSistema()` ([-02](../-02-corrections/-02-corrections.md)).
 - No hay restauración de respaldo desde la app.
 
-Ver [-01-to-review](../-01-to-review/-01-to-review.md).
+Ver [-01-to-review](../-01-to-review/-01-to-review.md). Revisión para reestructurar el panel (flujos incompletos y UI/UX, sin implementar): [revision-panel](revision-panel.md).
 
 ## 11. Periodo de prueba (2026-10-12)
 

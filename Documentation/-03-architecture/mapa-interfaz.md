@@ -7,7 +7,7 @@ En la documentación, `ui/<carpeta>/<archivo>.js` es la ruta relativa a `src/ada
 | Archivo | Funciones y variables (línea) |
 |---|---|
 | `ui/nucleo/estado.js` | `ESCRIBIENDO` (let) 13 · `fijarEscribiendo` 14 · `mostrarConexion` 17 · `campoDelicado` 28 · `modalAbierto` 35 · `refrescarSiSePuede` 39 · `_refrescoPendiente` (let) 50 · `refrescarDeLaNube` 63 · `STATE` (const) 75 · `now` 80 · `jornadaActual` 86 · `fmtMoney` 89 · `fmtCorto` 91 · `fmtDate` 97 · `escapeHtml` 102 |
-| `ui/nucleo/textos.js` | `MSJ` (const) 15 · `BOTON` (const) 265 |
+| `ui/nucleo/textos.js` | `MSJ` (const) 15 · `BOTON` (const) 267 |
 | `ui/nucleo/permisos.js` | `usaInventario` 22 · `negocioSoloLectura` 26 · `ACCIONES_LECTURA` (const) 33 · `tienePermiso` 34 · `exigirEscritura` 39 · `_avisoNegada` (let) 45 · `escrituraNegada` 46 · `exigirPermiso` 53 · `esAdminSistema` 60 · `pantallasPermitidas` 64 · `puedeVerPantalla` 68 · `pantallaValida` 70 · `sucursalActual` 80 · `cajaActual` 85 · `guardarCajaActual` 86 · `puedeVerSucursal` 87 · `cambiarSucursal` 88 |
 | `ui/nucleo/componentes.js` | `ICONS` (const) 15 · `fotoProducto` 32 · `logoNegocio` 37 · `reducirImagen` 42 · `ic` 61 · `pProd` 66 · `pProds` 67 · `pPedido` 68 · `pPedidos` 70 · `pPersonal` 76 · `toast` 81 · `abrirModal` 91 · `_modalCancelar` (let) 134 · `cerrarModal` 135 · `preguntarDespues` 144 · `cuandoNoHayaVentana` 149 · `_erroresReportados` (const) 161 · `reportarError` 162 · `confirmarModal` 171 |
 | `ui/nucleo/logo.js` | `WALLACE_LOGO` (const) 11 |
@@ -19,7 +19,7 @@ En la documentación, `ui/<carpeta>/<archivo>.js` es la ruta relativa a `src/ada
 | `ui/nucleo/navegacion.js` | `irA` 45 · `renderContenido` 62 · `armarMenu` 101 · `vistaNegocio` 168 · `render` 239 · `alternarMenu` 285 |
 | `ui/usuarios/sesion.js` | `ponerPass` 30 · `migrarContrasenas` 31 · `_sesion` (let) 49 · `_dejarPerfil` (let) 49 · `_entrando` (let) 49 · `_configInicial` (let) 49 · `fijarConfigInicial` 50 · `CLAVE_PERFIL` (const) 51 · `conCuentasFirebase` 52 · `servicioSesion` 53 · `mensajeCuenta` 54 · `conTiempo` 56 · `guardarPerfilLocal` 59 · `leerPerfilLocal` 60 · `borrarPerfilLocal` 61 · `login` 64 · `ponerSesionNegocio` 80 · `hacerLogin` 96 · `hacerLoginCuentas` 114 · `pedirPassNueva` 133 · `entrarConPerfil` 149 · `dejarDeEscucharMiPerfil` 190 · `escucharMiPerfil` 192 · `negocioCambiado` 209 · `logout` 214 · `avisoEntorno` 229 · `vistaLogin` 236 · `necesitaConfigInicial` 256 · `vistaConfigInicial` 262 · `crearDuenoInicial` 278 · `crearDuenoInicialCuentas` 299 |
 | `ui/usuarios/cuentas.js` | `miUid` 23 · `perfilPara` 24 · `crearCuentaPara` 28 · `reemplazarCuenta` 36 · `sincronizarPerfil` 52 · `trasGuardarCuenta` 60 · `borrarCuentaDe` 65 · `ponerUidUsuario` 69 · `quitarUsuarioLegado` 75 · `actualizarUsuarioLegado` 78 · `trabajarEn` 88 · `borrarCuentasDeNegocio` 93 · `migrarContrasenasLegado` 103 · `cambiarMiPassCuenta` 113 |
-| `ui/usuarios/recuperacion.js` | `olvideMiPass` 20 · `_recuperaciones` (let) 49 · `_dejarRecuperaciones` (let) 50 · `escucharRecuperaciones` 51 · `dejarRecuperaciones` 56 · `cuentaDeSolicitud` 61 · `haceCuanto` (const) 69 · `tarjetaRecuperaciones` 71 · `generarTemporal` 93 · `mostrarTemporal` 111 · `descartarRecuperacion` 117 · `pasarAMiCorreo` 127 · `_passDelLogin` (let) 160 · `recordarPassDelLogin` 161 · `vistaCambioObligatorio` 162 · `guardarPassObligatoria` 175 |
+| `ui/usuarios/recuperacion.js` | `olvideMiPass` 20 · `_recuperaciones` (let) 49 · `_dejarRecuperaciones` (let) 50 · `escucharRecuperaciones` 51 · `dejarRecuperaciones` 56 · `cuentaDeSolicitud` 61 · `haceCuanto` (const) 69 · `tarjetaRecuperaciones` 71 · `generarTemporal` 94 · `esMiCuenta` 120 · `mostrarTemporal` 125 · `descartarRecuperacion` 131 · `pasarAMiCorreo` 141 · `_passDelLogin` (let) 174 · `recordarPassDelLogin` 175 · `vistaCambioObligatorio` 176 · `guardarPassObligatoria` 189 |
 | `ui/usuarios/auditoria.js` | `logAudit` 16 · `_aFiltro` (let) 30 · `auditoria` 31 · `filtrarAuditoria` 64 |
 | `ui/usuarios/usuarios-admin.js` | `pantallaUsuarios` 18 · `editarUsuario` 50 · `eliminarUsuario` 126 |
 | `ui/usuarios/usuarios-negocio.js` | `puedeGestionarUsuarios` 20 · `usuariosNeg` 27 · `cambiarPassNeg` 58 |
@@ -59,4 +59,4 @@ En la documentación, `ui/<carpeta>/<archivo>.js` es la ruta relativa a `src/ada
 | `ui/impresion/reimpresiones.js` | `_reimpBusca` (let) 18 · `reimpresiones` 19 · `buscarReimpresiones` 55 |
 | `ui/nucleo/arranque.js` | `seed` 18 · `arrancar` 43 · `_erroresGlobales` (let) 54 · `vigilarErroresGlobales` 55 · `esNuestro` (const) 61 · `alErrorGlobal` 62 · `alRechazoGlobal` 63 · `iniciarInterfaz` 64 · `arrancarCuentas` 92 |
 
-**Total:** 511 nombres en 52 archivos.
+**Total:** 512 nombres en 52 archivos.

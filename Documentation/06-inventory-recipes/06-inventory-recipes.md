@@ -175,3 +175,7 @@ Ver [-01-to-review](../-01-to-review/-01-to-review.md).
 ## Inventario apagado después de vender (2026-10-12)
 
 `moverInventario(req, signo, motivo, registra, forzar)`: con `forzar`, mueve aunque el negocio haya apagado el inventario. `devolverStock` lo usa cuando la venta **sí** descontó (`stockAplicado===true`): anular o cancelar una cuenta devuelve lo vendido y la venta queda `stockAplicado:false` (antes no volvía nada y quedaba "descontada" para siempre). Igual con los apartados de citas.
+
+## Importar desde Excel o CSV (pendiente)
+
+Hoy los productos se crean uno por uno. Está diseñada la importación en lote: plantilla CSV, vista previa con errores fila por fila, decidir qué hacer con los que ya existen, y al confirmar se crean con movimiento de "Inventario inicial (importado)" y auditoría. Detalle: [importar-inventario](../-03-architecture/importar-inventario.md).

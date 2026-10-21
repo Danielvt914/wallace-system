@@ -84,7 +84,8 @@ export function tarjetaRecuperaciones(){
         <td data-label="Contacto">${escapeHtml(r.contacto||'—')}</td>
         <td data-label="Pedida" class="gris chico">${escapeHtml(haceCuanto(r.fecha))}</td>
         <td class="acciones" data-label="Acciones">
-          ${c?`<button class="btn btn-sm btn-gold" data-click="generarTemporal('${escapeHtml(r.usuario)}')">Generar temporal</button>`:''}
+          ${c && esMiCuenta(c) ? `<span class="gris chico">Es tu cuenta: usa 🔑 Mi contraseña o 📧 Mi correo</span>`
+            : c ? `<button class="btn btn-sm btn-gold" data-click="generarTemporal('${escapeHtml(r.usuario)}')">Generar temporal</button>` : ''}
           <button class="btn btn-sm btn-ghost" data-click="descartarRecuperacion('${escapeHtml(r.usuario)}')">Descartar</button>
         </td></tr>`; }).join('')}</tbody>
     </table></div>
@@ -93,19 +94,32 @@ export function tarjetaRecuperaciones(){
 export function generarTemporal(clave){
   if(!esAdminSistema()){ toast(MSJ.soloElDuenoOElAyudanteRestablecen,'error'); return; }
   const c=cuentaDeSolicitud(clave); if(!c){ toast(MSJ.noSeEncontroEsaCuenta,'error'); return; }
+  // La propia cuenta NO: reemplazarla borra el perfil de la sesión abierta, la app cierra la sesión
+  // y la temporal se pierde sin mostrarse (pasó el 2026-10-13). Para la suya: Mi contraseña o Mi correo.
+  if(esMiCuenta(c)){ toast(MSJ.noRestablezcasTuPropiaCuenta,'error'); return; }
+  const quien=STATE.user.nombre||'—';
   confirmarModal('¿Ya comprobaste por teléfono que quien pide es '+(c.rec.nombre||c.rec.usuario)+'? Se le crea una contraseña temporal y la anterior deja de servir.', ()=>{
     const temporal=Cripto.claveAleatoria(10);
     reemplazarCuenta(c.rec, temporal, c.esSuper)
-      .then(cuenta=>Cuentas.actualizarPerfil(cuenta.uid, {debeCambiarPass:true}))
-      .then(()=>Cuentas.cerrarRecuperacion(clave, 'resuelta'))
-      .then(()=>{
-        // Rastro en la auditoría del negocio (la del super-admin no existe)
-        if(!c.esSuper) Datos.guardarEn(c.rec.negocioId, 'auditoria', [{id:uid(), usuario:STATE.user.nombre||'—', rol:'superadmin',
-          accion:'Restableció la contraseña', detalle:(c.rec.nombre||'')+' ('+c.rec.usuario+') · por solicitud', fecha:now()}]);
+      .then(cuenta=>{
+        // La cuenta nueva ya existe: la temporal se muestra YA, antes de los pasos que pueden fallar
         mostrarTemporal(c.rec, temporal);
+        return Cuentas.actualizarPerfil(cuenta.uid, {debeCambiarPass:true})
+          .then(()=>Cuentas.cerrarRecuperacion(clave, 'resuelta'))
+          .then(()=>{
+            // Rastro en la auditoría del negocio (la del super-admin no existe)
+            if(!c.esSuper) Datos.guardarEn(c.rec.negocioId, 'auditoria', [{id:uid(), usuario:quien, rol:'superadmin',
+              accion:'Restableció la contraseña', detalle:(c.rec.nombre||'')+' ('+c.rec.usuario+') · por solicitud', fecha:now()}]);
+          })
+          .catch(e=>{ reportarError('cerrar la solicitud de contraseña', e); toast(MSJ.laTemporalSirvePeroFaltoUnPaso,'error'); });
       })
       .catch(e=>{ reportarError('restablecer la contraseña', e); toast('No se pudo: '+mensajeCuenta(e),'error'); });
   }, 'Sí, generar');
+}
+// ¿Es la cuenta de quien está en sesión?
+export function esMiCuenta(c){
+  const yo=STATE._superUser||STATE.user;
+  return !!(c && c.esSuper && yo && (c.rec.id===yo.id || Dominio.cuentas.mismoUsuario(c.rec.usuario, yo.usuario)));
 }
 // La temporal se muestra UNA vez (no se guarda en ningún lado)
 export function mostrarTemporal(rec, temporal){

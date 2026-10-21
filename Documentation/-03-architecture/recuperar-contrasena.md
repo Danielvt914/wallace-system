@@ -155,3 +155,7 @@ Resuelve que se olvide el **único** super-admin, mientras no se active "Entrar 
   - con el usuario ya no entra y con el correo sí;
   - "olvidé" manda la verificación y el enlace;
   - con el enlace cambia la contraseña y entra con la nueva.
+
+## 10. Corrección del 2026-10-13: la propia cuenta
+
+Un super-admin **no** puede generar una temporal para su propia cuenta. Hacerlo reemplazaba la cuenta de la sesión abierta, la app cerraba la sesión y la temporal se perdía (V7 en [-01](../-01-to-review/-01-to-review.md)). Para la suya: "🔑 Mi contraseña" si la recuerda, o "📧 Mi correo" para poder recuperarla sin depender de nadie. Además, ahora la temporal se muestra apenas se crea la cuenta, antes de los pasos que pueden fallar.

@@ -1,5 +1,7 @@
 # Wallace System — Sistema multi-negocio (SaaS)
+
 ### Un solo sistema que cualquier restaurante, barbería o tienda puede usar
+
 **WALLACE COMPANY SYSTEM — Ing. Roldán Aldana · wallacecompany11@gmail.com**
 
 ---
@@ -19,6 +21,7 @@ configura cada negocio y controla quién paga.
 ## Se adapta a cualquier tipo de negocio
 
 Al crear un negocio, se elige el tipo y el sistema se configura solo:
+
 - **Restaurante / Cafetería:** mesas, cocina, recetas. "Plato".
 - **Comida rápida:** cocina, domicilios. "Producto".
 - **Barbería / Salón:** citas/turnos. "Servicio".

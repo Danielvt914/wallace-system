@@ -13,6 +13,8 @@
 
 // Avisos, confirmaciones y preguntas (agrupados por la carpeta donde se usan primero)
 export const MSJ={
+  noRestablezcasTuPropiaCuenta: 'Esa es tu propia cuenta: cámbiala con 🔑 Mi contraseña (o 📧 Mi correo). Generar una temporal te sacaría de la sesión.',
+  laTemporalSirvePeroFaltoUnPaso: 'La contraseña temporal ya sirve, pero no se pudo cerrar la solicitud o marcar el cambio obligatorio. Revisa la tarjeta.',
   // cuarta revisión (2026-10-12)
   lasCantidadesNoPuedenSerNegativas: 'Las cantidades no pueden ser negativas.',
   elPorcentajeDebeEstarEntre0Y100: 'El porcentaje debe estar entre 0 y 100.',

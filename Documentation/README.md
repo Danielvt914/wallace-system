@@ -37,6 +37,7 @@ Esta carpeta documenta el sistema **por módulo**, tal como está implementado e
 | [-03 → facturas-sin-conexion](-03-architecture/facturas-sin-conexion.md) | Números de factura | Bloques por equipo, número provisional sin internet y definitivo al reconectar |
 | [-03 → recuperar-contrasena](-03-architecture/recuperar-contrasena.md) | Olvidé mi contraseña | Recuperación asistida con contraseña temporal; dueño o ayudante con correo real y enlace de Firebase |
 | [-03 → entrar-con-google](-03-architecture/entrar-con-google.md) | Entrar con Google (pendiente) | Para super-admins: recuperación y verificación en dos pasos de Google; qué hay que hacer |
+| [-03 → importar-inventario](-03-architecture/importar-inventario.md) | Importar inventario (pendiente) | Cargar productos desde Excel o CSV: plantilla, vista previa con errores, existentes, stock inicial con movimiento |
 | [01-super-admin-panel](01-super-admin-panel/01-super-admin-panel.md) | Panel super-admin | Negocios, planes, vendedores, demos, respaldo, informe mensual |
 | [02-pos-catalog](02-pos-catalog/02-pos-catalog.md) | Venta, pedidos y catálogo | Nueva Venta, carrito, cobro, pago dividido, pedidos, cuentas abiertas, productos y combos |
 | [03-cash-register](03-cash-register/03-cash-register.md) | Caja | Apertura, movimientos, cierre con cuadre, base del día siguiente, verificación de transferencias |
